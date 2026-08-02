@@ -1,0 +1,30 @@
+# Secrets — ne doivent JAMAIS entrer dans le dépôt
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dépendances et artefacts de build
+node_modules/
+dist/
+build/
+.angular/
+*.tsbuildinfo
+
+# Prisma
+apps/api/prisma/*.db
+apps/api/prisma/*.db-journal
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environnements de développement
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Couverture de tests
+coverage/

@@ -1,0 +1,25 @@
+# ===========================================================================
+#  SURCHARGE DE DÉVELOPPEMENT
+#
+#  ⚠️  Ce fichier ouvre PostgreSQL et Redis sur la machine hôte pour permettre
+#      l'usage d'un client SQL et l'inspection du cache. Il ne doit JAMAIS
+#      être chargé en production.
+#
+#  Usage : docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# ===========================================================================
+
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432" # Écoute locale uniquement.
+
+  redis:
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+
+  api:
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    # Le rechargement à chaud a besoin d'écrire : on lève la lecture seule.
+    read_only: false

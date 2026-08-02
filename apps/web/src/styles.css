@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * DESIGN SYSTEM — SPECIFICATIONS.md § 17
+ *
+ * Look « dashboard de trading professionnel » : fond slate très sombre, accent
+ * cyan électrique, densité d'information élevée.
+ *
+ * RÈGLE D'ACCESSIBILITÉ STRICTE (§ 17.2) : un statut ne repose JAMAIS sur la
+ * seule teinte. Toujours couleur + icône + libellé. Environ 8 % des hommes
+ * présentent une déficience de vision des couleurs ; sur un verrou de sécurité,
+ * un rouge indistinct d'un vert est un risque opérationnel.
+ */
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-slate-950 text-slate-200 antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04';
+  }
+
+  /* Chiffres alignés en colonne — indispensable sur des tables financières. */
+  .tabular,
+  td.num,
+  th.num {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* --- Conteneurs ------------------------------------------------------- */
+  .card {
+    @apply rounded-lg border border-slate-800 bg-slate-900;
+  }
+  .card-header {
+    @apply flex items-center justify-between border-b border-slate-800 px-4 py-3;
+  }
+  .card-title {
+    @apply text-sm font-semibold text-slate-100;
+  }
+  .card-body {
+    @apply p-4;
+  }
+
+  /* --- Boutons ---------------------------------------------------------- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm
+           font-medium transition-all disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply btn bg-sky-500 text-slate-950 hover:bg-sky-400;
+  }
+  .btn-ghost {
+    @apply btn border border-slate-800 text-slate-300 hover:border-slate-700 hover:text-slate-100;
+  }
+  .btn-danger {
+    @apply btn bg-rose-500 text-slate-950 hover:bg-rose-400;
+  }
+
+  /* --- Champs ----------------------------------------------------------- */
+  .field {
+    @apply w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm
+           text-slate-100 placeholder:text-slate-600
+           focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500;
+  }
+  .label {
+    @apply mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-400;
+  }
+
+  /* --- Tables denses ---------------------------------------------------- */
+  .table {
+    @apply w-full text-left text-sm;
+  }
+  .table thead th {
+    @apply border-b border-slate-800 px-3 py-2 text-xs font-medium uppercase
+           tracking-wide text-slate-500;
+  }
+  .table tbody td {
+    @apply border-b border-slate-800/60 px-3 py-2 text-slate-300;
+  }
+  .table tbody tr:hover {
+    @apply bg-slate-800/30;
+  }
+
+  /* --- Badges de statut : couleur + icône + libellé --------------------- */
+  .badge {
+    @apply inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium;
+  }
+  .badge-ok {
+    @apply badge bg-emerald-500/15 text-emerald-400 ring-1 ring-inset ring-emerald-500/30;
+  }
+  .badge-wait {
+    @apply badge bg-amber-500/15 text-amber-400 ring-1 ring-inset ring-amber-500/30;
+  }
+  .badge-transit {
+    @apply badge bg-blue-500/15 text-blue-400 ring-1 ring-inset ring-blue-500/30;
+  }
+  .badge-blocked {
+    @apply badge bg-rose-500/15 text-rose-400 ring-1 ring-inset ring-rose-500/30;
+  }
+  .badge-neutral {
+    @apply badge bg-slate-700/40 text-slate-400 ring-1 ring-inset ring-slate-600/40;
+  }
+
+  /* --- Pastilles produit : teintes désaturées, canal distinct des statuts */
+  .dot {
+    @apply inline-block h-2 w-2 shrink-0 rounded-full;
+  }
+}

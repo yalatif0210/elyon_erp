@@ -1,0 +1,25 @@
+# Rien de secret ni de superflu n'entre dans le contexte de build.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+node_modules
+**/node_modules
+dist
+**/dist
+.angular
+coverage
+
+.git
+.gitignore
+.vscode
+.idea
+
+*.md
+!SPECIFICATIONS.md
+
+docker-compose*.yml
+Dockerfile*
+*.log

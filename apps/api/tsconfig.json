@@ -1,0 +1,37 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "moduleResolution": "node",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    // rootDir explicite : sans lui, TypeScript déduit la racine du plus petit
+    // ancêtre commun des fichiers inclus. Ajouter prisma/ à `include` la
+    // faisait remonter à la racine du projet, et main.js atterrissait dans
+    // dist/src/ au lieu de dist/.
+    "rootDir": "./src",
+    "incremental": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "strictNullChecks": true,
+    "noImplicitAny": true,
+    "strictBindCallApply": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "resolveJsonModule": true
+  },
+  // Seul src/ est compilé vers dist/. Le seed (prisma/seed.ts) est exécuté
+  // par tsx, qui n'a pas besoin d'être listé ici — l'y inclure déplacerait
+  // la racine calculée et casserait l'arborescence de sortie.
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
