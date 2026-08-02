@@ -16,7 +16,8 @@ ARG NGINX_VERSION=1.27.2-alpine3.20
 # ---------------------------------------------------------------------------
 FROM node:${NODE_VERSION} AS build
 WORKDIR /app
-COPY apps/web/package.json apps/web/package-lock.json* ./
+# .npmrc est requis par npm ci — voir le fichier pour la raison.
+COPY apps/web/package.json apps/web/package-lock.json* apps/web/.npmrc ./
 RUN if [ -f package-lock.json ]; then npm ci --ignore-scripts; \
     else npm install --ignore-scripts --no-audit --no-fund; fi
 COPY apps/web/ ./
