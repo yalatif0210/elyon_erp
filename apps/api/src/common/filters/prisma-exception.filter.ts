@@ -150,18 +150,23 @@ export class PrismaExceptionFilter implements ExceptionFilter {
  *
  * Ce sont exactement le code et le message rédigés dans nos triggers.
  */
-function translatePostgresError(raw: string): { status: number; message: string; code: string } {
+export function translatePostgresError(raw: string): { status: number; message: string; code: string } {
   const match = /code:\s*"(\w+)",\s*message:\s*"([\s\S]*?)",\s*severity:/.exec(raw);
   const sqlState = match?.[1];
   const pgMessage = match?.[2]?.trim();
 
   switch (sqlState) {
     // 23514 — check_violation : nos CHECK et nos RAISE EXCEPTION de trigger.
+    //
+    // Nos RAISE portent un message rédigé : on le rend tel quel. Une CHECK,
+    // elle, ne dit que le nom de la contrainte — il faut le traduire, sinon
+    // l'utilisateur lit « chk_deal_cost_line_variance_justified » et ne sait
+    // pas ce qu'on attend de lui.
     case '23514':
       return {
         status: HttpStatus.UNPROCESSABLE_ENTITY,
         code: 'INVARIANT_VIOLATION',
-        message: pgMessage ?? 'Règle métier non respectée.',
+        message: humaniseCheck(pgMessage ?? raw),
       };
 
     // 42501 — insufficient_privilege : journaux append-only, moindre privilège.
@@ -209,18 +214,76 @@ function cleanPgMessage(raw: string): string {
 
   const cleaned = (line ?? raw.split('\n')[0] ?? raw).replace(/^ERROR:\s*/i, '').trim();
 
-  // Les contraintes CHECK ne portent pas de message : on rend le nom de la
-  // contrainte, qui est explicite par convention (chk_deals_credit_approval…).
-  const constraint = /violates check constraint "([^"]+)"/i.exec(raw);
+  // Les contraintes CHECK ne portent pas de message. Rendre le nom brut de la
+  // contrainte à un utilisateur ne l'aide pas : il faut lui dire ce qu'il doit
+  // corriger. Les règles susceptibles d'être heurtées en saisie courante sont
+  // donc traduites ; les autres retombent sur le nom, qui reste exploitable
+  // par l'exploitant.
+  // Les guillemets arrivent ÉCHAPPÉS : le message PostgreSQL est imbriqué
+  // dans le texte d'erreur de Prisma, qui l'a lui-même sérialisé. Un motif
+  // qui n'attend que des guillemets nus ne trouve jamais rien.
+  const CHECK_NAME = /violates check constraint\s*\\?"([^"\\]+)/i;
+  const constraint = CHECK_NAME.exec(raw);
   if (constraint) {
-    return `Règle métier non respectée : ${constraint[1]}.`;
+    return CHECK_MESSAGES[constraint[1]] ?? `Règle métier non respectée : ${constraint[1]}.`;
   }
 
   return cleaned || 'Règle métier non respectée.';
 }
 
+/**
+ * Traduit le nom d'une contrainte CHECK en consigne. Sans correspondance, on
+ * rend le nom : il reste exploitable par l'exploitant, à défaut de l'être par
+ * l'utilisateur.
+ */
+export function humaniseCheck(message: string): string {
+  const found = CHECK_NAME.exec(message);
+  if (!found) return message;
+  return CHECK_MESSAGES[found[1]] ?? `Règle métier non respectée : ${found[1]}.`;
+}
+
+/**
+ * Contraintes traduites — celles qu'un utilisateur peut heurter en saisissant.
+ * Le message dit CE QU'IL FAUT FAIRE, pas ce qui a échoué.
+ */
+const CHECK_MESSAGES: Record<string, string> = {
+  chk_deal_cost_line_variance_justified:
+    'Le montant retenu s’écarte du barème : un motif est exigé pour l’expliquer.',
+  chk_cost_standard_unit_requires_uom:
+    'Une valeur exprimée au litre doit préciser son unité de référence.',
+  chk_cost_standard_tolerance_range: 'L’écart toléré doit être compris entre 0 et 100 pour cent.',
+  chk_cost_standard_period: 'La date de fin de validité précède la date de début.',
+  chk_supplier_invoice_settled_complete:
+    'Une date d’apurement suppose l’avance intégralement apurée.',
+  chk_invoices_vat_requires_flag:
+    'Un montant de TVA a été porté alors que la TVA n’est pas cochée sur la pièce.',
+  chk_invoices_vat_extracted:
+    'La TVA doit être EXTRAITE du total (total × taux ÷ 100 + taux), jamais ajoutée.',
+  chk_invoices_total_derived: 'Le total facture doit valoir le brut moins la réduction.',
+  chk_invoices_gross_derived: 'Le montant brut doit valoir le volume multiplié par le prix.',
+  chk_products_density_range:
+    'La densité à 15 °C doit être comprise entre 0,4 et 1,2 — au-delà, ce n’est pas un produit pétrolier.',
+  chk_measurement_ullage_computed:
+    'L’écart de volume est calculé par le système : il ne se saisit pas.',
+  chk_measurement_ack_complete:
+    'L’acquittement d’un écart exige un auteur et un motif circonstancié.',
+  chk_document_supersession_reason:
+    'Une pièce « annule et remplace » doit dire pourquoi elle remplace la précédente.',
+  chk_invoices_simple_decision:
+    'Le recours à la facture simple est une décision interne : décideur, date et motif sont exigés.',
+};
+
 /** Réexporté pour les tests d'invariants. */
 export { cleanPgMessage };
+
+/**
+ * Nom de la contrainte heurtée.
+ *
+ * ⚠️ Les guillemets arrivent ÉCHAPPÉS : le message PostgreSQL est imbriqué
+ *    dans le texte d'erreur de Prisma, qui l'a lui-même sérialisé. Un motif
+ *    qui n'attend que des guillemets nus ne trouve jamais rien.
+ */
+const CHECK_NAME = new RegExp('violates check constraint\\s*\\\\?"([^"\\\\]+)', 'i');
 
 /** Garde-fou : ne jamais laisser fuiter une trace technique en production. */
 export function isSafeToExpose(exception: unknown): boolean {

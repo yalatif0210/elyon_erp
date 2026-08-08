@@ -75,8 +75,14 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return (await this.client.exists(this.revokedKey(sid))) === 1;
   }
 
-  /** Révoque toutes les sessions d'un compte — désactivation, mot de passe changé. */
-  async revokeAllForSubject(realm: string, subjectId: string): Promise<number> {
+  /**
+   * Révoque toutes les sessions d'un compte — désactivation, mot de passe changé.
+   *
+   * `keepSid` permet d'épargner la session courante. On l'EXCLUT du balayage
+   * plutôt que de la révoquer puis la rétablir : une session brièvement
+   * marquée révoquée serait rejetée par le guard entre les deux écritures.
+   */
+  async revokeAllForSubject(realm: string, subjectId: string, keepSid?: string): Promise<number> {
     const pattern = `refresh:${realm}:${subjectId}:*`;
     let cursor = '0';
     let count = 0;
@@ -84,7 +90,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       const [next, keys] = await this.client.scan(cursor, 'MATCH', pattern, 'COUNT', 200);
       cursor = next;
       for (const key of keys) {
-        await this.revokeSession(key.replace('refresh:', ''));
+        const sid = key.replace('refresh:', '');
+        if (sid === keepSid) continue;
+        await this.revokeSession(sid);
         count += 1;
       }
     } while (cursor !== '0');

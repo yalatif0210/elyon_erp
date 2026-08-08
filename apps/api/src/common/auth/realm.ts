@@ -1,5 +1,5 @@
 import { SetMetadata } from '@nestjs/common';
-import type { UserRole } from '@prisma/client';
+import type { FieldRole, UserRole } from '@prisma/client';
 
 /**
  * Les trois périmètres d'exposition (SPECIFICATIONS.md § 1.3).
@@ -46,10 +46,34 @@ export const RequireRealm = (realm: Realm) => SetMetadata(REALM_KEY, realm);
 /** Rôles internes autorisés. Sans ce décorateur, tout rôle du réalm passe. */
 export const Roles = (...roles: UserRole[]) => SetMetadata(ROLES_KEY, roles);
 
+/**
+ * Rôles TERRAIN autorisés. Décorateur distinct de `Roles` par typage, pas par
+ * mécanisme : les deux alimentent la même métadonnée, et le guard n'accepte
+ * jamais un rôle sans que le réalm ait été validé d'abord. Un rôle interne
+ * écrit sur une route terrain ne compilerait pas.
+ */
+export const FieldRoles = (...roles: FieldRole[]) => SetMetadata(ROLES_KEY, roles);
+
 /** Route non authentifiée — connexion, santé. À utiliser avec parcimonie. */
 export const Public = () => SetMetadata(PUBLIC_KEY, true);
 
 /** Exclut la route de la journalisation d'audit (lectures massives). */
+/**
+ * @deprecated NE COMMANDE RIEN, et n'a jamais rien commandé.
+ *
+ * ⚠️ Aucun intercepteur ne consomme `SKIP_AUDIT_KEY` : il n'existe pas
+ *    d'audit automatique dans cette application. L'audit est écrit
+ *    EXPLICITEMENT par chaque service, via `AuditService.record`.
+ *
+ *    Le décorateur laissait donc croire l'inverse — qu'une route non marquée
+ *    était auditée d'office. Un lecteur en déduisait à tort que l'absence de
+ *    marque valait garantie, et la création d'une pièce de conformité est
+ *    restée sans trace pour cette raison.
+ *
+ *    Conservé le temps de le retirer des huit routes qui le portent, puis à
+ *    supprimer. Ne l'ajoutez nulle part : une marque qui ne commande rien est
+ *    pire qu'une absence de marque.
+ */
 export const SkipAudit = () => SetMetadata(SKIP_AUDIT_KEY, true);
 
 /** Utilisateur authentifié, attaché à la requête par le guard. */

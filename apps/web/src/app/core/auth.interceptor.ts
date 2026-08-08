@@ -16,6 +16,17 @@ const refreshed$ = new BehaviorSubject<string | null>(null);
  * session sur rejeu, déconnecterait l'utilisateur au premier écran chargé.
  */
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
+  /*
+   * ⚠️ Le réalm TERRAIN est laissé intact, et sans `catchError`.
+   *
+   *    Un jeton bureautique présenté sur `/api/field` serait refusé, et le
+   *    401 qui s'ensuit déclencherait ici un rafraîchissement bureautique puis
+   *    un `auth.clear()` : la console interne se déconnecterait toute seule
+   *    parce que la tablette a travaillé. La séparation des réalms n'a de sens
+   *    que si elle vaut aussi pour la gestion des échecs.
+   */
+  if (req.url.startsWith('/api/field')) return next(req);
+
   const auth = inject(AuthService);
 
   const isAuthRoute = req.url.includes('/auth/login') || req.url.includes('/auth/refresh');

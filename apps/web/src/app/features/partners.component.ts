@@ -23,21 +23,19 @@ const SEGMENT_LABELS: Record<string, string> = {
   standalone: true,
   imports: [FormsModule, IconComponent, StatusBadgeComponent],
   template: `
-    <header class="mb-6">
-      <h1 class="text-xl font-semibold text-slate-100">Tiers</h1>
-      <p class="mt-1 text-sm text-slate-500">
-        Clients, fournisseurs, transporteurs et inspecteurs.
-      </p>
+    <header class="mb-5">
+      <h1 class="page-title">Tiers</h1>
+      <p class="page-sub">Clients, fournisseurs, transporteurs et inspecteurs</p>
     </header>
 
     <div class="mb-4 flex items-center gap-3">
-      <div class="relative max-w-xs flex-1">
-        <erp-icon name="search" [size]="15"
-                  class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
-        <input class="field pl-9" placeholder="Rechercher un tiers…"
+      <div class="relative w-full max-w-xs">
+        <erp-icon name="search" [size]="14"
+                  class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-faint" />
+        <input class="field pl-8" placeholder="Rechercher un tiers…" aria-label="Rechercher un tiers"
                [(ngModel)]="search" (ngModelChange)="onSearch()" />
       </div>
-      <span class="ml-auto text-xs text-slate-600">{{ total() }} tiers</span>
+      <span class="ml-auto tabular text-[12px] text-ink-muted">{{ total() }} tiers</span>
     </div>
 
     <div class="card overflow-x-auto">
@@ -52,24 +50,24 @@ const SEGMENT_LABELS: Record<string, string> = {
         <tbody>
           @for (p of rows(); track p.id) {
             <tr>
-              <td class="font-mono text-xs text-slate-400">{{ p.code }}</td>
-              <td class="text-slate-100">{{ p.legalName }}</td>
-              <td class="text-slate-400">{{ typeLabel(p.type) }}</td>
+              <td><span class="ref">{{ p.code }}</span></td>
+              <td class="font-medium text-ink">{{ p.legalName }}</td>
+              <td class="text-ink-soft">{{ typeLabel(p.type) }}</td>
               <td>
                 @if (p.segment) {
-                  <span class="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-300">
+                  <span class="rounded-[3px] bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-ink-soft">
                     {{ segmentLabel(p.segment) }}
                   </span>
                 } @else {
-                  <span class="text-slate-700">—</span>
+                  <span class="text-ink-faint">—</span>
                 }
               </td>
-              <td class="font-mono text-xs text-slate-500">{{ p.countryCode }}</td>
-              <td class="num text-slate-400">
+              <td class="font-mono text-[12px] text-ink-muted">{{ p.countryCode }}</td>
+              <td class="num font-mono text-ink-soft">
                 {{ p.paymentTermsDays === 0 ? 'comptant' : p.paymentTermsDays + ' j' }}
               </td>
-              <td class="num text-slate-400">{{ p.sites.length }}</td>
-              <td class="num text-slate-400">{{ p._count.vehicles + p._count.drivers }}</td>
+              <td class="num font-mono text-ink-soft">{{ p.sites.length }}</td>
+              <td class="num font-mono text-ink-soft">{{ p._count.vehicles + p._count.drivers }}</td>
               <td>
                 @if (p.creditStatus === 'ACTIVE') {
                   <erp-status-badge kind="ok" label="Actif" />
@@ -82,7 +80,9 @@ const SEGMENT_LABELS: Record<string, string> = {
             </tr>
           } @empty {
             <tr>
-              <td colspan="9" class="py-10 text-center text-sm text-slate-500">Aucun tiers trouvé.</td>
+              <td colspan="9" class="empty">
+                Aucun tiers ne correspond à cette recherche.
+              </td>
             </tr>
           }
         </tbody>

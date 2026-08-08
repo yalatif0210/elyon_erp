@@ -1,0 +1,440 @@
+import { Controller, Get, Injectable, Param, Query, Req } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
+import { Realm, RequireRealm, Roles, SkipAudit } from '../common/auth/realm';
+import { PrismaService } from '../common/prisma/prisma.service';
+
+/**
+ * Surveillance et pilotage (SPECIFICATIONS.md § 5.4, § 9.1, § 14.6).
+ *
+ * Les seuils empêchent de vendre trop bas. Ils n'empêchent PAS de se placer
+ * juste au-dessus. Ces écrans servent l'autre menace : le détournement de
+ * valeur par ajustement des prix, qu'aucun plancher ne peut arrêter.
+ *
+ * Toutes les données viennent de vues PostgreSQL : le calcul n'est jamais
+ * refait ici, sous peine de diverger de la règle appliquée en base.
+ */
+@Injectable()
+export class SupervisionService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Ce que CE rôle doit traiter, du plus bloquant au plus ancien.
+   *
+   * Le DG voit tout : sa fonction est de savoir où l'entreprise est bloquée,
+   * y compris chez les autres. Les autres ne voient que leur file — leur
+   * montrer celle des autres noierait la leur.
+   */
+  taches(role: UserRole | undefined): Promise<Tache[]> {
+    const tout = role === UserRole.DG;
+    return this.prisma.$queryRaw<Tache[]>`
+      SELECT categorie, urgence, objet, libelle, lien, depuis
+        FROM v_taches
+       WHERE ${tout}::boolean OR role_attendu = ${role ?? ''}::text
+       ORDER BY CASE urgence
+                  WHEN 'BLOQUANT' THEN 1
+                  WHEN 'ANOMALIE' THEN 2
+                  ELSE 3 END,
+                depuis ASC
+       LIMIT 200`;
+  }
+
+  /**
+   * Le décompte, pour la pastille du bandeau.
+   *
+   * `plus_ancienne` est le chiffre qui compte : un total de trois tâches dont
+   * la plus vieille date de trois semaines est plus grave qu'un total de
+   * trente arrivées ce matin.
+   */
+  async compteurTaches(role: UserRole | undefined) {
+    const tout = role === UserRole.DG;
+    const [ligne] = await this.prisma.$queryRaw<
+      { total: bigint; bloquantes: bigint; anomalies: bigint; a_venir: bigint; plus_ancienne: Date | null }[]
+    >`
+      SELECT count(*)                                     AS total,
+             count(*) FILTER (WHERE urgence = 'BLOQUANT') AS bloquantes,
+             count(*) FILTER (WHERE urgence = 'ANOMALIE') AS anomalies,
+             count(*) FILTER (WHERE urgence = 'A_VENIR')  AS a_venir,
+             min(depuis)                                  AS plus_ancienne
+        FROM v_taches
+       WHERE ${tout}::boolean OR role_attendu = ${role ?? ''}::text`;
+    return {
+      total: Number(ligne?.total ?? 0),
+      bloquantes: Number(ligne?.bloquantes ?? 0),
+      anomalies: Number(ligne?.anomalies ?? 0),
+      aVenir: Number(ligne?.a_venir ?? 0),
+      plusAncienne: ligne?.plus_ancienne ?? null,
+    };
+  }
+
+  /** Affaires dont la marge effleure le seuil minimum. */
+  marginBand() {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT reference, segment, status, client, owner, estimated_full_margin,
+              minimum_margin, above_threshold, above_threshold_pct, currency_code, uom,
+              credit_approved_at
+         FROM v_margin_band_watch
+        ORDER BY above_threshold_pct ASC`,
+    );
+  }
+
+  /**
+   * Concentration par commercial — c'est le motif qui alerte, pas le cas isolé.
+   * Une affaire à 31 FCFA est banale ; un vendeur dont 80 % des affaires
+   * atterrissent dans la bande ne l'est pas.
+   */
+  marginBandByOwner() {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT owner, deals_in_band, deals_total, band_share_pct, avg_above_threshold_pct
+         FROM v_margin_band_by_owner`,
+    );
+  }
+
+  /** Écart entre marge approuvée et marge réalisée, dans les deux sens. */
+  marginVariance(thresholdPct: number) {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT reference, segment, client, owner, estimated_full_margin,
+              realized_full_margin, variance, variance_pct, closed_at
+         FROM v_margin_variance
+        WHERE abs(variance_pct) >= $1
+        ORDER BY abs(variance_pct) DESC`,
+      thresholdPct,
+    );
+  }
+
+  /**
+   * Rapprochement du coût enregistré avec l'argent réellement sorti.
+   * Le contrôle le plus solide : il ne repose pas sur une déclaration.
+   */
+  costReconciliation() {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT reference, status, client, recorded_cost_pivot, supplier_billed_pivot,
+              supplier_paid_pivot, prepaid_pivot, unreconciled_pivot,
+              cost_without_invoice_pivot
+         FROM v_cost_reconciliation
+        WHERE abs(unreconciled_pivot) > 0.01 OR cost_without_invoice_pivot > 0.01
+        ORDER BY abs(unreconciled_pivot) DESC`,
+    );
+  }
+
+  /** En-cours crédit par client — source unique du contrôle (§ 9.1). */
+  creditExposure() {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT partner_code, partner_name, credit_status, credit_limit_pivot,
+              receivables_pivot, commitments_pivot, guarantees_pivot,
+              exposure_pivot, available_credit_pivot, utilisation_pct
+         FROM v_partner_credit_exposure
+        ORDER BY utilisation_pct DESC NULLS LAST`,
+    );
+  }
+
+  /**
+   * Trésorerie immobilisée par les prépaiements fournisseurs (§ 14.6).
+   *
+   * Elyon paie avant livraison : ce sont les AVANCES qui pèsent au BFR, pas
+   * les dettes. Argent sorti, contrepartie non encore constatée.
+   *
+   * La vue ne rend que le RELIQUAT. Une avance apurée aux deux tiers y figure
+   * pour le tiers restant — jamais pour son montant d'origine, qui donnerait
+   * une immobilisation surestimée.
+   */
+  outstandingPrepayments() {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT reference, supplier, deal, currency_code,
+              prepaid_amount, settled_amount, outstanding_amount, outstanding_pivot,
+              prepaid_at, days_outstanding, settlement_trigger,
+              operation, operation_status
+         FROM v_outstanding_advances`,
+    );
+  }
+
+  /**
+   * Écarts d'invariant (§ 11). CETTE LISTE DOIT RESTER VIDE.
+   *
+   * Elle existait en base depuis la reprise du lot 2, et la file de tâches y
+   * renvoyait — mais aucune route ne la servait et aucun écran ne l'affichait.
+   * Le lien tombait sur le tableau de bord, silencieusement, au moment précis
+   * où quelque chose ne va pas.
+   */
+  invariants() {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT regle, relation, enregistrement, detail
+         FROM v_invariant_breaches
+        ORDER BY regle, enregistrement`,
+    );
+  }
+
+  /**
+   * Paramètres que le SQL métier interroge, et leur présence (§ 1.1 bis).
+   *
+   * Un paramètre absent ne casse rien : le verrou tourne sur son repli, donc
+   * sur une valeur que personne n'a choisie. C'est lisible ici avant de l'être
+   * dans les conséquences.
+   */
+  parametresRequis() {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT parametre, present, valeur, lu_par, objets
+         FROM v_parametres_requis
+        ORDER BY present ASC, parametre`,
+    );
+  }
+
+  // =========================================================================
+  //  PILOTAGE FINANCIER (§ 14.3, § 14.5, § 14.6)
+  //
+  //  Ces lectures ne calculent rien : les vues portent déjà le refus de
+  //  calculer quand une donnée manque. L'API ne fait que transporter — y
+  //  ajouter un repli ici ferait réapparaître, côté serveur, le chiffre
+  //  inventé que la base a refusé de produire.
+  // =========================================================================
+
+  /** Ce que le CFO doit saisir pour que le pilotage soit calculable (§ 19). */
+  couvertureBudgetaire() {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT exercice, label, statut, donnee, renseignee, sert_a
+         FROM v_couverture_budgetaire
+        ORDER BY exercice, renseignee ASC, donnee`,
+    );
+  }
+
+  /** Point mort en VOLUME. Rend toujours une ligne, même non calculable. */
+  pointMort() {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT exercice, label, charges_fixes, postes_de_charges, marge_unitaire,
+              volume_realise, calculable, motif, point_mort_volume, reste_a_vendre
+         FROM v_point_mort`,
+    );
+  }
+
+  /** Marge sur coût variable par segment, base du point mort. */
+  margeCoutVariable() {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT segment, affaires, volume, uom, currency_code, marge_variable_unitaire
+         FROM v_marge_cout_variable
+        ORDER BY segment`,
+    );
+  }
+
+  /** BFR d'exploitation — périmètre restreint et affiché comme tel. */
+  bfr() {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT avances_fournisseurs, creances_clients, dettes_fournisseurs,
+              stocks, stocks_suivis, bfr_exploitation, perimetre
+         FROM v_bfr_exploitation`,
+    );
+  }
+
+  /**
+   * Assiette d'absorption SAISIE contre prévision de volumes (§ 14.2).
+   *
+   * L'assiette est un VOLUME budgété, jamais un chiffre d'affaires : le volume
+   * est piloté, le prix suit les publications DGH. Saisir l'assiette une
+   * seconde fois à côté de la prévision garantit qu'un jour les deux
+   * divergeront — on révise la prévision, on oublie le taux.
+   */
+  assietteAbsorption() {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT pool, label, base, fiscal_year, budgeted_amount, assiette_saisie,
+              assiette_uom, rate_per_unit, volume_prevu, ecart_pct
+         FROM v_assiette_absorption
+        ORDER BY ecart_pct DESC NULLS LAST, pool`,
+    );
+  }
+
+  /**
+   * Tableau de bord opérationnel (§ 16).
+   *
+   * Sept états, dont deux ne sont pas des statuts d'opération mais des TROUS
+   * ENTRE MODULES : livrée non facturée, facturée non encaissée. Ce sont ceux
+   * qui coûtent, parce qu'aucun écran ne les portait — une opération close
+   * disparaît de la liste des opérations, et une facture émise ne dit pas
+   * qu'elle attend.
+   */
+  tableauOperationnel() {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT etat, operations, volume, reste_a_encaisser, retard_max_jours
+         FROM v_tableau_operationnel_compte
+        ORDER BY operations DESC`,
+    );
+  }
+
+  /** Le détail derrière un pavé : sans lui, le chiffre est sans recours. */
+  operationsParEtat(etat: string) {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT operation_id, reference, statut, affaire, client, produit,
+              planned_volume, uom, planned_loading_date, actual_discharge_date,
+              etat, facture_pivot, encaisse_pivot, reste_a_encaisser,
+              retard_encaissement_jours, retard_chargement_jours
+         FROM v_tableau_operationnel
+        WHERE etat = $1
+        ORDER BY COALESCE(retard_encaissement_jours, retard_chargement_jours) DESC NULLS LAST,
+                 reference
+        LIMIT 200`,
+      etat,
+    );
+  }
+
+  /** Prévision contre réalisé, écart de volume et écart de prix séparés. */
+  previsionVente() {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT exercice, segment, produit, uom, currency_code,
+              volume_prevu, volume_budget, ecart_revision,
+              volume_realise, ecart_volume,
+              ca_prevu, ca_budget, ca_realise, ecart_prix
+         FROM v_prevision_vente
+        ORDER BY exercice, segment, produit`,
+    );
+  }
+}
+
+/**
+ * FILE DE TÂCHES — ce que l'utilisateur connecté doit traiter (§ 3).
+ *
+ * ⚠️ FILTRÉE PAR LE RÔLE DU JETON, jamais par un paramètre.
+ *
+ *    Un `?role=` transformerait le cloisonnement en suggestion : le
+ *    coordinateur logistique lirait la file du DG, et y verrait les affaires
+ *    sous le seuil de marge. Le rôle vient du jeton, point.
+ *
+ *    Le DG voit TOUT : c'est le seul rôle dont la fonction est de savoir où
+ *    l'entreprise est bloquée, y compris chez les autres.
+ */
+export interface Tache {
+  categorie: string;
+  urgence: 'BLOQUANT' | 'ANOMALIE' | 'A_VENIR';
+  objet: string;
+  libelle: string;
+  lien: string;
+  depuis: Date;
+}
+
+@Controller('api/internal/supervision')
+@RequireRealm(Realm.INTERNAL)
+@SkipAudit()
+export class SupervisionController {
+  constructor(private readonly service: SupervisionService) {}
+
+  /**
+   * MA file de tâches. Aucun paramètre de rôle : il vient du jeton.
+   *
+   * Toute route est ouverte à tout rôle interne — la vue filtre elle-même, et
+   * un rôle sans tâche reçoit une liste vide. Restreindre l'accès à la route
+   * reviendrait à cacher à quelqu'un qu'on l'attend.
+   */
+  @Get('taches')
+  taches(@Req() req: { auth: { role?: UserRole } }) {
+    return this.service.taches(req.auth.role);
+  }
+
+  @Get('taches/compteur')
+  compteurTaches(@Req() req: { auth: { role?: UserRole } }) {
+    return this.service.compteurTaches(req.auth.role);
+  }
+
+  @Get('margin-band')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO)
+  marginBand() {
+    return this.service.marginBand();
+  }
+
+  @Get('margin-band/by-owner')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO)
+  byOwner() {
+    return this.service.marginBandByOwner();
+  }
+
+  @Get('margin-variance')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO, UserRole.ACCOUNTANT)
+  variance(@Query('minPct') minPct?: string) {
+    return this.service.marginVariance(Number(minPct) || 0);
+  }
+
+  @Get('cost-reconciliation')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT)
+  reconciliation() {
+    return this.service.costReconciliation();
+  }
+
+  @Get('credit-exposure')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT, UserRole.CCOO)
+  exposure() {
+    return this.service.creditExposure();
+  }
+
+  @Get('outstanding-prepayments')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT)
+  prepayments() {
+    return this.service.outstandingPrepayments();
+  }
+
+  /**
+   * Santé des invariants et des paramètres.
+   *
+   * Ouvert à l'IT_ADMIN autant qu'au DG : un écart d'invariant est aussi
+   * souvent un défaut technique qu'une dérive métier, et celui qui peut le
+   * corriger doit pouvoir le voir.
+   */
+  @Get('invariants')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.IT_ADMIN)
+  invariants() {
+    return this.service.invariants();
+  }
+
+  @Get('parametres-requis')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.IT_ADMIN)
+  parametresRequis() {
+    return this.service.parametresRequis();
+  }
+
+  // --- Pilotage financier (§ 14.3, § 14.5, § 14.6) -------------------------
+  //
+  // La couverture est ouverte plus largement que les indicateurs : savoir
+  // QU'UNE donnée manque n'apprend rien de confidentiel, et le coordinateur
+  // qui attend un plan d'approvisionnement a le droit de savoir pourquoi il
+  // n'en a pas.
+
+  @Get('couverture-budgetaire')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO, UserRole.ACCOUNTANT, UserRole.LOGISTICS_COORD)
+  couvertureBudgetaire() {
+    return this.service.couvertureBudgetaire();
+  }
+
+  @Get('point-mort')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO, UserRole.ACCOUNTANT)
+  pointMort() {
+    return this.service.pointMort();
+  }
+
+  @Get('marge-cout-variable')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO, UserRole.ACCOUNTANT)
+  margeCoutVariable() {
+    return this.service.margeCoutVariable();
+  }
+
+  @Get('bfr')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT)
+  bfr() {
+    return this.service.bfr();
+  }
+
+  @Get('assiette-absorption')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO, UserRole.ACCOUNTANT)
+  assietteAbsorption() {
+    return this.service.assietteAbsorption();
+  }
+
+  @Get('tableau-operationnel')
+  tableauOperationnel() {
+    return this.service.tableauOperationnel();
+  }
+
+  @Get('tableau-operationnel/:etat')
+  operationsParEtat(@Param('etat') etat: string) {
+    return this.service.operationsParEtat(etat);
+  }
+
+  @Get('prevision-vente')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO, UserRole.ACCOUNTANT, UserRole.LOGISTICS_COORD)
+  previsionVente() {
+    return this.service.previsionVente();
+  }
+}

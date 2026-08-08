@@ -47,15 +47,6 @@ CREATE TRIGGER trg_delegations_no_delete
   BEFORE DELETE ON delegations
   FOR EACH STATEMENT EXECUTE FUNCTION append_only_guard();
 
--- --- Cotations publiées ----------------------------------------------------
--- Les cotations font foi dans le calcul d'un prix indexé : une cotation
--- réécrite après coup changerait rétroactivement le prix d'un deal.
--- La correction se fait par insertion, jamais par écrasement.
-DROP TRIGGER IF EXISTS trg_price_assessments_no_delete ON price_assessments;
-CREATE TRIGGER trg_price_assessments_no_delete
-  BEFORE DELETE ON price_assessments
-  FOR EACH STATEMENT EXECUTE FUNCTION append_only_guard();
-
 -- --- Historiques de prix et de taux ---------------------------------------
 -- Même principe : un prix administré ou un taux de change effacé rendrait
 -- irreproductible une pièce déjà émise. On clôt une période, on n'efface pas.

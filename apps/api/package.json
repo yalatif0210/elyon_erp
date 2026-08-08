@@ -13,7 +13,7 @@
     "start:dev": "nest start --watch",
     "prisma:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
-    "db:seed": "tsx prisma/seed.ts",
+    "db:seed": "tsx prisma/seed.ts && tsx prisma/seed-lot2.ts",
     "//": "Toute évolution du schéma passe par db:migration — jamais par prisma migrate dev seul, sinon le SQL métier de prisma/sql/ n'est pas injecté et Prisma détectera une dérive.",
     "db:migration": "node scripts/prepare-migrations.mjs",
     "db:setup": "npm run prisma:generate && node scripts/prepare-migrations.mjs init && npm run db:migrate && npm run db:seed",

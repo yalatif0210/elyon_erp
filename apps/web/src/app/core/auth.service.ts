@@ -116,6 +116,31 @@ export class AuthService {
     void this.router.navigate(['/connexion']);
   }
 
+  /**
+   * Changement de mot de passe. Les indicateurs d'obligation retombent au
+   * succès : le bandeau doit disparaître au moment où l'action est faite,
+   * sans exiger une reconnexion.
+   */
+  changePassword(currentPassword: string, newPassword: string) {
+    return this.http
+      .patch<{ revokedSessions: number }>('/api/internal/auth/password', {
+        currentPassword,
+        newPassword,
+      })
+      .pipe(tap(() => this.passwordChangePending.set(false)));
+  }
+
+  /** Ouvre l'enrôlement et rend le secret — affiché UNE SEULE fois. */
+  beginTotpEnrollment() {
+    return this.http.post<{ secret: string }>('/api/internal/auth/totp/enroll', {});
+  }
+
+  confirmTotpEnrollment(code: string) {
+    return this.http
+      .post<void>('/api/internal/auth/totp/confirm', { code })
+      .pipe(tap(() => this.totpPending.set(false)));
+  }
+
   /** Le rôle figure-t-il parmi ceux autorisés ? Miroir du guard serveur. */
   hasRole(...roles: UserRole[]): boolean {
     const current = this.role();

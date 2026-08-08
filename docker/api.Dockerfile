@@ -59,6 +59,13 @@ COPY --from=build --chown=root:root /app/package.json ./package.json
 COPY --from=build --chown=root:root /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build --chown=root:root /app/prisma        ./prisma
 
+# Point de montage des pièces jointes du terrain. Créé ICI, appartenant à node :
+# Docker recopie les droits du répertoire de l'image lorsqu'il initialise un
+# volume nommé. Sans cette ligne, le volume naît à root et le processus, qui
+# tourne sans privilège, ne peut rien y écrire — la sonde de démarrage le dit,
+# mais autant que ce ne soit jamais le cas.
+RUN mkdir -p /var/lib/erp/uploads && chown node:node /var/lib/erp/uploads
+
 USER node
 
 EXPOSE 3000

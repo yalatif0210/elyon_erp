@@ -8,6 +8,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
  * distingue pas le rouge du vert doit pouvoir lire un blocage.
  */
 export type IconName =
+  | 'camera'
   | 'check-circle'
   | 'clock'
   | 'truck'
@@ -20,7 +21,16 @@ export type IconName =
   | 'log-out'
   | 'search'
   | 'gauge'
-  | 'ban';
+  | 'ban'
+  | 'briefcase'
+  | 'receipt'
+  | 'clipboard-check'
+  | 'chevron-right'
+  | 'plus'
+  | 'arrow-right'
+  | 'arrow-up'
+  | 'arrow-down'
+  | 'x';
 
 const PATHS: Record<IconName, string> = {
   'check-circle': 'M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3',
@@ -40,7 +50,23 @@ const PATHS: Record<IconName, string> = {
   'log-out': 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
   search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM21 21l-4.3-4.3',
   gauge: 'm12 14 4-4M3.34 19a10 10 0 1 1 17.32 0',
+  camera:
+    'M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3ZM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z',
   ban: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM4.93 4.93l14.14 14.14',
+  briefcase:
+    'M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16M4 6h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z',
+  receipt:
+    'M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1ZM16 8H8M16 12H8M13 16H8',
+  'clipboard-check':
+    'M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M9 2h6a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1ZM9 14l2 2 4-4',
+  'chevron-right': 'm9 18 6-6-6-6',
+  plus: 'M12 5v14M5 12h14',
+  'arrow-right': 'M5 12h14M12 5l7 7-7 7',
+  // Réordonnancement d'une séquence : la flèche dit le sens, le libellé
+  // adjacent dit l'effet. Une icône seule ne suffit jamais (§ 17.2).
+  'arrow-up': 'M12 19V5M5 12l7-7 7 7',
+  'arrow-down': 'M12 5v14M19 12l-7 7-7-7',
+  x: 'M18 6 6 18M6 6l12 12',
 };
 
 @Component({

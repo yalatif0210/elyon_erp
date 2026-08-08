@@ -1,0 +1,650 @@
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import {
+  ApiService,
+  FieldSpec,
+  ImportReport,
+  ReferenceOption,
+  ReferentialSpec,
+} from '../core/api.service';
+import { IconComponent } from '../shared/icon.component';
+
+/**
+ * Paramétrage des référentiels (SPECIFICATIONS.md § 1.1 bis).
+ *
+ * L'écran est ENTIÈREMENT piloté par le registre servi par l'API : colonnes,
+ * types, valeurs admises, obligations et mises en garde. Ajouter un
+ * référentiel côté serveur le fait apparaître ici sans toucher à cet écran —
+ * c'est la seule façon de tenir l'exigence « tout est paramétrable » au-delà
+ * des premières tables.
+ */
+@Component({
+  selector: 'erp-parameters',
+  standalone: true,
+  imports: [FormsModule, IconComponent],
+  template: `
+    <header class="mb-5">
+      <h1 class="page-title">Paramétrage</h1>
+      <p class="page-sub">
+        Saisie unitaire ou import de fichier — aucune donnée de fonctionnement n’est figée
+        dans le code
+      </p>
+    </header>
+
+    <div class="grid grid-cols-1 gap-5 lg:grid-cols-[240px_1fr]">
+      <!-- ============ Choix du référentiel ============ -->
+      <nav class="card h-fit overflow-hidden">
+        @for (r of catalogue(); track r.key) {
+          <button
+            type="button"
+            class="flex w-full items-center justify-between gap-2 border-b border-rule px-[15px]
+                   py-2.5 text-left text-[13px] transition-colors last:border-b-0"
+            [class]="
+              selected()?.key === r.key
+                ? 'bg-gray-100 font-medium text-primary'
+                : 'text-ink-soft hover:bg-gray-100 hover:text-ink'
+            "
+            (click)="select(r)"
+          >
+            {{ r.label }}
+            @if (r.nature === 'historised') {
+              <erp-icon name="clock" [size]="12" class="shrink-0 text-ink-faint" />
+            }
+          </button>
+        }
+      </nav>
+
+      @if (selected(); as spec) {
+        <div class="min-w-0">
+          <!-- Mise en garde propre au référentiel : elle vient du serveur. -->
+          @if (spec.caution) {
+            <div
+              class="card mb-5 flex items-start gap-2.5 px-[15px] py-3 text-[13px]"
+              [class]="spec.nature === 'historised' ? 'border-warn/40' : ''"
+            >
+              <erp-icon
+                [name]="spec.nature === 'historised' ? 'clock' : 'alert-triangle'"
+                [size]="15"
+                class="mt-0.5 shrink-0"
+                [class]="spec.nature === 'historised' ? 'text-warn-ink' : 'text-ink-muted'"
+              />
+              <p class="leading-relaxed text-ink-soft">{{ spec.caution }}</p>
+            </div>
+          }
+
+          <div class="mb-4 flex gap-2">
+            <button
+              type="button"
+              class="rounded-[3px] px-2.5 py-1 text-[12px] font-medium transition-colors"
+              [class]="tabClass('saisie')"
+              (click)="tab.set('saisie')"
+            >
+              Saisie unitaire
+            </button>
+            <button
+              type="button"
+              class="rounded-[3px] px-2.5 py-1 text-[12px] font-medium transition-colors"
+              [class]="tabClass('import')"
+              (click)="tab.set('import')"
+            >
+              Import de fichier
+            </button>
+          </div>
+
+          <!-- ============ Saisie unitaire ============ -->
+          @if (tab() === 'saisie') {
+            <section class="card">
+              <div class="card-header">
+                <h2 class="card-title">{{ spec.label }}</h2>
+                <span class="text-[11px] text-ink-faint">
+                  {{ spec.nature === 'historised' ? 'donnée historisée' : 'correction sur place' }}
+                </span>
+              </div>
+              <div class="card-body">
+                <div class="grid grid-cols-1 gap-x-5 gap-y-3.5 md:grid-cols-2">
+                  @for (f of spec.fields; track f.name) {
+                    <div>
+                      <label class="label" [attr.for]="'f-' + f.name">
+                        {{ f.label }}
+                        @if (f.required) {
+                          <span class="text-crit">*</span>
+                        }
+                      </label>
+
+                      @if (f.type === 'boolean') {
+                        <label class="flex items-center gap-2 text-[13px] text-ink-soft">
+                          <input
+                            type="checkbox"
+                            class="accent-[var(--primary)]"
+                            [id]="'f-' + f.name"
+                            [(ngModel)]="form[f.name]"
+                          />
+                          Activé
+                        </label>
+                      } @else if (f.type === 'enumList') {
+                        <!-- Choix multiple : on montre toutes les valeurs, et
+                             l'absence de sélection vaut « toutes ». Un champ
+                             texte à virgules ferait deviner l'orthographe. -->
+                        <div class="flex flex-wrap gap-x-4 gap-y-1 py-1">
+                          @for (v of f.values ?? []; track v) {
+                            <label class="flex items-center gap-1.5 text-[12px] text-ink-soft">
+                              <input
+                                type="checkbox"
+                                class="accent-[var(--primary)]"
+                                [checked]="hasValue(f.name, v)"
+                                (change)="toggleValue(f.name, v)"
+                              />
+                              {{ v }}
+                            </label>
+                          }
+                        </div>
+                      } @else if (refPickable(f)) {
+                        <!-- Liste de références : mêmes cases que la liste
+                             d'énumération, et même valeur — des codes séparés
+                             par des virgules, c'est ce que le serveur attend.
+                             Les codes viennent du référentiel visé, jamais
+                             d'une liste recopiée ici : deviner leur orthographe
+                             est le seul défaut que la saisie texte
+                             garantissait. -->
+                        @if (refChoices(f); as options) {
+                          <div class="flex flex-wrap gap-x-4 gap-y-1 py-1">
+                            @for (o of options; track o.value) {
+                              <label class="flex items-center gap-1.5 text-[12px] text-ink-soft">
+                                <input
+                                  type="checkbox"
+                                  class="accent-[var(--primary)]"
+                                  [checked]="hasValue(f.name, o.value)"
+                                  (change)="toggleValue(f.name, o.value)"
+                                />
+                                <span class="font-mono text-ink-muted">{{ o.value }}</span>
+                                @if (o.label !== o.value) {
+                                  <span>{{ o.label }}</span>
+                                }
+                              </label>
+                            } @empty {
+                              <p class="text-[12px] text-warn-ink">
+                                Le référentiel «&nbsp;{{ f.refTable }}&nbsp;» ne contient encore
+                                aucune ligne : il n’y a rien à rattacher.
+                              </p>
+                            }
+                          </div>
+                        } @else {
+                          <p class="py-1 text-[12px] text-ink-faint">Lecture du référentiel…</p>
+                        }
+                      } @else if (refOnePickable(f)) {
+                        <!-- Référence unique : une liste, pas une saisie. Le
+                             code se tape sans faute une fois sur deux, et la
+                             faute ne se voit pas — elle rattache l'objet à
+                             rien, en silence. -->
+                        @if (refChoices(f); as options) {
+                          <select class="field" [id]="'f-' + f.name" [(ngModel)]="form[f.name]">
+                            <option [ngValue]="null">—</option>
+                            @for (o of options; track o.value) {
+                              <option [ngValue]="o.value">
+                                {{ o.value }}@if (o.label !== o.value) { — {{ o.label }} }
+                              </option>
+                            }
+                          </select>
+                          @if (options.length === 0) {
+                            <p class="mt-1 text-[12px] text-warn-ink">
+                              Le référentiel «&nbsp;{{ f.refTable }}&nbsp;» ne contient encore aucune
+                              ligne : commencez par l’alimenter.
+                            </p>
+                          }
+                        } @else {
+                          <p class="py-1 text-[12px] text-ink-faint">Lecture du référentiel…</p>
+                        }
+                      } @else if (f.type === 'enum') {
+                        <select class="field" [id]="'f-' + f.name" [(ngModel)]="form[f.name]">
+                          <option [ngValue]="null">—</option>
+                          @for (v of f.values ?? []; track v) {
+                            <option [ngValue]="v">{{ v }}</option>
+                          }
+                        </select>
+                      } @else if (f.type === 'text') {
+                        <textarea class="field" rows="2" [id]="'f-' + f.name" [(ngModel)]="form[f.name]"></textarea>
+                      } @else {
+                        <input
+                          class="field"
+                          [id]="'f-' + f.name"
+                          [type]="f.type === 'date' ? 'date' : 'text'"
+                          [inputMode]="f.type === 'number' || f.type === 'integer' ? 'decimal' : 'text'"
+                          [(ngModel)]="form[f.name]"
+                        />
+                      }
+
+                      @if (f.help) {
+                        <p class="mt-1 text-[11px] leading-snug text-ink-faint">{{ f.help }}</p>
+                      }
+                    </div>
+                  }
+                </div>
+
+                @if (spec.nature === 'historised') {
+                  <div class="mt-4">
+                    <label class="label" for="motif">Motif <span class="text-crit">*</span></label>
+                    <input class="field" id="motif" [(ngModel)]="reason" />
+                    <p class="mt-1 text-[11px] text-ink-faint">
+                      Cette donnée gouverne des calculs déjà produits. Le motif est conservé au
+                      journal, aux côtés de l’auteur et de l’horodatage.
+                    </p>
+                  </div>
+                }
+
+                @if (errors().length > 0) {
+                  <ul class="mt-4 space-y-1 rounded-[3px] bg-crit-wash px-3 py-2" role="alert">
+                    @for (e of errors(); track e) {
+                      <li class="flex items-start gap-2 text-[13px] text-crit">
+                        <erp-icon name="alert-triangle" [size]="13" class="mt-0.5 shrink-0" />
+                        {{ e }}
+                      </li>
+                    }
+                  </ul>
+                }
+                @if (saved()) {
+                  <p
+                    class="mt-4 flex items-center gap-2 rounded-[3px] bg-ok-wash px-3 py-2
+                           text-[13px] text-ok"
+                    role="status"
+                  >
+                    <erp-icon name="check-circle" [size]="13" />
+                    {{ saved() }}
+                  </p>
+                }
+
+                <div class="mt-5 flex gap-2">
+                  <button class="btn-primary" (click)="submit()" [disabled]="busy()">
+                    {{ busy() ? 'Enregistrement…' : 'Enregistrer' }}
+                  </button>
+                  <button class="btn-ghost" (click)="resetForm()" [disabled]="busy()">
+                    Vider
+                  </button>
+                </div>
+              </div>
+            </section>
+          }
+
+          <!-- ============ Import ============ -->
+          @if (tab() === 'import') {
+            <section class="card">
+              <div class="card-header">
+                <h2 class="card-title">Import — {{ spec.label }}</h2>
+                <button class="link text-[12px]" (click)="downloadTemplate(spec)">
+                  Télécharger le gabarit
+                </button>
+              </div>
+              <div class="card-body">
+                <p class="mb-4 text-[13px] leading-relaxed text-ink-soft">
+                  Déposez un fichier <strong>CSV</strong> — c’est le format qu’Excel et LibreOffice
+                  produisent par « Enregistrer sous ». La première ligne porte les noms de
+                  colonnes du gabarit. Les nombres acceptent la virgule décimale, les dates le
+                  format jour/mois/année.
+                </p>
+
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  class="field h-auto py-2"
+                  aria-label="Fichier à importer"
+                  (change)="onFile($event)"
+                />
+
+                @if (parsed().length > 0) {
+                  <p class="mt-3 text-[13px] text-ink-soft">
+                    {{ parsed().length }} ligne(s) lue(s) ·
+                    {{ parsedColumns().length }} colonne(s) : {{ parsedColumns().join(', ') }}
+                  </p>
+
+                  @if (spec.nature === 'historised') {
+                    <div class="mt-3">
+                      <label class="label" for="motif-import">Motif <span class="text-crit">*</span></label>
+                      <input class="field" id="motif-import" [(ngModel)]="reason" />
+                    </div>
+                  }
+
+                  <div class="mt-4 flex gap-2">
+                    <button class="btn-ghost" (click)="runImport(true)" [disabled]="busy()">
+                      Simuler
+                    </button>
+                    <button class="btn-primary" (click)="runImport(false)" [disabled]="busy()">
+                      Importer
+                    </button>
+                  </div>
+                  <p class="mt-2 text-[11px] text-ink-faint">
+                    La simulation rend le rapport sans rien écrire. Utile pour corriger le
+                    fichier avant d’engager quoi que ce soit.
+                  </p>
+                }
+
+                <!-- Rapport de rejet ligne à ligne -->
+                @if (report(); as rep) {
+                  <div class="mt-5 border-t border-rule pt-4">
+                    <div class="mb-3 flex flex-wrap items-center gap-4 text-[13px]">
+                      @if (rep.simulation) {
+                        <span class="badge-transit">
+                          <erp-icon name="clock" [size]="11" />
+                          Simulation
+                        </span>
+                      }
+                      <span class="text-ink-soft">{{ rep.lues }} lue(s)</span>
+                      <span class="font-medium text-ok">{{ rep.creees }} créée(s)</span>
+                      <span class="font-medium text-ink">{{ rep.modifiees }} modifiée(s)</span>
+                      <span [class]="rep.rejetees > 0 ? 'font-semibold text-crit' : 'text-ink-faint'">
+                        {{ rep.rejetees }} rejetée(s)
+                      </span>
+                    </div>
+
+                    @if (rep.rejets.length > 0) {
+                      <div class="overflow-x-auto">
+                        <table class="table">
+                          <thead>
+                            <tr><th class="num">Ligne</th><th>Colonne</th><th>Motif du rejet</th></tr>
+                          </thead>
+                          <tbody>
+                            @for (r of rep.rejets; track $index) {
+                              <tr class="row-crit">
+                                <td class="num font-mono">{{ r.line }}</td>
+                                <td class="font-mono text-[12px] text-ink-muted">{{ r.field ?? '—' }}</td>
+                                <td class="text-ink">{{ r.message }}</td>
+                              </tr>
+                            }
+                          </tbody>
+                        </table>
+                      </div>
+                      <p class="mt-2 text-[11px] text-ink-faint">
+                        Les numéros correspondent aux lignes de votre tableur : l’entête occupe
+                        la ligne 1. Les lignes valides ont été traitées ; seules celles-ci
+                        restent à corriger.
+                      </p>
+                    } @else {
+                      <p class="text-[13px] text-ok">Aucun rejet.</p>
+                    }
+
+                    @if (rep.avertissements.length > 0) {
+                      <ul class="mt-3 space-y-1">
+                        @for (a of rep.avertissements; track $index) {
+                          <li class="text-[12px] text-warn-ink">{{ a.message }}</li>
+                        }
+                      </ul>
+                    }
+                  </div>
+                }
+              </div>
+            </section>
+          }
+        </div>
+      }
+    </div>
+  `,
+})
+export class ParametersComponent implements OnInit {
+  private readonly api = inject(ApiService);
+
+  protected readonly catalogue = signal<ReferentialSpec[]>([]);
+  protected readonly selected = signal<ReferentialSpec | null>(null);
+  protected readonly tab = signal<'saisie' | 'import'>('saisie');
+  protected readonly busy = signal(false);
+  protected readonly errors = signal<string[]>([]);
+  protected readonly saved = signal<string | null>(null);
+  protected readonly report = signal<ImportReport | null>(null);
+  protected readonly parsed = signal<Record<string, string>[]>([]);
+
+  /**
+   * Référentiels lus pour alimenter les champs `referenceList`, par clé de
+   * registre. Trois états, et ils comptent : absent de la carte = jamais
+   * demandé, `undefined` = lecture en cours, `null` = pas de route de lecture
+   * ou rôle non autorisé, auquel cas le champ retombe sur la saisie texte.
+   */
+  protected readonly references = signal<
+    Record<string, ReferenceOption[] | null | undefined>
+  >({});
+
+  protected form: Record<string, unknown> = {};
+  protected reason = '';
+
+  protected readonly parsedColumns = computed(() => Object.keys(this.parsed()[0] ?? {}));
+
+  ngOnInit(): void {
+    this.api.parameterCatalogue().subscribe((c) => {
+      this.catalogue.set(c);
+      if (c.length > 0) this.select(c[0]);
+    });
+  }
+
+  protected select(spec: ReferentialSpec): void {
+    this.selected.set(spec);
+    this.resetForm();
+    this.report.set(null);
+    this.parsed.set([]);
+    this.loadReferences(spec);
+  }
+
+  /**
+   * Charge les référentiels visés par les champs `referenceList` du formulaire.
+   *
+   * Au choix du référentiel, et non au démarrage : le registre en compte une
+   * quinzaine, et pré-charger les tables de toutes les listes de références de
+   * tous les référentiels ferait payer à l'ouverture ce dont un seul écran a
+   * besoin. Le résultat est mémorisé par table, donc une seule lecture même
+   * quand plusieurs champs visent la même.
+   */
+  private loadReferences(spec: ReferentialSpec): void {
+    for (const field of spec.fields) {
+      const table = field.refTable;
+      // Les DEUX natures de référence, singulier et pluriel : elles se
+      // présentent différemment à l'écran mais se lisent au même endroit.
+      if ((field.type !== 'referenceList' && field.type !== 'reference') || !table) continue;
+      if (table in this.references()) continue;
+
+      // Marqué « en cours » AVANT l'appel : deux champs visant la même table ne
+      // doivent pas déclencher deux lectures.
+      this.references.update((r) => ({ ...r, [table]: undefined }));
+
+      this.api.referenceOptions(table, field.refKey ?? 'code').subscribe({
+        next: (options) => this.references.update((r) => ({ ...r, [table]: options })),
+        // Pas de route de lecture, ou rôle non autorisé à la lire. On n'a alors
+        // rien d'honnête à proposer : le champ retombe sur la saisie texte, qui
+        // reste acceptée par le serveur — plutôt qu'une liste vide, qui ferait
+        // croire qu'il n'y a rien à rattacher.
+        error: () => this.references.update((r) => ({ ...r, [table]: null })),
+      });
+    }
+  }
+
+  /** Liste de références présentable en cases à cocher ? Sinon : saisie texte. */
+  protected refPickable(f: FieldSpec): boolean {
+    if (f.type !== 'referenceList' || !f.refTable) return false;
+    return this.references()[f.refTable] !== null;
+  }
+
+  /** Référence unique présentable en liste déroulante ? Sinon : saisie texte. */
+  protected refOnePickable(f: FieldSpec): boolean {
+    if (f.type !== 'reference' || !f.refTable) return false;
+    return this.references()[f.refTable] !== null;
+  }
+
+  /** Les choix lus, ou `undefined` tant que la lecture n'a pas abouti. */
+  protected refChoices(f: FieldSpec): ReferenceOption[] | undefined {
+    return this.references()[f.refTable ?? ''] ?? undefined;
+  }
+
+  protected tabClass(t: 'saisie' | 'import'): string {
+    return this.tab() === t
+      ? 'bg-primary text-white'
+      : 'border border-rule-strong bg-surface text-ink-soft hover:bg-gray-100 hover:text-ink';
+  }
+
+  /** Vrai si la valeur figure dans la liste multiple en cours de saisie. */
+  protected hasValue(field: string, value: string): boolean {
+    const raw = String(this.form[field] ?? '');
+    return raw.split(',').map((v) => v.trim()).includes(value);
+  }
+
+  protected toggleValue(field: string, value: string): void {
+    const current = String(this.form[field] ?? '')
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean);
+    const next = current.includes(value)
+      ? current.filter((v) => v !== value)
+      : [...current, value];
+    this.form[field] = next.join(',');
+  }
+
+  protected resetForm(): void {
+    this.form = {};
+    this.reason = '';
+    this.errors.set([]);
+    this.saved.set(null);
+  }
+
+  protected submit(): void {
+    const spec = this.selected();
+    if (!spec || this.busy()) return;
+
+    this.busy.set(true);
+    this.errors.set([]);
+    this.saved.set(null);
+
+    // Les champs laissés vides ne sont pas transmis : envoyer une chaîne vide
+    // écraserait une valeur existante par du néant lors d'une correction.
+    const values = Object.fromEntries(
+      Object.entries(this.form).filter(([, v]) => v !== '' && v !== null && v !== undefined),
+    );
+
+    this.api.saveParameter(spec.key, values, this.reason || undefined).subscribe({
+      next: (r) => {
+        this.busy.set(false);
+        this.saved.set(r.created ? 'Ligne créée.' : 'Ligne modifiée.');
+        this.form = {};
+      },
+      error: (e: { error?: { message?: unknown; errors?: { message: string }[] } }) => {
+        this.busy.set(false);
+        this.errors.set(extractErrors(e));
+      },
+    });
+  }
+
+  /**
+   * Lecture du fichier dans le navigateur.
+   *
+   * Le CSV est décomposé ici et transmis en lignes structurées : le serveur
+   * n'a pas à connaître les dialectes de séparateur, et aucun fichier binaire
+   * ne transite. Le point-virgule est reconnu au même titre que la virgule —
+   * c'est ce qu'un Excel configuré en français produit.
+   */
+  protected onFile(event: Event): void {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    this.report.set(null);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      this.parsed.set(parseCsv(String(reader.result ?? '')));
+    };
+    reader.readAsText(file, 'utf-8');
+  }
+
+  protected runImport(dryRun: boolean): void {
+    const spec = this.selected();
+    if (!spec || this.busy()) return;
+
+    this.busy.set(true);
+    this.errors.set([]);
+    this.api
+      .importParameters(spec.key, this.parsed(), this.reason || undefined, dryRun)
+      .subscribe({
+        next: (r) => {
+          this.busy.set(false);
+          this.report.set(r);
+        },
+        error: (e: { error?: { message?: unknown } }) => {
+          this.busy.set(false);
+          this.errors.set(extractErrors(e));
+        },
+      });
+  }
+
+  /** Gabarit CSV : l'entête, plus une ligne d'exemple commentée. */
+  protected downloadTemplate(spec: ReferentialSpec): void {
+    const header = spec.fields.map((f) => f.name).join(';');
+    const hint = spec.fields.map((f) => describe(f)).join(';');
+    const csv = `﻿${header}\n${hint}\n`;
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gabarit-${spec.key}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+}
+
+function describe(f: FieldSpec): string {
+  const parts = [f.required ? 'obligatoire' : 'facultatif', f.type];
+  if (f.values?.length) parts.push(f.values.join('|'));
+  return parts.join(' ');
+}
+
+function extractErrors(e: { error?: { message?: unknown; errors?: { message: string }[] } }): string[] {
+  if (e.error?.errors?.length) return e.error.errors.map((x) => x.message);
+  const m = e.error?.message;
+  if (Array.isArray(m)) return m as string[];
+  if (typeof m === 'string') return [m];
+  return ['Enregistrement impossible'];
+}
+
+/**
+ * Décomposition CSV, guillemets compris.
+ *
+ * Le séparateur est déduit de la première ligne : point-virgule s'il y en a
+ * plus que de virgules. Un tableur francophone produit du point-virgule
+ * précisément parce que la virgule sert de séparateur décimal.
+ */
+function parseCsv(text: string): Record<string, string>[] {
+  const clean = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
+  const firstLine = clean.slice(0, clean.indexOf('\n') === -1 ? undefined : clean.indexOf('\n'));
+  const sep = (firstLine.match(/;/g) ?? []).length > (firstLine.match(/,/g) ?? []).length ? ';' : ',';
+
+  const rows: string[][] = [];
+  let cell = '';
+  let row: string[] = [];
+  let quoted = false;
+
+  for (let i = 0; i < clean.length; i += 1) {
+    const c = clean[i];
+    if (quoted) {
+      if (c === '"' && clean[i + 1] === '"') {
+        cell += '"';
+        i += 1;
+      } else if (c === '"') {
+        quoted = false;
+      } else {
+        cell += c;
+      }
+    } else if (c === '"') {
+      quoted = true;
+    } else if (c === sep) {
+      row.push(cell);
+      cell = '';
+    } else if (c === '\n') {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = '';
+    } else {
+      cell += c;
+    }
+  }
+  if (cell !== '' || row.length > 0) {
+    row.push(cell);
+    rows.push(row);
+  }
+
+  const [header, ...body] = rows.filter((r) => r.some((v) => v.trim() !== ''));
+  if (!header) return [];
+  const columns = header.map((h) => h.trim());
+
+  return body.map((r) =>
+    Object.fromEntries(columns.map((col, i) => [col, (r[i] ?? '').trim()])),
+  );
+}

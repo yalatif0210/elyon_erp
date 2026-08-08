@@ -1,6 +1,6 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { ApiService, ComplianceSubject, ExpiryItem } from '../core/api.service';
+import { ApiService, ComplianceSubject, EtatOperationnel, ExpiryItem } from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
 import { StatusBadgeComponent } from '../shared/status-badge.component';
 
@@ -16,80 +16,124 @@ import { StatusBadgeComponent } from '../shared/status-badge.component';
   standalone: true,
   imports: [RouterLink, IconComponent, StatusBadgeComponent],
   template: `
-    <header class="mb-6">
-      <h1 class="text-xl font-semibold text-slate-100">Tableau de bord</h1>
-      <p class="mt-1 text-sm text-slate-500">Conformité des moyens et échéances réglementaires</p>
+    <header class="mb-5 flex items-end justify-between gap-4">
+      <div>
+        <h1 class="page-title">Tableau de bord</h1>
+        <p class="page-sub">Où en sont les opérations, et quels moyens sont immobilisables</p>
+      </div>
+      <a routerLink="/conformite" class="btn-ghost">
+        Ouvrir la conformité
+        <erp-icon name="arrow-right" [size]="14" />
+      </a>
     </header>
 
-    <!-- Indicateurs -->
-    <div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <div class="card p-4">
-        <p class="text-xs uppercase tracking-wide text-slate-500">Moyens suivis</p>
-        <p class="tabular mt-1.5 text-2xl font-semibold text-slate-100">{{ overview().length }}</p>
+    <!-- ================= Où en sont les opérations (§ 16) =================
+         En tête du tableau de bord : c'est l'état de l'entreprise aujourd'hui,
+         la conformité vient ensuite.
+
+         Deux de ces états ne sont pas des statuts d'opération mais des TROUS
+         ENTRE MODULES — livrée non facturée, facturée non encaissée. Ce sont
+         eux qui coûtent : une opération close disparaît de la liste des
+         opérations, et une facture émise ne dit pas qu'elle attend. -->
+    @if (operationnel().length > 0) {
+      <section class="mb-6">
+        <div class="mb-2 flex items-center gap-2">
+          <erp-icon name="truck" [size]="15" class="text-ink-muted" />
+          <h2 class="text-[13px] font-semibold text-ink">Où en sont les opérations</h2>
+        </div>
+        <div class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+          @for (e of operationnel(); track e.etat) {
+            <div class="card px-[15px] py-3" [class.border-crit]="etatGrave(e.etat)">
+              <p class="text-[11px] uppercase tracking-wide text-ink-muted">
+                {{ etatLibelle(e.etat) }}
+              </p>
+              <p class="mt-0.5 text-[24px] font-semibold leading-none tabular"
+                 [class]="etatGrave(e.etat) ? 'text-crit' : 'text-ink'">
+                {{ e.operations }}
+              </p>
+              <p class="mt-1 text-[11px] leading-snug text-ink-faint">
+                {{ etatExplication(e.etat) }}
+                @if (e.retard_max_jours) {
+                  · jusqu'à {{ e.retard_max_jours }} j
+                }
+              </p>
+            </div>
+          }
+        </div>
+      </section>
+    }
+
+    <!--
+      Bandeau de synthèse : un seul bloc, séparé par des filets plutôt que par
+      quatre cartes flottantes. Les chiffres se comparent d'un balayage, ce que
+      des cartes espacées empêchent.
+    -->
+    <div class="card mb-5 grid grid-cols-2 gap-px overflow-hidden bg-rule lg:grid-cols-4">
+      <div class="stat bg-surface">
+        <span class="stat-label">Moyens suivis</span>
+        <span class="stat-value">{{ overview().length }}</span>
+        <span class="stat-note">Transporteurs, véhicules et chauffeurs</span>
       </div>
 
-      <div [class]="blockedCardClass()">
-        <p class="text-xs uppercase tracking-wide text-slate-500">Non conformes</p>
-        <div class="mt-1.5 flex items-center gap-2">
-          <span class="tabular text-2xl font-semibold" [class]="countClass(blocked().length)">
-            {{ blocked().length }}
-          </span>
+      <div class="stat bg-surface" [class.bg-crit-wash]="hasBlocked()">
+        <span class="stat-label">Non conformes</span>
+        <span class="stat-value flex items-center gap-2" [class]="countClass(blocked().length)">
+          {{ blocked().length }}
           @if (hasBlocked()) {
-            <erp-icon name="lock" [size]="17" class="text-rose-400" />
+            <erp-icon name="lock" [size]="16" />
           }
-        </div>
-        <p class="mt-1 text-[11px] text-slate-600">Affectation bloquée sans dérogation DG</p>
+        </span>
+        <span class="stat-note">Affectation bloquée sans dérogation du DG</span>
       </div>
 
-      <div class="card p-4">
-        <p class="text-xs uppercase tracking-wide text-slate-500">Échéances proches</p>
-        <div class="mt-1.5 flex items-center gap-2">
-          <span class="tabular text-2xl font-semibold" [class]="warnClass(expiringSoon().length)">
-            {{ expiringSoon().length }}
-          </span>
+      <div class="stat bg-surface">
+        <span class="stat-label">Échéances proches</span>
+        <span class="stat-value flex items-center gap-2" [class]="warnClass(expiringSoon().length)">
+          {{ expiringSoon().length }}
           @if (hasExpiringSoon()) {
-            <erp-icon name="clock" [size]="17" class="text-amber-400" />
+            <erp-icon name="clock" [size]="16" />
           }
-        </div>
-        <p class="mt-1 text-[11px] text-slate-600">Sous 90 jours</p>
+        </span>
+        <span class="stat-note">Sous 90 jours</span>
       </div>
 
-      <div class="card p-4">
-        <p class="text-xs uppercase tracking-wide text-slate-500">Pièces expirées</p>
-        <div class="mt-1.5 flex items-center gap-2">
-          <span class="tabular text-2xl font-semibold" [class]="countClass(expired().length)">
-            {{ expired().length }}
-          </span>
-        </div>
+      <div class="stat bg-surface">
+        <span class="stat-label">Pièces expirées</span>
+        <span class="stat-value" [class]="countClass(expired().length)">{{ expired().length }}</span>
+        <span class="stat-note">À renouveler sans délai</span>
       </div>
     </div>
 
-    <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+    <div class="grid grid-cols-1 gap-5 xl:grid-cols-2">
       <!-- Moyens non conformes -->
-      <section class="card">
+      <section class="card overflow-hidden">
         <div class="card-header">
           <h2 class="card-title">Moyens non conformes</h2>
-          <a routerLink="/conformite" class="text-xs text-sky-400 hover:text-sky-300">Tout voir</a>
+          <a routerLink="/conformite" class="link text-[12px]">Tout voir</a>
         </div>
         <div class="overflow-x-auto">
           @if (blocked().length === 0) {
-            <p class="px-4 py-8 text-center text-sm text-slate-500">
-              Aucun moyen bloqué. Tous les agréments, assurances et contrôles sont à jour.
+            <p class="empty">
+              Aucun moyen bloqué.<br />
+              Agréments, assurances et contrôles techniques sont à jour.
             </p>
           } @else {
             <table class="table">
               <thead>
-                <tr><th>Type</th><th>Identification</th><th class="num">Expirées</th><th>État</th></tr>
+                <tr>
+                  <th>Moyen</th><th>Identification</th>
+                  <th class="num">Pièces échues</th><th>État</th>
+                </tr>
               </thead>
               <tbody>
                 @for (row of blocked(); track row.subject_id) {
-                  <tr>
-                    <td class="text-slate-500">{{ kindLabel(row.subject_kind) }}</td>
+                  <tr class="row-crit">
+                    <td class="text-ink-muted">{{ kindLabel(row.subject_kind) }}</td>
                     <td>
-                      <span class="font-mono text-xs text-slate-400">{{ row.subject_code }}</span>
-                      <span class="ml-2 text-slate-200">{{ row.subject_label }}</span>
+                      <span class="ref">{{ row.subject_code }}</span>
+                      <span class="ml-2 text-ink">{{ row.subject_label }}</span>
                     </td>
-                    <td class="num text-rose-400">{{ row.expired_count }}</td>
+                    <td class="num font-mono font-semibold text-crit">{{ row.expired_count }}</td>
                     <td><erp-status-badge kind="blocked" label="Non conforme" /></td>
                   </tr>
                 }
@@ -100,28 +144,28 @@ import { StatusBadgeComponent } from '../shared/status-badge.component';
       </section>
 
       <!-- Échéancier -->
-      <section class="card">
+      <section class="card overflow-hidden">
         <div class="card-header">
           <h2 class="card-title">Prochaines échéances</h2>
-          <a routerLink="/echeancier" class="text-xs text-sky-400 hover:text-sky-300">Tout voir</a>
+          <a routerLink="/echeancier" class="link text-[12px]">Tout voir</a>
         </div>
         <div class="overflow-x-auto">
           @if (upcoming().length === 0) {
-            <p class="px-4 py-8 text-center text-sm text-slate-500">Aucune échéance sous 90 jours.</p>
+            <p class="empty">Aucune échéance sous 90 jours.</p>
           } @else {
             <table class="table">
               <thead>
-                <tr><th>Pièce</th><th>Porteur</th><th class="num">Échéance</th><th>État</th></tr>
+                <tr><th>Pièce</th><th>Porteur</th><th class="num">Reste</th><th>État</th></tr>
               </thead>
               <tbody>
                 @for (item of upcoming(); track item.id) {
-                  <tr>
+                  <tr [class]="rowClass(item.days_remaining)">
                     <td>
-                      <span class="text-slate-200">{{ typeLabel(item.type) }}</span>
-                      <span class="ml-2 font-mono text-[11px] text-slate-500">{{ item.reference }}</span>
+                      <span class="text-ink">{{ typeLabel(item.type) }}</span>
+                      <span class="ml-2 font-mono text-[11px] text-ink-faint">{{ item.reference }}</span>
                     </td>
-                    <td class="text-slate-400">{{ item.owner_label }}</td>
-                    <td class="num" [class]="daysClass(item.days_remaining)">
+                    <td class="text-ink-soft">{{ item.owner_label }}</td>
+                    <td class="num font-mono" [class]="daysClass(item.days_remaining)">
                       {{ remainingLabel(item.days_remaining) }}
                     </td>
                     <td>
@@ -144,6 +188,7 @@ export class DashboardComponent implements OnInit {
 
   protected readonly overview = signal<ComplianceSubject[]>([]);
   protected readonly expiry = signal<ExpiryItem[]>([]);
+  protected readonly operationnel = signal<EtatOperationnel[]>([]);
 
   protected readonly blocked = computed(() => this.overview().filter((s) => !s.is_compliant));
   protected readonly expired = computed(() => this.expiry().filter((e) => e.days_remaining < 0));
@@ -155,25 +200,64 @@ export class DashboardComponent implements OnInit {
   protected readonly hasExpiringSoon = computed(() => this.expiringSoon().length > 0);
 
   /**
+   * Libellés des états opérationnels.
+   *
+   * Écrits pour celui qui lit, pas pour la base : « Livrées non facturées » dit
+   * ce qu'il faut faire, `LIVREE_NON_FACTUREE` dit comment c'est stocké.
+   */
+  private static readonly ETATS: Record<string, [string, string]> = {
+    INCIDENT: ['Incidents', 'à traiter en priorité'],
+    BLOQUEE_HSE: ['Bloquées HSE', 'ne peuvent pas partir'],
+    NON_CONFORME: ['Moyens non conformes', 'pièce expirée après affectation'],
+    EN_RETARD: ['En retard', 'chargement prévu, non fait'],
+    LIVREE_NON_FACTUREE: ['Livrées non facturées', 'prestation faite, rien émis'],
+    FACTUREE_NON_ENCAISSEE: ['Facturées non encaissées', 'argent dû'],
+    EN_COURS: ['En cours', 'en exécution'],
+    A_VENIR: ['À venir', 'préparation'],
+  };
+
+  protected etatLibelle(etat: string): string {
+    return DashboardComponent.ETATS[etat]?.[0] ?? etat;
+  }
+
+  protected etatExplication(etat: string): string {
+    return DashboardComponent.ETATS[etat]?.[1] ?? '';
+  }
+
+  /** Les quatre états où quelqu'un est arrêté ou de l'argent est en jeu. */
+  protected etatGrave(etat: string): boolean {
+    return ['INCIDENT', 'BLOQUEE_HSE', 'NON_CONFORME', 'EN_RETARD'].includes(etat);
+  }
+
+  /**
    * Les classes conditionnelles se calculent ici, pas dans le template :
    * un « > » dans une valeur d'attribut et un « / » dans un nom de binding
    * (`[class.ring-rose-500/40]`) cassent le parseur de template Angular.
    */
-  protected blockedCardClass(): string {
-    return this.hasBlocked() ? 'card p-4 ring-1 ring-rose-500/40' : 'card p-4';
-  }
-
   protected countClass(count: number): string {
-    return count > 0 ? 'text-rose-400' : 'text-slate-100';
+    return count > 0 ? 'text-crit' : 'text-ink';
   }
 
   protected warnClass(count: number): string {
-    return count > 0 ? 'text-amber-400' : 'text-slate-100';
+    return count > 0 ? 'text-warn-ink' : 'text-ink';
+  }
+
+  /** Liseré de sévérité : la forme double la teinte. */
+  protected rowClass(days: number): string {
+    if (days < 0) return 'row-crit';
+    if (days <= 30) return 'row-warn';
+    return '';
   }
 
   ngOnInit(): void {
     this.api.complianceOverview().subscribe((rows) => this.overview.set(rows));
     this.api.expiryWatch(90).subscribe((rows) => this.expiry.set(rows));
+    // Repli silencieux : un rôle sans accès au tableau opérationnel garde le
+    // reste du tableau de bord plutôt que de perdre l'écran entier.
+    this.api.tableauOperationnel().subscribe({
+      next: (rows) => this.operationnel.set(rows),
+      error: () => undefined,
+    });
   }
 
   protected kindLabel(kind: string): string {
@@ -193,9 +277,9 @@ export class DashboardComponent implements OnInit {
   }
 
   protected daysClass(days: number): string {
-    if (days < 0) return 'text-rose-400';
-    if (days <= 30) return 'text-amber-400';
-    return 'text-slate-300';
+    if (days < 0) return 'font-semibold text-crit';
+    if (days <= 30) return 'font-semibold text-warn-ink';
+    return 'text-ink-soft';
   }
 }
 

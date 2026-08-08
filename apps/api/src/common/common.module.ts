@@ -4,7 +4,11 @@ import { AuditService } from './audit/audit.service';
 import { AppConfig, EnvironmentVariables, validateEnv } from './config/env.config';
 import { CryptoService } from './crypto/crypto.service';
 import { PrismaService } from './prisma/prisma.service';
+import { ReferenceService } from './reference/reference.service';
 import { RedisService } from './redis/redis.service';
+import { SettingsService } from './config/settings.service';
+import { StorageService } from './storage/storage.service';
+import { AstmService } from './volumes/astm.service';
 
 /**
  * Socle transverse : configuration validée, base, cache, chiffrement, audit.
@@ -32,7 +36,24 @@ import { RedisService } from './redis/redis.service';
     RedisService,
     CryptoService,
     AuditService,
+    ReferenceService,
+    StorageService,
+    AstmService,
+    // Les règles de gestion (seuils, durées, quotas) sont lues en base, pas
+    // écrites dans le code : le service est transverse au même titre que
+    // l'accès base, et suit donc la même portée globale.
+    SettingsService,
   ],
-  exports: [AppConfig, PrismaService, RedisService, CryptoService, AuditService],
+  exports: [
+    AppConfig,
+    PrismaService,
+    RedisService,
+    CryptoService,
+    AuditService,
+    ReferenceService,
+    SettingsService,
+    StorageService,
+    AstmService,
+  ],
 })
 export class CommonModule {}

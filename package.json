@@ -1,0 +1,8 @@
+{
+  "name": "elyon-erp",
+  "private": true,
+  "scripts": {
+    "test": "python tests/recette/executer.py",
+    "test:recette": "python tests/recette/executer.py"
+  }
+}

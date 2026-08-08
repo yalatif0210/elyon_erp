@@ -104,7 +104,8 @@ function extractBearer(header: unknown): string | null {
 }
 
 function extractIp(request: { ip?: string; socket?: { remoteAddress?: string } }): string | undefined {
-  // On ne fait pas confiance à X-Forwarded-For sans reverse proxy maîtrisé :
-  // il est trivialement falsifiable par le client.
+  // `trust proxy = 1` étant posé dans main.ts, `request.ip` porte l'adresse
+  // réelle du client, résolue depuis le dernier saut seulement. Sans ce
+  // réglage, on journaliserait l'adresse de nginx sur chaque écriture.
   return request.ip ?? request.socket?.remoteAddress;
 }

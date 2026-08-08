@@ -1,16 +1,31 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
-import { verify } from '@node-rs/argon2';
+import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { hash, verify } from '@node-rs/argon2';
 import { ActorType, AuditAction, UserRole } from '@prisma/client';
 import { authenticator } from 'otplib';
 import { AuditService } from '../common/audit/audit.service';
 import { Realm } from '../common/auth/realm';
-import { LOGIN_POLICY } from '../common/config/env.config';
+import { LOGIN_POLICY, TOKEN_TTL } from '../common/config/env.config';
+import { SettingsService } from '../common/config/settings.service';
 import { CryptoService } from '../common/crypto/crypto.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { TokenPair, TokenService } from './token.service';
 
-/** Rôles pour lesquels le second facteur est obligatoire (§ 1.4). */
-const TOTP_REQUIRED_ROLES: UserRole[] = [
+/**
+ * Paramètres Argon2id. Identiques à ceux du seed : un mot de passe changé
+ * doit être haché exactement comme un mot de passe créé, sinon la vérification
+ * devient dépendante de la façon dont le compte a été alimenté.
+ */
+const ARGON2 = { memoryCost: 19_456, timeCost: 2, parallelism: 1 } as const;
+
+/**
+ * Rôles pour lesquels le second facteur est obligatoire (§ 1.4) — REPLI.
+ *
+ * La liste effective est lue en base sous `TOTP_REQUIRED_ROLES` : l'ajout
+ * d'un rôle à l'obligation de 2FA est une décision de sécurité interne, elle
+ * ne doit pas attendre une livraison. Ces quatre rôles restent le filet si la
+ * ligne disparaît.
+ */
+const TOTP_REQUIRED_ROLES_FALLBACK: UserRole[] = [
   UserRole.DG,
   UserRole.FINANCE_CFO,
   UserRole.ACCOUNTANT,
@@ -38,6 +53,7 @@ export class AuthService {
     private readonly tokens: TokenService,
     private readonly crypto: CryptoService,
     private readonly audit: AuditService,
+    private readonly settings: SettingsService,
   ) {}
 
   // =========================================================================
@@ -58,7 +74,7 @@ export class AuthService {
     );
 
     // --- Second facteur ------------------------------------------------------
-    const totpRequired = TOTP_REQUIRED_ROLES.includes(user!.role);
+    const totpRequired = (await this.totpRequiredRoles()).includes(user!.role);
     if (user!.totpEnabled) {
       this.verifyTotp(user!.totpSecretEnc, totpCode);
     } else if (totpRequired) {
@@ -88,7 +104,11 @@ export class AuthService {
         tokenHash: this.crypto.hashToken(pair.refreshToken),
         ipAddress: ctx.ipAddress ?? null,
         userAgent: ctx.userAgent?.slice(0, 512) ?? null,
-        expiresAt: new Date(Date.now() + 7 * 24 * 3600 * 1000),
+        // Dérivé de la durée du jeton de rafraîchissement, jamais recopié :
+        // écrite deux fois, cette durée divergeait dès qu'on touchait à
+        // TOKEN_TTL — le journal des sessions aurait affiché des connexions
+        // encore ouvertes dont le jeton était mort, ou l'inverse.
+        expiresAt: new Date(Date.now() + TOKEN_TTL.refreshSeconds * 1000),
       },
     });
 
@@ -353,6 +373,42 @@ export class AuthService {
     }
   }
 
+  /**
+   * Rôles soumis au second facteur, tels que paramétrés (§ 1.4).
+   *
+   * ⚠️ UN RÔLE INCONNU EST ÉCARTÉ, PAS ACCEPTÉ. Une faute de frappe — « DGG »
+   *    au lieu de « DG » — dispenserait sinon la direction de second facteur
+   *    sans que rien ne le signale. Et si PLUS AUCUNE entrée n'est valide, on
+   *    revient au repli : la 2FA obligatoire ne se désactive pas par accident
+   *    de saisie.
+   */
+  private async totpRequiredRoles(): Promise<UserRole[]> {
+    const configured = await this.settings.list(
+      'TOTP_REQUIRED_ROLES',
+      TOTP_REQUIRED_ROLES_FALLBACK,
+    );
+    const known = new Set<string>(Object.values(UserRole));
+    const kept: UserRole[] = [];
+    const rejected: string[] = [];
+
+    for (const entry of configured) {
+      const role = entry.toUpperCase();
+      if (known.has(role)) kept.push(role as UserRole);
+      else rejected.push(entry);
+    }
+
+    if (rejected.length > 0) {
+      this.logger.warn(
+        `TOTP_REQUIRED_ROLES — rôle(s) inconnu(s) ignoré(s) : ${rejected.join(', ')}`,
+      );
+    }
+    if (kept.length === 0) {
+      this.logger.warn('TOTP_REQUIRED_ROLES illisible — repli sur la liste par défaut.');
+      return TOTP_REQUIRED_ROLES_FALLBACK;
+    }
+    return kept;
+  }
+
   /** Incrémente le compteur d'échecs et verrouille au seuil. */
   private async registerFailure(
     realm: Realm,
@@ -360,7 +416,19 @@ export class AuthService {
     email: string,
     ctx: LoginContext,
   ): Promise<void> {
-    const lockUntil = new Date(Date.now() + LOGIN_POLICY.lockMinutes * 60_000);
+    const [rawAttempts, rawMinutes] = await Promise.all([
+      this.settings.number('LOGIN_MAX_FAILED_ATTEMPTS', LOGIN_POLICY.maxFailedAttempts),
+      this.settings.number('LOGIN_LOCK_MINUTES', LOGIN_POLICY.lockMinutes),
+    ]);
+
+    // ⚠️ Les deux bornes basses ne sont pas décoratives. Un seuil à 0
+    //    verrouillerait tout le monde dès la première faute de frappe ; une
+    //    durée à 0 poserait une date de déblocage déjà passée, c'est-à-dire
+    //    aucun verrouillage du tout — un compte serait alors attaquable
+    //    indéfiniment, sans que le paramétrage n'ait l'air désactivé.
+    const maxFailedAttempts = Math.max(1, Math.floor(rawAttempts));
+    const lockMinutes = Math.max(1, Math.floor(rawMinutes));
+    const lockUntil = new Date(Date.now() + lockMinutes * 60_000);
 
     if (realm === Realm.INTERNAL) {
       const updated = await this.prisma.user.update({
@@ -368,7 +436,7 @@ export class AuthService {
         data: { failedLoginAttempts: { increment: 1 } },
         select: { failedLoginAttempts: true },
       });
-      if (updated.failedLoginAttempts >= LOGIN_POLICY.maxFailedAttempts) {
+      if (updated.failedLoginAttempts >= maxFailedAttempts) {
         await this.prisma.user.update({
           where: { id: subjectId },
           data: { lockedUntil: lockUntil, failedLoginAttempts: 0 },
@@ -380,7 +448,7 @@ export class AuthService {
         data: { failedLoginAttempts: { increment: 1 } },
         select: { failedLoginAttempts: true },
       });
-      if (updated.failedLoginAttempts >= LOGIN_POLICY.maxFailedAttempts) {
+      if (updated.failedLoginAttempts >= maxFailedAttempts) {
         await this.prisma.portalUser.update({
           where: { id: subjectId },
           data: { lockedUntil: lockUntil, failedLoginAttempts: 0 },
@@ -443,6 +511,121 @@ export class AuthService {
         select: { totpSecretEnc: true },
       })
     ).totpSecretEnc;
+  }
+
+  // =========================================================================
+  //  Changement de mot de passe
+  // =========================================================================
+
+  /**
+   * Changement de mot de passe, tous réalms confondus.
+   *
+   * Trois exigences, chacune pour une raison précise :
+   *
+   *   1. L'ANCIEN MOT DE PASSE EST REDEMANDÉ, alors même que la session est
+   *      authentifiée. Un poste laissé ouvert ne doit pas suffire à
+   *      s'approprier un compte.
+   *
+   *   2. LE NOUVEAU DOIT DIFFÉRER DE L'ANCIEN. Sans ce contrôle, l'obligation
+   *      de changement se satisfait en resaisissant le même — et le mot de
+   *      passe provisoire distribué à tous survit indéfiniment.
+   *
+   *   3. TOUTES LES AUTRES SESSIONS SONT RÉVOQUÉES. Changer son mot de passe
+   *      après un soupçon de compromission ne sert à rien si le jeton déjà
+   *      volé continue de fonctionner jusqu'à son expiration naturelle.
+   */
+  async changePassword(
+    realm: Realm,
+    subjectId: string,
+    currentSid: string,
+    currentPassword: string,
+    newPassword: string,
+    ctx: LoginContext,
+  ): Promise<{ revokedSessions: number }> {
+    const account = await this.loadCredentials(realm, subjectId);
+
+    const ok = await verify(account.passwordHash, currentPassword).catch(() => false);
+    if (!ok) {
+      await this.audit.record({
+        actorType: AuditService.actorTypeFor(realm),
+        actorId: subjectId,
+        action: AuditAction.PASSWORD_RESET,
+        entityType: 'Credentials',
+        entityId: subjectId,
+        after: { refus: 'mot de passe actuel incorrect' },
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+      });
+      throw new UnauthorizedException('Mot de passe actuel incorrect');
+    }
+
+    const reused = await verify(account.passwordHash, newPassword).catch(() => false);
+    if (reused) {
+      throw new BadRequestException(
+        'Le nouveau mot de passe doit être différent de l’actuel.',
+      );
+    }
+
+    const passwordHash = await hash(newPassword, ARGON2);
+    await this.persistPassword(realm, subjectId, passwordHash);
+
+    // La session courante survit — l'utilisateur vient de prouver qui il est.
+    // Toutes les autres tombent.
+    const revoked = await this.tokens.revokeAllExcept(realm, subjectId, currentSid);
+
+    await this.audit.record({
+      actorType: AuditService.actorTypeFor(realm),
+      actorId: subjectId,
+      action: AuditAction.PASSWORD_RESET,
+      entityType: 'Credentials',
+      entityId: subjectId,
+      after: { sessionsRevoquees: revoked },
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    });
+
+    return { revokedSessions: revoked };
+  }
+
+  /** Empreinte du mot de passe, quel que soit le réalm. */
+  private async loadCredentials(
+    realm: Realm,
+    subjectId: string,
+  ): Promise<{ passwordHash: string }> {
+    if (realm === Realm.INTERNAL) {
+      return this.prisma.user.findUniqueOrThrow({
+        where: { id: subjectId },
+        select: { passwordHash: true },
+      });
+    }
+    if (realm === Realm.FIELD) {
+      return this.prisma.fieldUser.findUniqueOrThrow({
+        where: { id: subjectId },
+        select: { passwordHash: true },
+      });
+    }
+    return this.prisma.portalUser.findUniqueOrThrow({
+      where: { id: subjectId },
+      select: { passwordHash: true },
+    });
+  }
+
+  /** L'obligation de changement tombe par la même écriture. */
+  private async persistPassword(
+    realm: Realm,
+    subjectId: string,
+    passwordHash: string,
+  ): Promise<void> {
+    const data = { passwordHash, mustChangePassword: false, passwordChangedAt: new Date() };
+    if (realm === Realm.INTERNAL) {
+      await this.prisma.user.update({ where: { id: subjectId }, data });
+      return;
+    }
+    if (realm === Realm.FIELD) {
+      await this.prisma.fieldUser.update({ where: { id: subjectId }, data });
+      return;
+    }
+    await this.prisma.portalUser.update({ where: { id: subjectId }, data });
   }
 
   private async subjectLabel(realm: Realm, subjectId: string): Promise<string> {

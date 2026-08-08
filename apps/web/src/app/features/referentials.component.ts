@@ -49,8 +49,8 @@ interface Tolerance {
   imports: [IconComponent],
   template: `
     <header class="mb-6">
-      <h1 class="text-xl font-semibold text-slate-100">Référentiels</h1>
-      <p class="mt-1 text-sm text-slate-500">
+      <h1 class="page-title">Référentiels</h1>
+      <p class="page-sub">
         Paramétrage métier. Aucune de ces valeurs n'est codée en dur : elles se modifient
         sans redéploiement.
       </p>
@@ -67,33 +67,33 @@ interface Tolerance {
           <tbody>
             @for (c of currencies(); track c.code) {
               <tr>
-                <td class="font-mono text-slate-100">{{ c.code }}</td>
-                <td class="text-slate-300">{{ c.name }} <span class="text-slate-600">{{ c.symbol }}</span></td>
-                <td class="num" [class]="c.decimalPlaces === 0 ? 'text-amber-400' : 'text-slate-400'">
+                <td class="font-mono text-ink">{{ c.code }}</td>
+                <td class="text-ink-soft">{{ c.name }} <span class="text-ink-faint">{{ c.symbol }}</span></td>
+                <td class="num" [class]="c.decimalPlaces === 0 ? 'font-semibold text-warn-ink' : 'text-ink-soft'">
                   {{ c.decimalPlaces }}
                 </td>
                 <td class="space-x-1">
                   @if (c.isPivot) {
-                    <span class="rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] text-sky-400">pivot</span>
+                    <span class="rounded bg-primary-wash px-1.5 py-0.5 text-[11px] text-primary">pivot</span>
                   }
                   @if (c.isFunctional) {
-                    <span class="rounded bg-slate-700/50 px-1.5 py-0.5 text-[11px] text-slate-300">fonctionnelle</span>
+                    <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-ink-soft">fonctionnelle</span>
                   }
                   @if (c.isLocal) {
-                    <span class="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-400">locale</span>
+                    <span class="rounded bg-ok-wash px-1.5 py-0.5 text-[11px] text-ok">locale</span>
                   }
                 </td>
-                <td class="num text-slate-400">
+                <td class="num text-ink-soft">
                   @if (c.pegCurrencyCode) {
                     1 {{ c.pegCurrencyCode }} = {{ c.pegRate }} {{ c.code }}
-                  } @else { <span class="text-slate-700">—</span> }
+                  } @else { <span class="text-ink-faint">—</span> }
                 </td>
               </tr>
             }
           </tbody>
         </table>
       </div>
-      <p class="border-t border-slate-800 px-4 py-2 text-[11px] text-slate-600">
+      <p class="border-t border-rule px-4 py-2 text-[11px] text-ink-faint">
         Le franc CFA n'a pas de subdivision en circulation : tout montant imprimé en XOF est un entier.
       </p>
     </section>
@@ -103,7 +103,7 @@ interface Tolerance {
       <section class="card mb-5">
         <div class="card-header">
           <h2 class="card-title">Seuils de marge</h2>
-          <span class="text-[11px] text-slate-600">§ 5.4</span>
+          <span class="text-[11px] text-ink-faint">§ 5.4</span>
         </div>
         <div class="overflow-x-auto">
           <table class="table">
@@ -114,17 +114,17 @@ interface Tolerance {
             <tbody>
               @for (t of thresholds(); track $index) {
                 <tr>
-                  <td class="text-slate-200">{{ t.segment }}</td>
-                  <td class="text-slate-500">{{ t.product?.code ?? 'tous' }}</td>
-                  <td class="num text-rose-400">{{ t.directFloor ?? '—' }}</td>
-                  <td class="num text-amber-400">{{ t.minimumMargin ?? '—' }}</td>
-                  <td class="text-slate-500">{{ t.currencyCode }}/{{ t.uom }}</td>
+                  <td class="text-ink">{{ t.segment }}</td>
+                  <td class="text-ink-muted">{{ t.product?.code ?? 'tous' }}</td>
+                  <td class="num text-crit">{{ t.directFloor ?? '—' }}</td>
+                  <td class="num text-warn-ink">{{ t.minimumMargin ?? '—' }}</td>
+                  <td class="text-ink-muted">{{ t.currencyCode }}/{{ t.uom }}</td>
                 </tr>
               }
             </tbody>
           </table>
         </div>
-        <p class="border-t border-slate-800 px-4 py-2 text-[11px] text-slate-600">
+        <p class="border-t border-rule px-4 py-2 text-[11px] text-ink-faint">
           Plancher direct : blocage dur, levée par le DG seul. Seuil minimum : accord DG requis, pas un refus.
           Le segment maritime reste à définir.
         </p>
@@ -135,7 +135,7 @@ interface Tolerance {
     <section class="card mb-5">
       <div class="card-header">
         <h2 class="card-title">Tolérances d'écart de volume</h2>
-        <span class="text-[11px] text-slate-600">§ 8.3</span>
+        <span class="text-[11px] text-ink-faint">§ 8.3</span>
       </div>
       <div class="overflow-x-auto">
         <table class="table">
@@ -146,18 +146,18 @@ interface Tolerance {
           <tbody>
             @for (t of tolerances(); track $index) {
               <tr>
-                <td class="text-slate-400">{{ t.segment ?? 'tous' }}</td>
-                <td class="text-slate-400">{{ t.transportMode ?? 'tous' }}</td>
-                <td class="text-slate-400">{{ t.product?.code ?? 'tous' }}</td>
-                <td class="num text-slate-300">{{ t.normalThresholdPct }} %</td>
-                <td class="num text-amber-400">{{ t.alertThresholdPct }} %</td>
-                <td class="num text-rose-400">{{ t.criticalThresholdPct }} %</td>
+                <td class="text-ink-soft">{{ t.segment ?? 'tous' }}</td>
+                <td class="text-ink-soft">{{ t.transportMode ?? 'tous' }}</td>
+                <td class="text-ink-soft">{{ t.product?.code ?? 'tous' }}</td>
+                <td class="num text-ink-soft">{{ t.normalThresholdPct }} %</td>
+                <td class="num text-warn-ink">{{ t.alertThresholdPct }} %</td>
+                <td class="num text-crit">{{ t.criticalThresholdPct }} %</td>
               </tr>
             }
           </tbody>
         </table>
       </div>
-      <p class="border-t border-slate-800 px-4 py-2 text-[11px] text-slate-600">
+      <p class="border-t border-rule px-4 py-2 text-[11px] text-ink-faint">
         Au-delà du seuil critique, une non-conformité HSE est ouverte d'office : un écart important
         signifie que le produit est allé quelque part.
       </p>
@@ -167,7 +167,7 @@ interface Tolerance {
     <section class="card">
       <div class="card-header">
         <h2 class="card-title">Répertoire des postes de coûts</h2>
-        <span class="text-[11px] text-slate-600">{{ costPosts().length }} postes · § 6.5</span>
+        <span class="text-[11px] text-ink-faint">{{ costPosts().length }} postes · § 6.5</span>
       </div>
       <div class="overflow-x-auto">
         <table class="table">
@@ -178,18 +178,18 @@ interface Tolerance {
           <tbody>
             @for (c of costPosts(); track c.code) {
               <tr>
-                <td class="font-mono text-xs text-slate-500">{{ c.code }}</td>
-                <td class="text-slate-200">
+                <td class="font-mono text-[12px] text-ink-muted">{{ c.code }}</td>
+                <td class="text-ink">
                   {{ c.label }}
                   @if (c.isSystemComputed) {
-                    <span class="ml-2 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] text-sky-400">calculé</span>
+                    <span class="ml-2 rounded bg-primary-wash px-1.5 py-0.5 text-[10px] text-primary">calculé</span>
                   }
                 </td>
-                <td class="text-slate-500">{{ c.category }}</td>
+                <td class="text-ink-muted">{{ c.category }}</td>
                 <td>
                   <span class="rounded px-1.5 py-0.5 text-[11px]"
                         [class]="c.nature === 'DIRECT'
-                          ? 'bg-emerald-500/15 text-emerald-400'
+                          ? 'bg-ok-wash text-ok'
                           : 'bg-violet-500/15 text-violet-400'">
                     {{ c.nature === 'DIRECT' ? 'direct' : 'indirect' }}
                   </span>
@@ -198,17 +198,17 @@ interface Tolerance {
                   <span class="rounded px-1.5 py-0.5 text-[11px]"
                         [class]="c.variability === 'VARIABLE'
                           ? 'bg-blue-500/15 text-blue-400'
-                          : 'bg-slate-700/50 text-slate-300'">
+                          : 'bg-gray-100 text-ink-soft'">
                     {{ c.variability === 'VARIABLE' ? 'variable' : 'fixe' }}
                   </span>
                 </td>
-                <td class="text-slate-500">{{ c.costPool?.label ?? '—' }}</td>
+                <td class="text-ink-muted">{{ c.costPool?.label ?? '—' }}</td>
               </tr>
             }
           </tbody>
         </table>
       </div>
-      <p class="border-t border-slate-800 px-4 py-2 text-[11px] text-slate-600">
+      <p class="border-t border-rule px-4 py-2 text-[11px] text-ink-faint">
         Nature et variabilité sont deux axes indépendants. Une location de dépôt dédiée est directe
         et fixe ; une commission bancaire proportionnelle est indirecte et variable. Sans ce second
         axe, le point mort n'est pas calculable.

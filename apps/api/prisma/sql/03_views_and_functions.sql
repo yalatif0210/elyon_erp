@@ -103,15 +103,32 @@ $$ LANGUAGE plpgsql STABLE;
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE VIEW v_transport_compliance AS
-WITH blocking AS (
-    SELECT
-        partner_id, vehicle_id, driver_id,
-        COUNT(*) FILTER (WHERE status::text = 'EXPIRED')   AS expired_count,
-        COUNT(*) FILTER (WHERE status::text = 'SUSPENDED') AS suspended_count,
-        COUNT(*) FILTER (WHERE status::text = 'EXPIRING')  AS expiring_count,
-        MIN(expiry_date) FILTER (WHERE status::text IN ('VALID', 'EXPIRING')) AS next_expiry
+WITH pieces AS (
+    -- ⚠️ STATUT CALCULÉ, PAS STATUT STOCKÉ.
+    --
+    --    La colonne `status` est posée par un déclencheur BEFORE INSERT/UPDATE :
+    --    elle est figée à la dernière écriture de la pièce. Et il n'y a aucun
+    --    ordonnanceur dans cette pile. Un permis expirant le 3 septembre
+    --    portait donc encore EXPIRING le 4, `is_compliant` restait vrai, et le
+    --    chauffeur restait affectable — indéfiniment, tant que personne ne
+    --    réécrivait la ligne. Le verrou du § 6.4 ne se refermait jamais seul.
+    --
+    --    Calculé ici, il suit le calendrier sans qu'aucune tâche n'ait à
+    --    tourner — et une tâche qui ne tourne pas laisse un verrou ouvert sans
+    --    que personne ne le sache.
+    SELECT partner_id, vehicle_id, driver_id, expiry_date,
+           compliance_statut_effectif(status::text, expiry_date) AS statut
       FROM compliance_records
      WHERE is_blocking
+),
+blocking AS (
+    SELECT
+        partner_id, vehicle_id, driver_id,
+        COUNT(*) FILTER (WHERE statut = 'EXPIRED')   AS expired_count,
+        COUNT(*) FILTER (WHERE statut = 'SUSPENDED') AS suspended_count,
+        COUNT(*) FILTER (WHERE statut = 'EXPIRING')  AS expiring_count,
+        MIN(expiry_date) FILTER (WHERE statut IN ('VALID', 'EXPIRING')) AS next_expiry
+      FROM pieces
      GROUP BY partner_id, vehicle_id, driver_id
 )
 SELECT
@@ -171,7 +188,11 @@ SELECT
     cr.reference,
     cr.expiry_date,
     (cr.expiry_date - CURRENT_DATE)         AS days_remaining,
-    cr.status,
+    -- Statut effectif : l'échéancier sert à décider quoi renouveler, il ne
+    -- peut pas afficher « en cours de validité » sur une pièce périmée.
+    -- Recasté vers l'énumération : `CREATE OR REPLACE VIEW` refuse de changer
+    -- le type d'une colonne existante, et les appelants attendent l'énumération.
+    compliance_statut_effectif(cr.status::text, cr.expiry_date)::compliance_status AS status,
     cr.is_blocking,
     cr.expiry_alert_sent_at,
     CASE
@@ -194,17 +215,22 @@ COMMENT ON VIEW v_compliance_expiry_watch IS
 
 
 -- ---------------------------------------------------------------------------
---  Seuils applicables à un couple segment / produit  (§ 5.4)
+--  Seuils applicables  (§ 5.4)
 --
---  Le seuil le plus spécifique l'emporte : une ligne portant le produit prime
---  sur une ligne segment seul.
+--  La résolution exige une correspondance EXACTE de devise et d'unité : on ne
+--  compare pas 30 FCFA/L à une marge exprimée en USD/MT. Le seuil le plus
+--  spécifique l'emporte — une ligne portant le produit prime sur une ligne
+--  segment seul.
 -- ---------------------------------------------------------------------------
 
 DROP FUNCTION IF EXISTS resolve_margin_threshold(text, uuid, date);
+DROP FUNCTION IF EXISTS resolve_margin_threshold(text, uuid, char, text, date);
 
 CREATE OR REPLACE FUNCTION resolve_margin_threshold(
     p_segment    text,
     p_product_id uuid,
+    p_currency   char(3),
+    p_uom        text,
     p_on         date
 )
 RETURNS TABLE (
@@ -220,6 +246,8 @@ BEGIN
       FROM margin_thresholds m
      WHERE m.segment::text = p_segment
        AND (m.product_id IS NULL OR m.product_id = p_product_id)
+       AND m.currency_code = p_currency
+       AND m.uom::text     = p_uom
        AND m.effective_from <= p_on
        AND (m.effective_to IS NULL OR m.effective_to >= p_on)
      ORDER BY (m.product_id IS NOT NULL) DESC, m.effective_from DESC

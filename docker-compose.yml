@@ -32,6 +32,12 @@ volumes:
   postgres_data:
   redis_data:
   api_node_modules:
+  # Pièces jointes du terrain — photos, signatures. Le binaire n'est jamais en
+  # base : elle porte une clé et une empreinte, le fichier vit ici. Le conteneur
+  # de l'API reste en lecture seule ; ce montage est son SEUL chemin d'écriture
+  # durable. À inclure dans le plan de sauvegarde au même titre que la base :
+  # sans lui, un contrôle HSE validé sur photo perd sa preuve.
+  api_uploads:
 
 services:
   # -------------------------------------------------------------------------
@@ -128,14 +134,21 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET requis}
       TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:?TOTP_ENCRYPTION_KEY requis}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200,http://localhost:4300}
+      STORAGE_ROOT: /var/lib/erp/uploads
     networks:
       - edge
       - data
     ports:
       - "${API_PORT:-3000}:3000"
-    read_only: true # Le conteneur ne peut rien écrire hors des tmpfs ci-dessous.
+    read_only: true # Le conteneur ne peut rien écrire hors des montages ci-dessous.
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
+    volumes:
+      # Seul chemin d'écriture durable. `noexec` : ce qui vient d'une tablette
+      # ne doit jamais pouvoir être exécuté, quelle que soit son extension.
+      - type: volume
+        source: api_uploads
+        target: /var/lib/erp/uploads
     depends_on:
       postgres:
         condition: service_healthy

@@ -174,7 +174,6 @@ enum FxRateType {
 
 /// Nature d'une référence de prix (§ 5.5).
 enum PriceReferenceType {
-  PLATTS // Cotation indexée
   SIR // Prix SIR
   PUMP // Prix à la pompe DGH
   SUPPLIER // Prix fournisseur négocié
@@ -220,6 +219,13 @@ enum ComplianceStatus {
 }
 
 /// Registre unique des dérogations (§ 11.4).
+enum CostBasis {
+  PER_UNIT // Au litre, au m³, à la tonne — proportionnel au volume
+  FIXED // Forfait pour l'affaire — indépendant du volume
+
+  @@map("cost_basis")
+}
+
 enum DerogationType {
   MARGIN_BELOW_THRESHOLD // Marge complète sous le seuil → accord DG
   MARGIN_BELOW_DIRECT_FLOOR // Plancher direct franchi → DG seul, exceptionnel
@@ -227,6 +233,8 @@ enum DerogationType {
   TRANSPORT_NON_COMPLIANCE // Affectation d'un moyen non conforme → DG seul
   HSE_DELEGATION // Suppléance du contrôleur HSE (§ 3.4)
   ULLAGE_ACKNOWLEDGEMENT // Acquittement d'un écart de volume
+  PURCHASE_PRICE_VARIANCE // Prix d'achat hors de la bande de tolérance (§ 5.4)
+  CREDIT_LIMIT_OVERRIDE // Approbation au-delà du plafond de crédit client (§ 9.1)
   OTHER
 
   @@map("derogation_type")
@@ -249,6 +257,63 @@ enum HseControlLevel {
   BLOCKING // Empêche la poursuite de l'opération
 
   @@map("hse_control_level")
+}
+
+/// À quoi sert un site — un lieu peut servir aux DEUX.
+///
+/// Décision de la direction, 7 août 2026 :
+///
+///   « Nous avons les sites de déchargement (livraison), pas encore ceux de
+///     chargement (approvisionnement). Cela implique la possibilité qu'un site
+///     de chargement soit également un site de déchargement. »
+///
+/// ⚠️ C'est un TABLEAU, et c'est tout l'objet. Un dépôt côtier reçoit du
+///    produit par barge et en charge des camions le même jour ; le modéliser
+///    par un champ unique obligerait à le créer deux fois — et avec lui ses
+///    consignes d'accès, ses horaires, son badge. L'une des copies se
+///    périmerait.
+enum SiteUsage {
+  /// Chargement — approvisionnement. Dépôt, terminal, raffinerie.
+  LOADING
+  /// Déchargement — livraison. Site client, station, mine.
+  DELIVERY
+
+  @@map("site_usage")
+}
+
+/// Nature d'une pièce jointe produite sur le terrain (§ 10.2).
+///
+/// Elle n'est pas décorative : c'est elle qui distingue une exigence de photo
+/// d'une exigence de signature. Les confondre reviendrait à tenir un bon de
+/// livraison pour signé parce qu'on a photographié le camion.
+enum AttachmentKind {
+  PHOTO
+  /// Signature capturée à l'écran — client, chauffeur, contrôleur.
+  SIGNATURE
+  /// Pièce numérisée : autorisation d'accès, permis de travail, bon papier.
+  DOCUMENT
+
+  @@map("attachment_kind")
+}
+
+/// Régime photographique d'un point de contrôle (§ 7.1 bis).
+///
+/// Trois états, et non un booléen : « facultative » et « interdite » ne sont
+/// pas la même chose, et les confondre revient à laisser l'application décider
+/// à la place du paramétrage.
+enum HsePhotoPolicy {
+  /// Aucun appareil photo proposé. La prise de vue est proscrite en zone
+  /// ATEX, sur certains dépôts, et chez des clients qui l'interdisent
+  /// contractuellement : y afficher un bouton met l'agent en faute.
+  FORBIDDEN
+  /// Proposée, jamais exigée — un constat imprévu se photographie là où il se
+  /// trouve, sans que le paramétrage ait eu à le prévoir.
+  OPTIONAL
+  /// Exigée : le point ne peut pas être enregistré tant qu'aucune pièce ne
+  /// lui est rattachée. Le verrou est tenu EN BASE, pas dans l'application.
+  REQUIRED
+
+  @@map("hse_photo_policy")
 }
 
 /// Niveau de risque d'une opération — détermine la checklist applicable
@@ -361,7 +426,6 @@ model Currency {
 
   partnersBilling     Partner[]          @relation("PartnerBillingCurrency")
   partnersCreditLimit Partner[]          @relation("PartnerCreditLimitCurrency")
-  priceIndices        PriceIndex[]
   administeredPrices  AdministeredPrice[]
   supplierPrices      SupplierPrice[]
   marginThresholds    MarginThreshold[]
@@ -371,10 +435,11 @@ model Currency {
   // --- Relations inverses du lot 2 ---
   contracts Contract[] @relation("ContractCurrency")
   deals Deal[] @relation("DealCurrency")
-  dealPricings DealPricing[] @relation("PricingCurrency")
   assignments OperationAssignment[] @relation("AssignmentCurrency")
   purchaseOrders PurchaseOrder[] @relation("PoCurrency")
   operationCostLines OperationCostLine[] @relation("CostLineCurrency")
+  dealCostLines      DealCostLine[]     @relation("DealCostLineCurrency")
+  costStandards       CostStandard[]     @relation("CostStandardCurrency")
   invoicesTransaction Invoice[] @relation("InvoiceCurrency")
   invoicesDocument Invoice[] @relation("InvoiceDocumentCurrency")
   payments Payment[] @relation("PaymentCurrency")
@@ -382,6 +447,12 @@ model Currency {
   guarantees Guarantee[] @relation("GuaranteeCurrency")
 
   @@map("currencies")
+  carrierTariffs CarrierTariff[] @relation("CarrierTariffCurrency")
+
+  fixedCostBudgets FixedCostBudget[]
+  salesForecastsRef SalesForecast[]
+
+  crmOpportunities CrmOpportunity[] @relation("CrmOpportunityCurrency")
 }
 
 /// Historique des taux de change. Un taux n'est JAMAIS écrasé : on insère une
@@ -463,6 +534,7 @@ model User {
   absorptionRates      AbsorptionRate[]     @relation("AbsorptionRateAuthor")
   marginThresholds     MarginThreshold[]    @relation("MarginThresholdAuthor")
   ullageTolerances     UllageTolerance[]    @relation("UllageToleranceAuthor")
+  costStandards        CostStandard[]       @relation("CostStandardAuthor")
 
 
   // --- Relations inverses du lot 2 ---
@@ -470,7 +542,6 @@ model User {
   dealsOwned Deal[] @relation("DealOwner")
   dealsCreditApproved Deal[] @relation("DealCreditApprover")
   dealsDgApproved Deal[] @relation("DealDgApprover")
-  pricesFinalized DealPricing[] @relation("PriceFinalizedBy")
   dealTransitions DealStatusTransition[]
   operationsCoordinated Operation[] @relation("OperationCoordinator")
   operationsHseValidated Operation[] @relation("OperationHseValidatorUser")
@@ -492,6 +563,15 @@ model User {
 
   @@index([role, isActive])
   @@map("users")
+  siteRequirementAcks OperationSiteRequirementAck[] @relation("SiteRequirementAck")
+
+  fiscalYearsAuthored      FiscalYear[]      @relation("FiscalYearAuthor")
+  financingRatesAuthored   FinancingRate[]   @relation("FinancingRateAuthor")
+  fixedCostBudgetsAuthored FixedCostBudget[] @relation("FixedCostBudgetAuthor")
+  salesForecastsAuthored   SalesForecast[]   @relation("SalesForecastAuthor")
+
+  crmOpportunitiesOwned CrmOpportunity[] @relation("CrmOpportunityOwner")
+  crmInteractions       CrmInteraction[] @relation("CrmInteractionAuthor")
 }
 
 /// Session interne. Le token n'est jamais stocké : seul son hash SHA-256.
@@ -523,6 +603,7 @@ model PortalUser {
   isActive Boolean @default(true) @map("is_active")
 
   passwordHash        String    @map("password_hash") @db.VarChar(255)
+  passwordChangedAt   DateTime? @map("password_changed_at") @db.Timestamptz(3)
   mustChangePassword  Boolean   @default(true) @map("must_change_password")
   totpSecretEnc       String?   @map("totp_secret_enc") @db.VarChar(512)
   totpEnabled         Boolean   @default(false) @map("totp_enabled")
@@ -552,6 +633,7 @@ model FieldUser {
   isActive Boolean   @default(true) @map("is_active")
 
   passwordHash       String    @map("password_hash") @db.VarChar(255)
+  passwordChangedAt   DateTime? @map("password_changed_at") @db.Timestamptz(3)
   mustChangePassword Boolean   @default(true) @map("must_change_password")
   totpSecretEnc      String?   @map("totp_secret_enc") @db.VarChar(512)
   totpEnabled        Boolean   @default(false) @map("totp_enabled")
@@ -576,9 +658,102 @@ model FieldUser {
   hseEventsDeclared HseEvent[] @relation("HseEventDeclarer")
   measurementsEntered MeasurementRecord[] @relation("MeasurementRecorder")
   signatures Signature[] @relation("SignatureFieldUser")
+  syncEvents FieldSyncEvent[] @relation("FieldEventAuthor")
 
   @@index([role, isActive])
   @@map("field_users")
+}
+
+/// Nature d'un événement produit sur la tablette (§ 10.2).
+///
+/// La liste est FERMÉE, et c'est voulu : chaque nature correspond à une
+/// opération de domaine dont les invariants sont déjà tenus côté serveur. Un
+/// événement générique « mise à jour » rouvrirait la porte à la synchronisation
+/// d'états — celle qui fabrique des conflits insolubles.
+enum FieldEventType {
+  /// Ouverture d'une checklist sur une phase.
+  CHECK_OPENED
+  /// Renseignement d'un point par l'agent. RENSEIGNER N'EST PAS VALIDER.
+  CHECK_ITEM_RECORDED
+  /// Validation d'une checklist par le contrôleur HSE.
+  CHECK_VALIDATED
+  /// Relevé de volume et de température.
+  MEASUREMENT_RECORDED
+  /// Avancement de l'opération à l'étape suivante.
+  STATUS_ADVANCED
+  /// Déclaration d'incident, quasi-accident ou observation dangereuse.
+  HSE_EVENT_DECLARED
+
+  @@map("field_event_type")
+}
+
+/// Sort d'un événement à l'arrivée.
+enum FieldEventStatus {
+  /// Appliqué : l'état du serveur en tient compte.
+  ACCEPTED
+  /// Refusé par un invariant. Le motif redescend sur l'appareil (§ 10.2).
+  REJECTED
+  /// Non traité parce qu'un événement ANTÉRIEUR de la même opération a été
+  /// refusé. Ni appliqué ni perdu : il repartira au prochain envoi, une fois
+  /// le blocage levé sur l'appareil.
+  DEFERRED
+
+  @@map("field_event_status")
+}
+
+/// Journal d'événements terrain — EN AJOUT SEUL (§ 10.2).
+///
+/// « La tablette ne détient pas une copie modifiable de l'opération qu'elle
+/// renverrait au serveur — cette approche fabrique des conflits insolubles. »
+///
+/// ⚠️ L'identifiant est celui GÉNÉRÉ SUR L'APPAREIL, et il est la clé primaire,
+///    non une colonne annexe. C'est lui, et non un code de déduplication, qui
+///    rend la synchronisation idempotente : un renvoi après coupure retombe sur
+///    la même ligne et la clé refuse le doublon, sans qu'aucun code applicatif
+///    n'ait à s'en préoccuper. Un identifiant serveur avec `clientUuid` unique
+///    à côté aurait laissé un chemin d'écriture sans déduplication.
+model FieldSyncEvent {
+  id String @id @db.Uuid
+
+  operationId String    @map("operation_id") @db.Uuid
+  operation   Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+
+  fieldUserId String    @map("field_user_id") @db.Uuid
+  fieldUser   FieldUser @relation("FieldEventAuthor", fields: [fieldUserId], references: [id], onDelete: Restrict)
+
+  /// Appareil émetteur — un agent peut changer de tablette, et l'écart entre
+  /// l'appareil affecté et l'appareil émetteur est en soi un signal (§ 10.5).
+  deviceId String @map("device_id") @db.VarChar(128)
+
+  type    FieldEventType
+  /// Charge utile propre à la nature de l'événement. Elle n'est jamais
+  /// appliquée telle quelle : le serveur en extrait ce qu'il attend et
+  /// délègue aux services de domaine, seuls porteurs des invariants.
+  payload Json
+
+  /// Rang dans le journal de l'appareil. L'ORDRE DE PRODUCTION fait foi :
+  /// rejouer un lot dans l'ordre d'arrivée réseau appliquerait un relevé de
+  /// livraison avant le chargement qui le précède.
+  sequence Int @db.Integer
+
+  /// Les DEUX horodatages sont conservés : l'horloge de l'appareil n'est pas
+  /// fiable, et l'écart avec la réception serveur est un signal d'audit.
+  deviceTimestamp DateTime @map("device_timestamp") @db.Timestamptz(3)
+  receivedAt      DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+
+  status          FieldEventStatus
+  /// Motif de refus, rédigé pour l'agent : il redescend sur l'appareil et doit
+  /// dire quoi faire, pas seulement que c'est refusé.
+  rejectionReason String?   @map("rejection_reason") @db.VarChar(1000)
+  appliedAt       DateTime? @map("applied_at") @db.Timestamptz(3)
+
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+
+  @@index([operationId, sequence])
+  @@index([status, receivedAt])
+  @@index([fieldUserId, receivedAt])
+  @@map("field_sync_events")
 }
 
 /// Suppléance. Réf. § 3.4 — l'entreprise n'a qu'un contrôleur HSE ; son
@@ -689,6 +864,7 @@ model Partner {
   purchaseOrders PurchaseOrder[] @relation("PoSupplier")
   measurementsAsInspector MeasurementRecord[] @relation("MeasurementInspector")
   operationCostLines OperationCostLine[] @relation("CostLineSupplier")
+  dealCostLines      DealCostLine[]     @relation("DealCostLineSupplier")
   invoices Invoice[] @relation("InvoicePartner")
   payments Payment[] @relation("PaymentPartner")
   supplierInvoices SupplierInvoice[] @relation("SupplierInvoiceSupplier")
@@ -698,18 +874,39 @@ model Partner {
   @@index([type, creditStatus])
   @@index([segment, isActive])
   @@map("partners")
+  carrierTariffs CarrierTariff[] @relation("CarrierTariffPartner")
+
+  crmOpportunities CrmOpportunity[]
 }
 
 /// Site de livraison ou d'enlèvement. Porte les informations que l'application
 /// terrain expose à l'opérateur (§ 10.3) : accès, horaires, consignes de
 /// sécurité — jamais de donnée commerciale.
-model PartnerSite {
-  id        String  @id @default(uuid()) @db.Uuid
-  partnerId String  @map("partner_id") @db.Uuid
-  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+/// SITE — le LIEU PHYSIQUE, indépendant de qui s'y fait livrer ou charger.
+///
+/// Décision de la direction, 6 août 2026 :
+///
+///   « Une destination doit être rattachée à un tiers (client) même si
+///     plusieurs tiers peuvent avoir la même destination de livraison — et
+///     c'est courant. Généralement chaque site de livraison a ses exigences à
+///     connaître pour mieux préparer une opération le concernant. »
+///
+/// ⚠️ POURQUOI LE LIEU EST SÉPARÉ DU RATTACHEMENT.
+///
+///    `PartnerSite` appartenait à UN tiers. Deux clients livrés au même dépôt
+///    minier obligeaient donc à créer le site DEUX FOIS — et avec lui ses
+///    consignes d'accès, ses horaires, ses consignes de sécurité. L'une des
+///    copies était mise à jour, l'autre non, et l'agent envoyé par le second
+///    client partait avec des consignes périmées. Sur un site classé, cela ne
+///    se rattrape pas.
+///
+///    Les exigences appartiennent au LIEU, pas à la relation commerciale.
+model Site {
+  id   String @id @default(uuid()) @db.Uuid
+  /// Code interne d'Elyon pour ce lieu — pas celui d'un client.
+  code String @unique @db.VarChar(32)
+  name String @db.VarChar(160)
 
-  code        String  @db.VarChar(24)
-  name        String  @db.VarChar(160)
   addressLine String? @map("address_line") @db.VarChar(255)
   city        String? @db.VarChar(120)
   countryCode String  @map("country_code") @db.Char(2)
@@ -723,6 +920,149 @@ model PartnerSite {
   safetyInstructions String? @map("safety_instructions") @db.VarChar(2000)
 
   /// Niveau de risque HSE par défaut des opérations sur ce site (§ 7.2).
+  defaultHseRiskLevel HseRiskLevel @default(STANDARD) @map("default_hse_risk_level")
+
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  /// Les tiers qui s'y font livrer — plusieurs, et c'est le cas courant.
+  partnerSites PartnerSite[]
+  /// Opérations qui en PARTENT.
+  operationsAsOrigin Operation[] @relation("OperationOrigin")
+  tariffsAsOrigin      CarrierTariff[] @relation("CarrierTariffOrigin")
+  tariffsAsDestination CarrierTariff[] @relation("CarrierTariffDestination")
+  /// Ce qu'il faut savoir avant d'y envoyer quelqu'un.
+  requirements SiteRequirement[]
+
+  /// À quoi ce lieu sert. Un dépôt qui reçoit ET expédie porte les deux.
+  usages SiteUsage[]
+
+  @@index([isActive, city])
+  @@map("sites")
+}
+
+/// Nature d'exigence d'un site — ADMINISTRABLE.
+///
+/// La liste n'est pas figée dans le code : un dépôt impose un badge, un autre
+/// un créneau réservé, un troisième un attelage particulier. Ajouter une
+/// nature ne doit pas demander une livraison.
+model SiteRequirementType {
+  id          String  @id @default(uuid()) @db.Uuid
+  code        String  @unique @db.VarChar(48)
+  label       String  @db.VarChar(160)
+  description String? @db.VarChar(500)
+
+  /// Bloquant PAR DÉFAUT à la création d'une exigence de cette nature. Le
+  /// caractère bloquant reste réglable exigence par exigence : un badge
+  /// d'accès est bloquant sur un site, une simple recommandation sur un autre.
+  defaultBlocking Boolean @default(false) @map("default_blocking")
+
+  displayOrder Int     @default(0) @map("display_order") @db.SmallInt
+  isActive     Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  requirements SiteRequirement[]
+
+  @@map("site_requirement_types")
+}
+
+/// Une exigence PORTÉE PAR UN SITE — « ce qu'il faut savoir avant d'y aller ».
+///
+/// Elle est affichée au coordinateur qui prépare l'opération, et à l'agent sur
+/// sa tablette. Une exigence BLOQUANTE empêche l'opération d'avancer tant
+/// qu'elle n'a pas été acquittée : c'est le même principe que le verrou de
+/// conformité — se présenter sans le badge d'accès, c'est repartir à vide.
+model SiteRequirement {
+  id     String       @id @default(uuid()) @db.Uuid
+  siteId String       @map("site_id") @db.Uuid
+  site   Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  typeId String              @map("type_id") @db.Uuid
+  type   SiteRequirementType @relation(fields: [typeId], references: [id], onDelete: Restrict)
+
+  /// Le détail concret : « badge délivré par le poste de garde, 24 h avant ».
+  detail String @db.VarChar(1000)
+
+  /// Bloque l'avancement de l'opération tant qu'elle n'est pas acquittée.
+  isBlocking Boolean @default(false) @map("is_blocking")
+  isActive   Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  /// Acquittements par opération — une exigence bloquante doit être levée
+  /// avant que l'opération avance.
+  acknowledgements OperationSiteRequirementAck[]
+
+  @@unique([siteId, typeId])
+  @@index([siteId, isActive])
+  @@map("site_requirements")
+}
+
+/// ACQUITTEMENT d'une exigence de site sur une opération donnée.
+///
+/// Une exigence bloquante n'est pas une information : c'est une condition. Se
+/// présenter sans le badge d'accès ou hors du créneau réservé, c'est un camion
+/// qui repart à vide — et le produit est déjà payé, avec son portage.
+///
+/// L'acquittement dit « c'est fait », et il porte QUI l'a dit : c'est la
+/// différence entre une consigne lue et une consigne suivie.
+model OperationSiteRequirementAck {
+  id String @id @default(uuid()) @db.Uuid
+
+  operationId String    @map("operation_id") @db.Uuid
+  operation   Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+
+  requirementId String                  @map("requirement_id") @db.Uuid
+  requirement   SiteRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+
+  /// Ce qui a été fait, concrètement : « badge n° 4471 retiré le 06/08 ».
+  note String? @db.VarChar(500)
+
+  acknowledgedById String   @map("acknowledged_by_id") @db.Uuid
+  acknowledgedBy   User     @relation("SiteRequirementAck", fields: [acknowledgedById], references: [id], onDelete: Restrict)
+  acknowledgedAt   DateTime @default(now()) @map("acknowledged_at") @db.Timestamptz(3)
+
+  @@unique([operationId, requirementId])
+  @@map("operation_site_requirement_acks")
+}
+
+/// RATTACHEMENT d'un tiers à un site de livraison.
+///
+/// Ce n'est plus le lieu : c'est le fait que CE client se fait livrer LÀ. Le
+/// même lieu porte autant de rattachements que de clients qui l'exploitent.
+model PartnerSite {
+  id        String  @id @default(uuid()) @db.Uuid
+  partnerId String  @map("partner_id") @db.Uuid
+  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  /// Le LIEU. Facultatif le temps de la reprise, puis obligatoire.
+  siteId String? @map("site_id") @db.Uuid
+  site   Site?   @relation(fields: [siteId], references: [id], onDelete: Restrict)
+
+  /// Code et nom TELS QUE CE CLIENT LES EMPLOIE. Un même dépôt s'appelle
+  /// « Site Man » chez l'un et « MIN-004 » chez l'autre : les bons de
+  /// livraison doivent porter la désignation que le client reconnaît.
+  code        String  @db.VarChar(24)
+  name        String  @db.VarChar(160)
+
+  /// ⚠️ Colonnes du LIEU, conservées le temps de la reprise. Elles ne doivent
+  ///    plus être lues : la vérité est sur `site`. Deux exemplaires
+  ///    d'une consigne de sécurité, c'est un exemplaire périmé.
+  addressLine String? @map("address_line") @db.VarChar(255)
+  city        String? @db.VarChar(120)
+  countryCode String  @map("country_code") @db.Char(2)
+
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+
+  accessInstructions String? @map("access_instructions") @db.VarChar(2000)
+  openingHours       String? @map("opening_hours") @db.VarChar(500)
+  safetyInstructions String? @map("safety_instructions") @db.VarChar(2000)
+
   defaultHseRiskLevel HseRiskLevel @default(STANDARD) @map("default_hse_risk_level")
 
   isActive  Boolean  @default(true) @map("is_active")
@@ -804,10 +1144,6 @@ model Product {
   /// Pastille désaturée, canal visuel distinct des couleurs de statut (§ 17.2).
   uiColorToken String @map("ui_color_token") @db.VarChar(32)
 
-  /// Cotation proposée par défaut lors d'un pricing indexé.
-  defaultPriceIndexId String?     @map("default_price_index_id") @db.Uuid
-  defaultPriceIndex   PriceIndex? @relation(fields: [defaultPriceIndexId], references: [id], onDelete: SetNull)
-
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -816,70 +1152,24 @@ model Product {
   supplierPrices     SupplierPrice[]
   marginThresholds   MarginThreshold[]
   ullageTolerances   UllageTolerance[]
+  costStandards      CostStandard[]     @relation("CostStandardProduct")
 
 
   // --- Relations inverses du lot 2 ---
   deals Deal[] @relation("DealProduct")
 
   @@map("products")
+  carrierTariffs CarrierTariff[] @relation("CarrierTariffProduct")
+
+  salesForecasts SalesForecast[]
+
+  crmOpportunities CrmOpportunity[]
 }
 
 // ============================================================================
 //  RÉFÉRENCES DE PRIX
-//  Réf. § 5.5 — quatre références coexistent, résolues par contexte.
+//  Réf. § 5.5 — prix administrés DGH/SIR et prix fournisseurs négociés.
 // ============================================================================
-
-/// Cotation publiée (Platts, Argus, ICIS). Le fournisseur, la place et la
-/// qualité cotée font partie de l'identité de l'indice : deux indices Platts
-/// sur un même produit peuvent différer de plusieurs dollars la tonne.
-model PriceIndex {
-  id   String @id @default(uuid()) @db.Uuid
-  code String @unique @db.VarChar(48)
-  name String @db.VarChar(200)
-
-  provider String @db.VarChar(40) // PLATTS, ARGUS, ICIS…
-  location String @db.VarChar(60) // ROTTERDAM, MED, SINGAPORE…
-
-  currencyCode String        @map("currency_code") @db.Char(3)
-  currency     Currency      @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
-  uom          UnitOfMeasure
-
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-
-  assessments PriceAssessment[]
-  products    Product[]
-
-
-  // --- Relations inverses du lot 2 ---
-  dealPricings DealPricing[]
-
-  @@map("price_indices")
-}
-
-/// Cotation d'un jour. Platts publie une fourchette dont la moyenne — le
-/// « mean of Platts » — est la valeur contractualisée. Non supprimable :
-/// une cotation réécrite changerait rétroactivement le prix d'un deal.
-model PriceAssessment {
-  id           String     @id @default(uuid()) @db.Uuid
-  priceIndexId String     @map("price_index_id") @db.Uuid
-  priceIndex   PriceIndex @relation(fields: [priceIndexId], references: [id], onDelete: Cascade)
-
-  quoteDate DateTime @map("quote_date") @db.Date
-  low       Decimal  @db.Decimal(18, 4)
-  high      Decimal  @db.Decimal(18, 4)
-  /// Moyenne (low + high) / 2 — cohérence vérifiée par CHECK.
-  mean      Decimal  @db.Decimal(18, 4)
-
-  sourceReference String? @map("source_reference") @db.VarChar(200)
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-
-  @@unique([priceIndexId, quoteDate])
-  @@index([priceIndexId, quoteDate(sort: Desc)])
-  @@map("price_assessments")
-}
 
 /// Prix administré — publié par la DGH (prix à la pompe) ou fixé par la SIR.
 /// Périodicité VARIABLE : aucune hypothèse de mensualité. Horodaté et
@@ -923,7 +1213,8 @@ model AdministeredPrice {
 
 
   // --- Relations inverses du lot 2 ---
-  dealPricings DealPricing[]
+  /// Deals ayant consulté cette référence au moment de fixer leur prix.
+  deals Deal[]
 
   @@unique([referenceType, productId, zone, effectiveFrom])
   @@index([referenceType, productId, effectiveFrom(sort: Desc)])
@@ -952,12 +1243,13 @@ model SupplierPrice {
   sourceLabel String @map("source_label") @db.VarChar(80)
 
   minVolume    Decimal? @map("min_volume") @db.Decimal(18, 6)
-  discountPct  Decimal? @map("discount_pct") @db.Decimal(9, 6)
 
   effectiveFrom DateTime  @map("effective_from") @db.Date
   effectiveTo   DateTime? @map("effective_to") @db.Date
 
-  /// Un prix fournisseur ne s'applique qu'une fois validé (§ 6.3).
+  /// Un prix fournisseur ne s'applique qu'une fois VALIDÉ PAR LE DG (§ 6.3).
+  /// Une mise à jour ne modifie jamais une ligne validée : elle en crée une
+  /// nouvelle, datée. L'historique des prix d'achat reste donc opposable.
   validatedById String?   @map("validated_by_id") @db.Uuid
   validatedBy   User?     @relation("SupplierPriceValidator", fields: [validatedById], references: [id], onDelete: Restrict)
   validatedAt   DateTime? @map("validated_at") @db.Timestamptz(3)
@@ -968,6 +1260,7 @@ model SupplierPrice {
 
   // --- Relations inverses du lot 2 ---
   purchaseOrders PurchaseOrder[]
+  deals          Deal[]         @relation("DealSupplierPrice")
 
   @@index([supplierId, productId, effectiveFrom(sort: Desc)])
   @@index([productId, validatedAt])
@@ -1020,6 +1313,8 @@ model CostPost {
 
   // --- Relations inverses du lot 2 ---
   operationCostLines OperationCostLine[]
+  dealCostLines      DealCostLine[]     @relation("DealCostLinePost")
+  costStandards      CostStandard[]     @relation("CostStandardPost")
 
   @@index([nature, variability])
   @@index([isActive, displayOrder])
@@ -1078,7 +1373,9 @@ model AbsorptionRate {
 
   /// Taux dérivé = budgetedAmount / budgetedBase. Figé, recalculé
   /// uniquement lors d'une révision explicite.
-  ratePerUnit Decimal @map("rate_per_unit") @db.Decimal(18, 6)
+  /// CALCULÉ par déclencheur — budget ÷ assiette. Le défaut n'existe que
+  /// pour que Prisma ne l'exige pas à la création : il est écrasé aussitôt.
+  ratePerUnit Decimal @default(0) @map("rate_per_unit") @db.Decimal(18, 6)
 
   /// Version : une révision crée une nouvelle ligne, jamais un écrasement.
   version   Int      @default(1) @db.SmallInt
@@ -1126,8 +1423,11 @@ model MarginThreshold {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  @@unique([segment, productId, effectiveFrom])
-  @@index([segment, effectiveFrom(sort: Desc)])
+  /// La devise ET l'unité entrent dans la clé : un même segment peut porter
+  /// un seuil en XOF/L pour la distribution et un autre en USD/MT pour le
+  /// soutage, sans que l'un chasse l'autre.
+  @@unique([segment, productId, currencyCode, uom, effectiveFrom])
+  @@index([segment, currencyCode, uom, effectiveFrom(sort: Desc)])
   @@map("margin_thresholds")
 }
 
@@ -1150,7 +1450,8 @@ model UllageTolerance {
 
   /// En deçà : perte technique attendue, aucune alerte.
   normalThresholdPct Decimal @map("normal_threshold_pct") @db.Decimal(9, 6)
-  /// Au-delà : alerte + blocage de la facturation jusqu'à acquittement motivé.
+  /// Au-delà : alerte + acquittement motivé attendu. Sans effet sur la
+  /// facturation — l'ullage est un capteur opérationnel, pas un verrou commercial.
   alertThresholdPct Decimal @map("alert_threshold_pct") @db.Decimal(9, 6)
   /// Au-delà : blocage + NON-CONFORMITÉ HSE OUVERTE D'OFFICE.
   /// Un écart important signifie que le produit est allé quelque part :
@@ -1312,14 +1613,78 @@ model ComplianceRecord {
 //  Les instances de contrôle arrivent au lot 2, avec l'Opération.
 // ============================================================================
 
+/// TYPE D'OPÉRATION — administrable, et indexant les contrôles HSE (§ 7.1).
+///
+/// Une opération en porte PLUSIEURS : elle commence par un transport routier
+/// et se termine par un soutage à quai. Les contrôles applicables sont donc
+/// l'UNION de ceux de chaque type, dédoublonnée. Un type unique aurait obligé
+/// à créer un type composite par combinaison rencontrée — ingérable dès la
+/// troisième.
+///
+/// Aucune valeur n'est codée en dur : la liste se tient depuis l'écran de
+/// paramétrage, comme les seuils et les barèmes (§ 1.1 bis).
+model OperationType {
+  id    String @id @default(uuid()) @db.Uuid
+  code  String @unique @db.VarChar(48)
+  label String @db.VarChar(160)
+
+  /// Précision opérationnelle affichée au moment de composer l'opération.
+  description String? @db.VarChar(500)
+
+  /// Segments où ce type a un sens. Vide = tous.
+  segments CommercialSegment[]
+
+  /// Niveau de risque par défaut, proposé à la création. Il reste modifiable :
+  /// c'est une aide à la saisie, pas une contrainte.
+  defaultRiskLevel HseRiskLevel? @map("default_risk_level")
+
+  displayOrder Int     @default(0) @map("display_order") @db.SmallInt
+  isActive     Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  operations OperationTypeAssignment[]
+  checklists HseChecklistTemplate[]   @relation("ChecklistOperationTypes")
+
+  @@index([isActive, displayOrder])
+  @@map("operation_types")
+}
+
+/// Rattachement d'un type à une opération, avec son rang dans le déroulé.
+///
+/// L'ordre compte : il dit dans quelle succession les étapes s'enchaînent, et
+/// donc dans quel ordre les checklists se présentent à l'agent.
+model OperationTypeAssignment {
+  id          String    @id @default(uuid()) @db.Uuid
+  operationId String    @map("operation_id") @db.Uuid
+  operation   Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+
+  operationTypeId String        @map("operation_type_id") @db.Uuid
+  operationType   OperationType @relation(fields: [operationTypeId], references: [id], onDelete: Restrict)
+
+  /// Rang dans le déroulé — 1 pour le transport routier, 2 pour le soutage.
+  sequence Int @default(1) @db.SmallInt
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([operationId, operationTypeId])
+  @@index([operationId, sequence])
+  @@map("operation_type_assignments")
+}
+
 model HseChecklistTemplate {
   id    String @id @default(uuid()) @db.Uuid
   code  String @unique @db.VarChar(48)
   label String @db.VarChar(200)
 
-  /// Contexte d'application : livraison terrestre, chargement, déchargement,
-  /// opération maritime, opération de barge, transfert, transport pour compte
-  /// de client, maintenance, opération exceptionnelle (§ 7.1).
+  /// TYPES D'OPÉRATION couverts — l'axe principal d'indexation (§ 7.1).
+  /// Une opération portant plusieurs types reçoit l'union de leurs checklists.
+  operationTypes OperationType[] @relation("ChecklistOperationTypes")
+
+  /// Axes d'affinage, conservés : ils permettent de distinguer deux checklists
+  /// du même type d'opération selon le segment ou le niveau de risque. Vide =
+  /// s'applique à tous.
   applicableSegments      CommercialSegment[] @map("applicable_segments")
   applicableTransportModes TransportMode[]    @map("applicable_transport_modes")
   applicableRiskLevels    HseRiskLevel[]      @map("applicable_risk_levels")
@@ -1336,6 +1701,9 @@ model HseChecklistTemplate {
 
   // --- Relations inverses du lot 2 ---
   operationChecks OperationHseCheck[]
+  /// Points effectivement issus de ce modèle — la provenance se lit ici, la
+  /// checklist d'une opération multi-types n'ayant pas de modèle unique.
+  sourcedCheckItems OperationHseCheckItem[] @relation("CheckItemSource")
 
   @@index([isActive, isCurrent])
   @@map("hse_checklist_templates")
@@ -1354,8 +1722,29 @@ model HseChecklistItem {
   phase OperationPhase
   level HseControlLevel
 
-  /// Exige une photo pour être validé — support de la validation à distance
-  /// par le contrôleur HSE (§ 7.2).
+  /// Régime photographique du point — TROIS états, administrables (§ 7.1 bis).
+  ///
+  /// ⚠️ `requiresPhoto` seul ne suffisait pas, et pour deux raisons.
+  ///
+  ///    D'abord parce qu'un booléen ne distingue pas « facultative » de
+  ///    « interdite » : l'application proposait donc l'appareil photo partout,
+  ///    ce qui est une décision métier qu'elle n'avait pas à prendre. La prise
+  ///    de vue est proscrite en zone ATEX, sur certains dépôts et chez des
+  ///    clients qui l'interdisent contractuellement — un bouton affiché là met
+  ///    l'agent en faute.
+  ///
+  ///    Ensuite parce que `requiresPhoto` n'était vérifié NULLE PART : ni par
+  ///    l'application, ni par la base. Un point marqué « photo exigée »
+  ///    s'enregistrait sans photo, et personne ne le voyait. Le paramètre
+  ///    existait, s'affichait à l'écran, et ne commandait rien.
+  ///
+  /// Décision de la direction du 6 août 2026 : l'exigence mord À
+  /// L'ENREGISTREMENT du point, pas à la validation de la checklist.
+  photoPolicy HsePhotoPolicy @default(OPTIONAL) @map("photo_policy")
+
+  /// Conservé et TENU À JOUR avec `photoPolicy` par un déclencheur : les
+  /// tablettes et les vues existantes le lisent encore. Il sera retiré quand
+  /// plus rien ne le lira.
   requiresPhoto     Boolean @default(false) @map("requires_photo")
   requiresValue     Boolean @default(false) @map("requires_value")
   valueLabel        String? @map("value_label") @db.VarChar(120)
@@ -1464,6 +1853,8 @@ model Derogation {
 
   // --- Relations inverses du lot 2 ---
   dealMargin Deal? @relation("DealMarginDerogation")
+  dealPurchasePrice Deal? @relation("DealPurchasePriceDerogation")
+  dealCredit Deal? @relation("DealCreditDerogation")
   operationHse Operation? @relation("OperationHseDerogation")
   assignment OperationAssignment? @relation("AssignmentDerogation")
   ullage MeasurementRecord? @relation("UllageDerogation")
@@ -1615,41 +2006,26 @@ enum SourcingMode {
   @@map("sourcing_mode")
 }
 
-enum PricingType {
-  FIXED // Prix ferme, connu dès l'origine.
-  INDEXED // Prix indexé Platts, fixé après clôture de la fenêtre de cotation.
-
-  @@map("pricing_type")
-}
-
-/// Convention de calcul d'un prix indexé (§ 5.6).
-enum QuotationBasis {
-  MEAN_OVER_PERIOD
-  AROUND_BL_DATE
-  MONTHLY_AVERAGE
-  SINGLE_DATE
-
-  @@map("quotation_basis")
-}
-
-/// Les quatre formules de facturation (§ 5.2). Le segment en donne le DÉFAUT ;
-/// la formule appliquée reste surchargeable au niveau du Deal.
-enum PricingFormula {
-  MARITIME_EXEMPT_HT // CIF HT + prime + transport + frais admin + autres
-  MARITIME_TTC // Prix à la pompe − réduction
-  B2B_FULL_COST // Coût complet + marge + taxes
-  RETAIL_CESSION // Prix à la pompe − marge station
-  CUSTOM // Prix libre, saisi et motivé
-
-  @@map("pricing_formula")
-}
-
 /// Mode d'expression d'une réduction commerciale (§ 5.2).
+/// Mode d'expression d'une réduction commerciale.
 enum DiscountMode {
   PER_UNIT // Montant par litre / tonne
   PERCENTAGE
+  FIXED_AMOUNT // Remise globale en montant
 
   @@map("discount_mode")
+}
+
+/// Mention HT / TTC imprimée en entête de la pièce.
+///
+/// PUREMENT DOCUMENTAIRE : elle n'a aucun effet sur le calcul des montants.
+/// Le prix saisi est toujours toutes taxes, et la TVA — si la case
+/// « TVA applicable » est cochée — s'extrait du total.
+enum TaxRegime {
+  HT
+  TTC
+
+  @@map("tax_regime")
 }
 
 enum PurchaseOrderStatus {
@@ -1832,7 +2208,6 @@ model Contract {
 
   /// Conditions négociées, héritées par défaut par les Deals rattachés.
   segment          CommercialSegment
-  pricingFormula   PricingFormula    @map("pricing_formula")
   paymentTermsDays Int?              @map("payment_terms_days") @db.SmallInt
   currencyCode     String            @map("currency_code") @db.Char(3)
   currency         Currency          @relation("ContractCurrency", fields: [currencyCode], references: [code], onDelete: Restrict)
@@ -1902,11 +2277,36 @@ model Deal {
   fxRate        FxRate?   @relation("DealFxRate", fields: [fxRateId], references: [id], onDelete: Restrict)
   fxRateDate    DateTime? @map("fx_rate_date") @db.Date
 
-  // --- Structure de prix, en devise de transaction (§ 5) ---
-  unitSalePrice     Decimal @default(0) @map("unit_sale_price") @db.Decimal(18, 4)
-  saleAmount        Decimal @default(0) @map("sale_amount") @db.Decimal(18, 4)
-  unitPurchasePrice Decimal @default(0) @map("unit_purchase_price") @db.Decimal(18, 4)
-  purchaseAmount    Decimal @default(0) @map("purchase_amount") @db.Decimal(18, 4)
+  // --- Structure de prix PRÉVISIONNELLE, en devise de transaction (§ 5).
+  //
+  //     Ces montants servent à approuver la marge AVANT toute exécution. Ils
+  //     ne pilotent pas la facturation : volume et prix sont saisis à
+  //     l'édition de chaque pièce et peuvent différer (§ 9.1).
+  //
+  //     Le prix d'achat réel figure sur la commande d'achat ; l'écart entre
+  //     prévisionnel et réel est une information de gestion, pas une anomalie.
+  unitSalePrice Decimal @default(0) @map("unit_sale_price") @db.Decimal(18, 4)
+  saleAmount    Decimal @default(0) @map("sale_amount") @db.Decimal(18, 4)
+
+  /// Le prix d'achat n'est JAMAIS libre : il provient d'un prix fournisseur
+  /// validé par le DG. C'est le levier le plus simple pour gonfler un coût et
+  /// détourner la différence — le fermer est le contrôle anti-fraude principal.
+  supplierPriceId   String?        @map("supplier_price_id") @db.Uuid
+  supplierPrice     SupplierPrice? @relation("DealSupplierPrice", fields: [supplierPriceId], references: [id], onDelete: Restrict)
+  unitPurchasePrice Decimal        @default(0) @map("unit_purchase_price") @db.Decimal(18, 4)
+  purchaseAmount    Decimal        @default(0) @map("purchase_amount") @db.Decimal(18, 4)
+
+  /// Réduction commerciale prévue. Elle diminue le montant de vente, donc la
+  /// marge : le prévisionnel doit en tenir compte pour que le seuil ait un sens.
+  discountMode   DiscountMode? @map("discount_mode")
+  discountValue  Decimal?      @map("discount_value") @db.Decimal(18, 4)
+  discountAmount Decimal       @default(0) @map("discount_amount") @db.Decimal(18, 4)
+
+  /// Prix administré consulté au moment de fixer le prix — référence, jamais
+  /// dérivation (§ 5.3).
+  referencePriceId String?            @map("reference_price_id") @db.Uuid
+  referencePrice   AdministeredPrice? @relation(fields: [referencePriceId], references: [id], onDelete: SetNull)
+  pricingNotes     String?            @map("pricing_notes") @db.VarChar(1000)
 
   /// Charges prévisionnelles agrégées, ventilées par poste dans OperationCostLine.
   estimatedDirectCharges   Decimal @default(0) @map("estimated_direct_charges") @db.Decimal(18, 4)
@@ -1942,6 +2342,21 @@ model Deal {
   marginDerogationId String?     @unique @map("margin_derogation_id") @db.Uuid
   marginDerogation   Derogation? @relation("DealMarginDerogation", fields: [marginDerogationId], references: [id], onDelete: SetNull)
 
+  /// Motif de l'écart entre le prix retenu et le prix fournisseur validé.
+  /// Le prix d'achat reste ADOSSÉ à une ligne validée par le DG ; il peut s'en
+  /// écarter dans une bande paramétrable, au-delà de laquelle l'affaire ne
+  /// peut être approuvée sans dérogation du DG (§ 5.4).
+  purchasePriceVarianceReason String?     @map("purchase_price_variance_reason") @db.VarChar(500)
+  purchasePriceDerogationId   String?     @unique @map("purchase_price_derogation_id") @db.Uuid
+  purchasePriceDerogation     Derogation? @relation("DealPurchasePriceDerogation", fields: [purchasePriceDerogationId], references: [id], onDelete: SetNull)
+
+  /// Dérogation du DG autorisant l'approbation AU-DELÀ du plafond de crédit du
+  /// client (§ 9.1). Soumise aux mêmes conditions d'opposabilité que les
+  /// autres : révoquée, échue ou accordée pour une autre affaire, elle n'ouvre
+  /// rien.
+  creditDerogationId String?     @unique @map("credit_derogation_id") @db.Uuid
+  creditDerogation   Derogation? @relation("DealCreditDerogation", fields: [creditDerogationId], references: [id], onDelete: SetNull)
+
   // --- Acceptation client ---
   acceptedByPortalUserId String?     @map("accepted_by_portal_user_id") @db.Uuid
   acceptedByPortalUser   PortalUser? @relation("DealAcceptedBy", fields: [acceptedByPortalUserId], references: [id], onDelete: SetNull)
@@ -1958,9 +2373,10 @@ model Deal {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  pricing            DealPricing?
+  costLines          DealCostLine[]
   operations         Operation[]
   invoices           Invoice[]
+  supplierInvoices   SupplierInvoice[] @relation("DealSupplierInvoices")
   guarantees         Guarantee[]
   statusTransitions  DealStatusTransition[]
   generatedDocuments GeneratedDocument[]
@@ -1971,64 +2387,8 @@ model Deal {
   @@index([segment, status])
   @@index([contractId])
   @@map("deals")
-}
 
-/// Formule de prix d'un Deal. Un Deal a exactement une formule.
-///
-/// En prix INDEXÉ, le prix contractuel n'existe pas à la signature : il sera la
-/// moyenne de l'indice sur la fenêtre de cotation, majorée d'une prime. Tant
-/// qu'il n'est pas arrêté, l'ERP travaille sur un prix PROVISOIRE — celui qui
-/// chiffre la Proforma et pèse sur l'en-cours crédit.
-model DealPricing {
-  id     String @id @default(uuid()) @db.Uuid
-  dealId String @unique @map("deal_id") @db.Uuid
-  deal   Deal   @relation(fields: [dealId], references: [id], onDelete: Cascade)
-
-  formula     PricingFormula
-  pricingType PricingType    @default(FIXED) @map("pricing_type")
-
-  currencyCode String        @map("currency_code") @db.Char(3)
-  currency     Currency      @relation("PricingCurrency", fields: [currencyCode], references: [code], onDelete: Restrict)
-  uom          UnitOfMeasure
-
-  /// Motif obligatoire lorsque la formule diffère du défaut du segment (§ 5.1).
-  formulaOverrideReason String? @map("formula_override_reason") @db.VarChar(1000)
-
-  // --- Prix ferme ---
-  fixedUnitPrice Decimal? @map("fixed_unit_price") @db.Decimal(18, 4)
-
-  // --- Référence de vente consultée (§ 5.3), sans dérivation automatique ---
-  referencePriceId String?            @map("reference_price_id") @db.Uuid
-  referencePrice   AdministeredPrice? @relation(fields: [referencePriceId], references: [id], onDelete: SetNull)
-  discountMode     DiscountMode?      @map("discount_mode")
-  discountValue    Decimal?           @map("discount_value") @db.Decimal(18, 4)
-
-  // --- Prix indexé (§ 5.6) ---
-  priceIndexId        String?         @map("price_index_id") @db.Uuid
-  priceIndex          PriceIndex?     @relation(fields: [priceIndexId], references: [id], onDelete: Restrict)
-  quotationBasis      QuotationBasis? @map("quotation_basis")
-  quotationStart      DateTime?       @map("quotation_start") @db.Date
-  quotationEnd        DateTime?       @map("quotation_end") @db.Date
-  quotationDaysAround Int?            @map("quotation_days_around") @db.SmallInt
-  premiumPerUnit      Decimal?        @map("premium_per_unit") @db.Decimal(18, 4)
-
-  /// Chiffre la Proforma et l'en-cours tant que la fenêtre n'est pas close.
-  provisionalUnitPrice Decimal? @map("provisional_unit_price") @db.Decimal(18, 4)
-
-  /// Prix définitivement arrêté. Seule base admissible en facture définitive.
-  finalUnitPrice Decimal?  @map("final_unit_price") @db.Decimal(18, 4)
-  finalizedAt    DateTime? @map("finalized_at") @db.Timestamptz(3)
-  finalizedById  String?   @map("finalized_by_id") @db.Uuid
-  finalizedBy    User?     @relation("PriceFinalizedBy", fields: [finalizedById], references: [id], onDelete: Restrict)
-  /// Moyenne de l'indice retenue — conservée même si les cotations sont
-  /// révisées ensuite : le calcul doit rester reconstituable.
-  indexAverageUsed Decimal? @map("index_average_used") @db.Decimal(18, 4)
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-
-  @@index([pricingType, finalizedAt])
-  @@map("deal_pricings")
+  crmOpportunity CrmOpportunity?
 }
 
 /// Journal des transitions du Deal. Append-only : c'est la preuve du
@@ -2073,6 +2433,14 @@ model Operation {
   status       OperationStatus @default(DRAFT)
   sourcingMode SourcingMode    @default(BACK_TO_BACK) @map("sourcing_mode")
 
+  /// TYPES portés par l'opération, indiqués à sa création. Ils déterminent les
+  /// contrôles HSE à lui adjoindre — union des checklists de chaque type.
+  operationTypes OperationTypeAssignment[]
+  /// Journal des événements produits sur la tablette pour cette opération.
+  syncEvents FieldSyncEvent[]
+  /// Exigences du site de livraison levées pour cette opération.
+  siteRequirementAcks OperationSiteRequirementAck[]
+
   /// Propriétaire du produit transporté. Renseigné en THIRD_PARTY_PRODUCT :
   /// la marchandise de tiers n'est JAMAIS valorisée au stock Elyon.
   productOwnerId String?  @map("product_owner_id") @db.Uuid
@@ -2084,6 +2452,19 @@ model Operation {
   transportMode TransportMode @map("transport_mode")
 
   originLocation      String       @map("origin_location") @db.VarChar(200)
+  /// SITE DE CHARGEMENT — le lieu d'où part le produit (§ 6.2).
+  ///
+  /// ⚠️ Il pointe le LIEU directement, là où la destination passe par le
+  ///    rattachement client (`PartnerSite`). L'asymétrie est voulue : le bon
+  ///    de livraison doit porter la désignation que LE CLIENT reconnaît pour
+  ///    sa destination, alors qu'un dépôt de chargement n'appartient à aucune
+  ///    relation commerciale — c'est un lieu, point.
+  ///
+  ///    Ses exigences s'appliquent de la même façon : un badge d'accès se
+  ///    retire pour charger comme pour livrer.
+  originSiteId String? @map("origin_site_id") @db.Uuid
+  originSite   Site?   @relation("OperationOrigin", fields: [originSiteId], references: [id], onDelete: SetNull)
+
   destinationSiteId   String?      @map("destination_site_id") @db.Uuid
   destinationSite     PartnerSite? @relation("OperationDestination", fields: [destinationSiteId], references: [id], onDelete: SetNull)
   destinationLocation String       @map("destination_location") @db.VarChar(200)
@@ -2181,6 +2562,19 @@ model OperationAssignment {
   vehicleIdentifier String? @map("vehicle_identifier") @db.VarChar(120)
 
   freightCost   Decimal   @default(0) @map("freight_cost") @db.Decimal(18, 4)
+
+  /// Tarif du transporteur ayant servi de référence, et écart assumé.
+  ///
+  /// Le montant reste saisissable — un déplacement exceptionnel, une attente
+  /// facturée, une négociation ponctuelle existent — mais l'écart au tarif
+  /// négocié doit être MOTIVÉ. C'est la même règle que le barème de coûts, et
+  /// elle est tenue en base.
+  carrierTariffId String? @map("carrier_tariff_id") @db.Uuid
+  /// Montant qu'aurait donné le tarif, FIGÉ au moment de l'affectation : un
+  /// tarif révisé ensuite ne doit pas requalifier un écart déjà motivé.
+  tariffAmount    Decimal? @map("tariff_amount") @db.Decimal(18, 4)
+  tariffTolerancePct Decimal? @map("tariff_tolerance_pct") @db.Decimal(6, 3)
+  freightVarianceReason String? @map("freight_variance_reason") @db.VarChar(500)
   currencyCode  String    @map("currency_code") @db.Char(3)
   currency      Currency  @relation("AssignmentCurrency", fields: [currencyCode], references: [code], onDelete: Restrict)
   fxRateToPivot Decimal   @default(1) @map("fx_rate_to_pivot") @db.Decimal(18, 8)
@@ -2226,6 +2620,7 @@ model PurchaseOrder {
   currency      Currency @relation("PoCurrency", fields: [currencyCode], references: [code], onDelete: Restrict)
   fxRateToPivot Decimal  @default(1) @map("fx_rate_to_pivot") @db.Decimal(18, 8)
 
+
   /// Prix fournisseur ayant servi de base — traçabilité du coût d'achat.
   supplierPriceId String?        @map("supplier_price_id") @db.Uuid
   supplierPrice   SupplierPrice? @relation(fields: [supplierPriceId], references: [id], onDelete: SetNull)
@@ -2262,11 +2657,16 @@ model OperationHseCheck {
   operationId String    @map("operation_id") @db.Uuid
   operation   Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
 
-  templateId String               @map("template_id") @db.Uuid
-  template   HseChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
-  /// Version du modèle au moment de l'exécution : une checklist révisée ensuite
-  /// ne doit pas réécrire ce qui a été effectivement contrôlé sur le terrain.
-  templateVersion Int @map("template_version") @db.SmallInt
+  /// Modèle dominant, à titre indicatif seulement.
+  ///
+  /// Une opération porte PLUSIEURS types — route puis soutage — et sa
+  /// checklist est l'union de leurs modèles. Il n'y a donc plus de modèle
+  /// unique à désigner ici : la provenance exacte, avec sa version, est portée
+  /// point par point (OperationHseCheckItem.sourceTemplateId). Nul ne doit
+  /// s'appuyer sur ce champ pour établir ce qui a été contrôlé.
+  templateId String?              @map("template_id") @db.Uuid
+  template   HseChecklistTemplate? @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  templateVersion Int? @map("template_version") @db.SmallInt
 
   phase OperationPhase
 
@@ -2302,8 +2702,20 @@ model OperationHseCheckItem {
 
   /// Recopié du modèle : un point rendu non bloquant plus tard ne doit pas
   /// changer rétroactivement la nature du contrôle effectué.
+  ///
+  /// Lorsque deux types d'opération portent le même point à des niveaux
+  /// différents, c'est le PLUS CONTRAIGNANT qui est figé ici : ajouter un type
+  /// au déroulé ne doit jamais affaiblir un contrôle.
   level   HseControlLevel
   outcome HseCheckOutcome @default(PENDING)
+
+  /// Provenance FIGÉE du point : de quel modèle il vient, et dans quelle
+  /// version. C'est ici, et non sur la checklist, que la traçabilité se joue —
+  /// une checklist assemblée à partir de plusieurs types n'a pas de modèle
+  /// unique dont on pourrait invoquer la version.
+  sourceTemplateId      String?               @map("source_template_id") @db.Uuid
+  sourceTemplate        HseChecklistTemplate? @relation("CheckItemSource", fields: [sourceTemplateId], references: [id], onDelete: Restrict)
+  sourceTemplateVersion Int?                  @map("source_template_version") @db.SmallInt
 
   /// Valeur relevée lorsque le point l'exige — volume, température, n° de scellé.
   recordedValue String? @map("recorded_value") @db.VarChar(500)
@@ -2413,12 +2825,33 @@ model OperationAttachment {
   /// UUID généré sur l'appareil — rend la synchronisation idempotente.
   clientUuid String @unique @map("client_uuid") @db.Uuid
 
+  /// NATURE de la pièce.
+  ///
+  /// ⚠️ Sans elle, « photo exigée » et « signature exigée » se satisfaisaient
+  ///    de la même chose : n'importe quelle pièce jointe. Or un point qui
+  ///    demande la signature du client au bon de livraison n'est pas satisfait
+  ///    par une photo du camion — et c'est précisément ce point-là qu'on
+  ///    produira après un litige de livraison.
+  kind AttachmentKind @default(PHOTO)
+
   checkItemId String?                @map("check_item_id") @db.Uuid
   checkItem   OperationHseCheckItem? @relation(fields: [checkItemId], references: [id], onDelete: Cascade)
   hseEventId  String?                @map("hse_event_id") @db.Uuid
   hseEvent    HseEvent?              @relation(fields: [hseEventId], references: [id], onDelete: Cascade)
 
-  storageKey String @unique @map("storage_key") @db.VarChar(512)
+  /// Clé dérivée de l'EMPREINTE du contenu, donc PARTAGÉE par des pièces
+  /// identiques — elle n'est volontairement pas unique.
+  ///
+  /// Elle l'a été, et c'était une erreur : le même cliché versé à deux points
+  /// de contrôle est un cas normal — un extincteur photographié une fois vaut
+  /// pour le point « extincteurs » et pour le point « conformité du
+  /// véhicule ». L'unicité refusait le second rattachement au motif que le
+  /// fichier existait déjà, ce qui est précisément l'économie recherchée.
+  ///
+  /// L'unicité qui compte est ailleurs : `clientUuid`, produit par l'appareil.
+  /// C'est lui qui empêche qu'une reprise après coupure dépose deux fois la
+  /// même pièce.
+  storageKey String @map("storage_key") @db.VarChar(512)
   mimeType   String @map("mime_type") @db.VarChar(120)
   sizeBytes  BigInt @map("size_bytes")
   sha256     String @db.Char(64)
@@ -2465,8 +2898,37 @@ model MeasurementRecord {
   measurementDate DateTime @map("measurement_date") @db.Date
 
   // --- Volumes corrigés à 15 °C (ASTM D1250) ---
+  //
+  // ⚠️ CES DEUX COLONNES SONT DES RÉSULTATS, PAS DES SAISIES.
+  //
+  //    Elles étaient prises telles quelles de la tablette, sans qu'aucune
+  //    correction de température n'existe nulle part dans le code. Un
+  //    chargement à 32 °C et une livraison à 26 °C, saisis dans des champs
+  //    nommés « à 15 °C », produisaient ~0,48 % d'écart apparent — plus du
+  //    DOUBLE du seuil critique — sur une opération parfaitement saine. Et
+  //    symétriquement, une perte réelle pouvait être masquée par un écart
+  //    thermique inverse.
+  //
+  //    Elles sont désormais CALCULÉES à partir du volume observé, de la
+  //    température et de la masse volumique, par le service de correction.
   loadedVolume15     Decimal       @map("loaded_volume_15") @db.Decimal(18, 6)
   dischargedVolume15 Decimal       @map("discharged_volume_15") @db.Decimal(18, 6)
+
+  // --- Ce qui a été RÉELLEMENT relevé, aux deux bouts -----------------------
+  //
+  // Le § 8.2 l'exige : « l'application terrain doit OBLIGER à saisir la
+  // température à chaque relevé ». Un volume sans sa température n'est pas
+  // corrigible, donc pas comparable à l'autre bout.
+  loadedObservedVolume     Decimal? @map("loaded_observed_volume") @db.Decimal(18, 6)
+  loadedTempC              Decimal? @map("loaded_temp_c") @db.Decimal(6, 2)
+  /// Facteur de correction appliqué au chargement, CONSERVÉ.
+  /// Sans lui, le calcul n'est pas rejouable : une révision de la table de
+  /// correction changerait rétroactivement un écart déjà acquitté.
+  loadedVcf                Decimal? @map("loaded_vcf") @db.Decimal(9, 6)
+
+  dischargedObservedVolume Decimal? @map("discharged_observed_volume") @db.Decimal(18, 6)
+  dischargedTempC          Decimal? @map("discharged_temp_c") @db.Decimal(6, 2)
+  dischargedVcf            Decimal? @map("discharged_vcf") @db.Decimal(9, 6)
   uom                UnitOfMeasure
 
   /// Volume observé et température : sans eux, la correction n'est pas
@@ -2518,8 +2980,6 @@ model MeasurementRecord {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  invoices Invoice[]
-
   @@index([operationId, measurementDate])
   @@index([ullageAlertTriggered, ullageAckAt])
   @@index([source, isAuthoritative])
@@ -2533,6 +2993,196 @@ model MeasurementRecord {
 //  Chaque ligne porte un montant PRÉVISIONNEL et un montant RÉEL : le premier
 //  alimente le contrôle de marge à l'approbation, le second celui de la clôture.
 // ============================================================================
+
+/// BARÈME DE COÛTS STANDARDS — la valeur pré-paramétrée d'un poste (§ 5.4).
+///
+/// Sans valeur de référence, il n'y a rien dont s'écarter : un transport
+/// chiffré à 45 FCFA/L au lieu de 30 ne se voit pas. C'est l'écart au barème
+/// qui porte le signal, pas le montant lui-même.
+///
+/// La résolution va du plus spécifique au plus général — produit, puis mode de
+/// transport, puis segment — de sorte qu'un barème général serve de filet sans
+/// empêcher une ligne dédiée.
+/// TARIF DE TRANSPORT — le barème d'un TRANSPORTEUR, administrable.
+///
+/// Décision de la direction, 7 août 2026 :
+///
+///   « Assure-toi que le coût du transport est administrable et lié à un
+///     transporteur enregistré. »
+///
+/// ⚠️ LE FRET SE SAISISSAIT LIBREMENT, SANS TARIF ET SANS TRANSPORTEUR.
+///
+///    `OperationAssignment.freightCost` était un nombre libre, et
+///    `carrierId` était facultatif : on pouvait engager un coût de transport
+///    sans contrepartie identifiée. Personne ne pouvait dire, à la lecture,
+///    si le montant retenu correspondait à ce qui avait été négocié — ni même
+///    avec qui.
+///
+///    C'est le poste de charge le plus lourd d'une opération de distribution.
+///    Un franc d'écart porté sur dix millions de litres crée un préjudice.
+///
+/// Le tarif se résout du PLUS SPÉCIFIQUE au plus général, comme le barème de
+/// coûts : un tarif posé pour un site de livraison précis l'emporte sur le
+/// tarif général du transporteur.
+model CarrierTariff {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Le TRANSPORTEUR. Obligatoire : un tarif sans transporteur ne se négocie
+  /// avec personne.
+  carrierId String  @map("carrier_id") @db.Uuid
+  carrier   Partner @relation("CarrierTariffPartner", fields: [carrierId], references: [id], onDelete: Cascade)
+
+  /// Contexte d'application. Vide = s'applique à tout ce que ce transporteur
+  /// exécute.
+  transportMode TransportMode? @map("transport_mode")
+  productId     String?        @map("product_id") @db.Uuid
+  product       Product?       @relation("CarrierTariffProduct", fields: [productId], references: [id], onDelete: Cascade)
+  /// LE TRAJET — origine et destination, deux LIEUX (§ 6.2).
+  ///
+  /// Un tarif se négocie pour un TRAJET, pas pour un client : « Abidjan → Man »
+  /// et « San Pédro → Man » n'ont pas le même prix, et plusieurs clients se
+  /// font livrer au même endroit.
+  originSiteId String? @map("origin_site_id") @db.Uuid
+  originSite   Site?   @relation("CarrierTariffOrigin", fields: [originSiteId], references: [id], onDelete: Cascade)
+  destinationSiteId String? @map("destination_site_id") @db.Uuid
+  destinationSite   Site?   @relation("CarrierTariffDestination", fields: [destinationSiteId], references: [id], onDelete: Cascade)
+
+  /// PER_UNIT : au litre transporté. FIXED : forfait par rotation.
+  basis  CostBasis
+  amount Decimal   @db.Decimal(18, 4)
+
+  currencyCode String   @map("currency_code") @db.Char(3)
+  currency     Currency @relation("CarrierTariffCurrency", fields: [currencyCode], references: [code], onDelete: Restrict)
+  uom          UnitOfMeasure?
+
+  /// Écart toléré avant qu'un motif écrit soit exigé, en %.
+  /// Vide ou zéro : TOUT écart doit être motivé — c'est la règle stricte
+  /// retenue pour le barème de coûts, et elle vaut ici pour la même raison.
+  tolerancePct Decimal? @map("tolerance_pct") @db.Decimal(6, 3)
+
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  notes    String? @db.VarChar(500)
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([carrierId, isActive, effectiveFrom])
+  @@map("carrier_tariffs")
+}
+
+model CostStandard {
+  id String @id @default(uuid()) @db.Uuid
+
+  costPostId String   @map("cost_post_id") @db.Uuid
+  costPost   CostPost @relation("CostStandardPost", fields: [costPostId], references: [id], onDelete: Cascade)
+
+  /// Contexte d'application. Vide = s'applique à tous.
+  segment       CommercialSegment?
+  transportMode TransportMode?     @map("transport_mode")
+  productId     String?            @map("product_id") @db.Uuid
+  product       Product?           @relation("CostStandardProduct", fields: [productId], references: [id], onDelete: Cascade)
+
+  /// PER_UNIT : montant par unité vendue. FIXED : forfait pour l'affaire.
+  /// Le système ramène l'un et l'autre au litre — certains coûts sont
+  /// proportionnels au volume, d'autres non, et les confondre fausse les deux.
+  basis  CostBasis
+  amount Decimal   @db.Decimal(18, 4)
+
+  currencyCode String   @map("currency_code") @db.Char(3)
+  currency     Currency @relation("CostStandardCurrency", fields: [currencyCode], references: [code], onDelete: Restrict)
+  /// Unité de référence lorsque la base est PER_UNIT.
+  uom UnitOfMeasure?
+
+  /// Écart toléré avant que le chiffrage n'exige une justification, en %.
+  /// Vide : tout écart au barème doit être motivé.
+  tolerancePct Decimal? @map("tolerance_pct") @db.Decimal(6, 3)
+
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  notes String? @db.VarChar(500)
+
+  authorId String? @map("author_id") @db.Uuid
+  author   User?   @relation("CostStandardAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([costPostId, segment, transportMode, productId, effectiveFrom])
+  @@index([costPostId, effectiveFrom(sort: Desc)])
+  @@map("cost_standards")
+}
+
+/// Coût CHIFFRÉ par le commercial à la construction de l'affaire (§ 5.4).
+///
+/// C'est ici que se joue la sincérité du devis. Sans ces lignes, la marge
+/// annoncée à l'approbation ignore le transport, la manutention et
+/// l'inspection : elle est surévaluée du montant exact de ce qu'on a omis, et
+/// le CFO approuve sur un chiffre qui n'a jamais existé.
+///
+/// Ces montants sont une ESTIMATION. Dès qu'une opération enregistre ses coûts
+/// constatés, ceux-ci prennent le relais — l'écart entre les deux est le
+/// contrôle de fiabilité du chiffrage (§ 14.6).
+model DealCostLine {
+  id     String @id @default(uuid()) @db.Uuid
+  dealId String @map("deal_id") @db.Uuid
+  deal   Deal   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  costPostId String   @map("cost_post_id") @db.Uuid
+  costPost   CostPost @relation("DealCostLinePost", fields: [costPostId], references: [id], onDelete: Restrict)
+
+  description String? @db.VarChar(255)
+
+  /// Fournisseur pressenti — facultatif au chiffrage, il le devient à
+  /// l'exécution.
+  supplierId String?  @map("supplier_id") @db.Uuid
+  supplier   Partner? @relation("DealCostLineSupplier", fields: [supplierId], references: [id], onDelete: SetNull)
+
+  /// Valeur du barème au moment du chiffrage, FIGÉE.
+  /// Un barème révisé ensuite ne doit pas requalifier rétroactivement un écart
+  /// qui avait été justifié et accepté.
+  standardAmount Decimal? @map("standard_amount") @db.Decimal(18, 4)
+  standardBasis  CostBasis? @map("standard_basis")
+  /// Tolérance du barème, figée elle aussi. Zéro par défaut : toute valeur
+  /// différente de celle proposée doit être justifiée.
+  standardTolerancePct Decimal? @map("standard_tolerance_pct") @db.Decimal(6, 3)
+
+  /// Base de SAISIE choisie par le commercial : il tape 30 FCFA/L, ou bien
+  /// 900 000 forfaitaires. Les deux se rencontrent en pratique, et l'imposer
+  /// dans un seul sens force une conversion mentale — donc une erreur.
+  basis CostBasis @default(FIXED)
+
+  /// Ce que le commercial a effectivement TAPÉ, dans la base ci-dessus.
+  /// Conservé tel quel : c'est ce qu'il faut lui réafficher, pas un total
+  /// recalculé qu'il ne reconnaîtrait pas.
+  inputAmount Decimal @default(0) @map("input_amount") @db.Decimal(18, 4)
+
+  /// Montant RETENU, TOTAL pour l'affaire, dans la devise de l'affaire.
+  /// Dérivé : forfait tel quel, ou valeur unitaire × volume contracté.
+  /// C'est lui que la chaîne de marge additionne puis ramène au litre.
+  estimatedAmount Decimal @map("estimated_amount") @db.Decimal(18, 4)
+
+  /// Obligatoire dès que l'écart au barème dépasse la tolérance. Un écart
+  /// silencieux est indistinguable d'une erreur de saisie.
+  varianceReason String? @map("variance_reason") @db.VarChar(500)
+
+  currencyCode  String   @map("currency_code") @db.Char(3)
+  currency      Currency @relation("DealCostLineCurrency", fields: [currencyCode], references: [code], onDelete: Restrict)
+  fxRateToPivot Decimal  @default(1) @map("fx_rate_to_pivot") @db.Decimal(18, 8)
+
+  /// Ligne posée par le système — portage financier notamment. Elle n'est pas
+  /// saisissable, et le commercial ne peut ni la retirer ni la minorer.
+  isSystemComputed Boolean @default(false) @map("is_system_computed")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([dealId, costPostId])
+  @@index([dealId])
+  @@map("deal_cost_lines")
+}
 
 model OperationCostLine {
   id          String    @id @default(uuid()) @db.Uuid
@@ -2553,6 +3203,14 @@ model OperationCostLine {
   currencyCode  String   @map("currency_code") @db.Char(3)
   currency      Currency @relation("CostLineCurrency", fields: [currencyCode], references: [code], onDelete: Restrict)
   fxRateToPivot Decimal  @default(1) @map("fx_rate_to_pivot") @db.Decimal(18, 8)
+  /// Cours vers la devise de L'AFFAIRE, figé à la saisie de la ligne.
+  ///
+  /// ⚠️ Sans lui, les montants étaient additionnés BRUTS quelle que soit leur
+  ///    devise : une inspection à 5 000 USD comptait pour 5 000 FCFA dans la
+  ///    marge d'une affaire en XOF. Figé, et non relu au jour du calcul : une
+  ///    marge qui bouge parce que le dollar a bougé n'est plus une marge.
+  fxRateToDeal Decimal @default(1) @map("fx_rate_to_deal") @db.Decimal(18, 8)
+
 
   /// Ligne calculée par le système : portage financier, perte de volume.
   /// Non modifiable manuellement — vérifié en base.
@@ -2595,12 +3253,6 @@ model Invoice {
   partnerId String  @map("partner_id") @db.Uuid
   partner   Partner @relation("InvoicePartner", fields: [partnerId], references: [id], onDelete: Restrict)
 
-  /// INVARIANT § 7.2 — une facture définitive s'appuie sur le relevé FAISANT
-  /// AUTORITÉ. Contrainte en base : type définitif ⇒ relevé obligatoire, volume
-  /// facturé égal au volume livré, relevé validé, écart acquitté.
-  measurementId String?            @map("measurement_id") @db.Uuid
-  measurement   MeasurementRecord? @relation(fields: [measurementId], references: [id], onDelete: Restrict)
-
   /// Avoir : référence la pièce qu'il corrige.
   correctedInvoiceId String?   @map("corrected_invoice_id") @db.Uuid
   correctedInvoice   Invoice?  @relation("InvoiceCorrection", fields: [correctedInvoiceId], references: [id], onDelete: Restrict)
@@ -2611,17 +3263,37 @@ model Invoice {
   sourceProforma   Invoice?  @relation("ProformaConversion", fields: [sourceProformaId], references: [id], onDelete: SetNull)
   conversions      Invoice[] @relation("ProformaConversion")
 
+  // --- SAISI à l'édition : volume et prix. Ils peuvent évoluer d'une
+  //     proforma à la facture définitive — rien ne les fige.
   billedVolume Decimal       @map("billed_volume") @db.Decimal(18, 6)
   uom          UnitOfMeasure
-  unitPrice    Decimal       @map("unit_price") @db.Decimal(18, 4)
+  /// Prix de vente unitaire, TOUTES TAXES COMPRISES.
+  unitPrice Decimal @map("unit_price") @db.Decimal(18, 4)
 
   // --- Plan TRANSACTION : devise du contrat, fait foi juridiquement ---
   currencyCode String   @map("currency_code") @db.Char(3)
   currency     Currency @relation("InvoiceCurrency", fields: [currencyCode], references: [code], onDelete: Restrict)
-  netAmount    Decimal  @map("net_amount") @db.Decimal(18, 4)
-  taxAmount    Decimal  @default(0) @map("tax_amount") @db.Decimal(18, 4)
-  totalAmount  Decimal  @map("total_amount") @db.Decimal(18, 4)
-  paidAmount   Decimal  @default(0) @map("paid_amount") @db.Decimal(18, 4)
+
+  /// Volume × prix unitaire. Dérivé, jamais saisi.
+  grossAmount Decimal @map("gross_amount") @db.Decimal(18, 4)
+
+  // --- Réduction commerciale : impacte le montant de vente ---
+  discountMode   DiscountMode? @map("discount_mode")
+  discountValue  Decimal?      @map("discount_value") @db.Decimal(18, 4)
+  /// Montant de la remise, dérivé du mode et de la valeur.
+  discountAmount Decimal       @default(0) @map("discount_amount") @db.Decimal(18, 4)
+
+  /// TOTAL FACTURE = brut − réduction. C'est le montant dû par le client.
+  /// Il ne bouge pas selon que la TVA s'applique ou non : elle y est COMPRISE.
+  totalAmount Decimal @map("total_amount") @db.Decimal(18, 4)
+
+  /// TVA EXTRAITE du total, jamais ajoutée :
+  ///     TVA = Total × taux ÷ (100 + taux)
+  /// Affichée à titre d'information sur la pièce — « dont TVA … ». N'entre
+  /// pas dans le calcul de marge ; alimente la TVA collectée, pendant de la
+  /// TVA déductible portée par les factures fournisseurs.
+  vatAmount Decimal @default(0) @map("vat_amount") @db.Decimal(18, 4)
+  paidAmount Decimal @default(0) @map("paid_amount") @db.Decimal(18, 4)
 
   // --- Plan PIVOT : risque, marge, en-cours ---
   fxRateToPivot    Decimal   @default(1) @map("fx_rate_to_pivot") @db.Decimal(18, 8)
@@ -2637,15 +3309,24 @@ model Invoice {
   /// des années plus tard, quels que soient les cours ultérieurs.
   documentFxRateId    String?  @map("document_fx_rate_id") @db.Uuid
   documentFxRate_     FxRate?  @relation("InvoiceDocumentFxRate", fields: [documentFxRateId], references: [id], onDelete: Restrict)
-  documentNetAmount   Decimal  @default(0) @map("document_net_amount") @db.Decimal(18, 4)
-  documentTaxAmount   Decimal  @default(0) @map("document_tax_amount") @db.Decimal(18, 4)
+  documentVatAmount   Decimal  @default(0) @map("document_vat_amount") @db.Decimal(18, 4)
+  documentGrossAmount Decimal  @default(0) @map("document_gross_amount") @db.Decimal(18, 4)
   documentTotalAmount Decimal  @default(0) @map("document_total_amount") @db.Decimal(18, 4)
 
   // --- Fiscalité (§ 9.4, § 9.5) ---
-  fiscalCountryCode String  @default("CI") @map("fiscal_country_code") @db.Char(2)
-  taxCode           String? @map("tax_code") @db.VarChar(24)
-  taxRatePct        Decimal @default(0) @map("tax_rate_pct") @db.Decimal(6, 3)
-  isVatExempt       Boolean @default(false) @map("is_vat_exempt")
+  /// DÉCLENCHEUR de la TVA : une case propre à la pièce, cochée à l'édition.
+  /// Indépendante du client et du produit, qui peuvent la proposer par défaut
+  /// sans la déterminer.
+  isVatApplicable Boolean @default(false) @map("is_vat_applicable")
+  /// Taux paramétré. Il sert à EXTRAIRE la TVA du total, non à l'y ajouter.
+  vatRatePct Decimal @default(0) @map("vat_rate_pct") @db.Decimal(6, 3)
+
+  /// MENTION IMPRIMÉE en entête. Purement documentaire : elle n'a aucun effet
+  /// sur les montants, qui sont toujours calculés en toutes taxes.
+  printedTaxRegime TaxRegime @default(TTC) @map("printed_tax_regime")
+
+  fiscalCountryCode     String  @default("CI") @map("fiscal_country_code") @db.Char(2)
+  taxCode               String? @map("tax_code") @db.VarChar(24)
   vatExemptionReference String? @map("vat_exemption_reference") @db.VarChar(120)
 
   /// Décision INTERNE de recourir à la facture simple (§ 9.3) : un acte humain
@@ -2762,6 +3443,12 @@ model SupplierInvoice {
   purchaseOrderId String?        @map("purchase_order_id") @db.Uuid
   purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
 
+  /// Rattachement direct au dossier d'affaire : toutes les factures
+  /// fournisseurs d'un deal sont consultables au même endroit, y compris
+  /// celles sans commande d'achat — fret, inspection, douane.
+  dealId String? @map("deal_id") @db.Uuid
+  deal   Deal?   @relation("DealSupplierInvoices", fields: [dealId], references: [id], onDelete: SetNull)
+
   status SupplierInvoiceStatus @default(EXPECTED)
 
   amount        Decimal  @db.Decimal(18, 4)
@@ -2773,12 +3460,22 @@ model SupplierInvoice {
   paidAmount      Decimal @default(0) @map("paid_amount") @db.Decimal(18, 4)
   paidAmountPivot Decimal @default(0) @map("paid_amount_pivot") @db.Decimal(18, 4)
 
+  /// TVA déductible, extraite du montant de la même façon — pendant de la
+  /// TVA collectée sur les ventes.
+  vatRatePct Decimal @default(0) @map("vat_rate_pct") @db.Decimal(6, 3)
+  vatAmount  Decimal @default(0) @map("vat_amount") @db.Decimal(18, 4)
+
   /// Montant réglé AVANT réception de la marchandise. Consomme du BFR tant
   /// qu'il n'est pas apuré par la livraison.
   prepaidAmount      Decimal   @default(0) @map("prepaid_amount") @db.Decimal(18, 4)
   prepaidAmountPivot Decimal   @default(0) @map("prepaid_amount_pivot") @db.Decimal(18, 4)
   prepaidAt          DateTime? @map("prepaid_at") @db.Date
-  /// Apurement : date à laquelle la marchandise a été reçue en contrepartie.
+  /// Part de l'avance déjà apurée par une contrepartie PHYSIQUEMENT constatée.
+  /// Dérivée par trigger au chargement de l'opération, au prorata du volume
+  /// enlevé : une avance couvrant trois enlèvements ne s'apure pas au premier.
+  settledAmount Decimal @default(0) @map("settled_amount") @db.Decimal(18, 4)
+  /// Date d'apurement INTÉGRAL. Tant qu'elle est nulle, le reliquat
+  /// (prépayé − apuré) pèse au besoin en fonds de roulement (§ 14.6).
   settledAt DateTime? @map("settled_at") @db.Date
 
   invoiceDate DateTime  @map("invoice_date") @db.Date
@@ -2794,6 +3491,7 @@ model SupplierInvoice {
   payments  Payment[]
 
   @@unique([supplierId, reference])
+  @@index([dealId])
   @@index([status, dueDate])
   @@index([supplierId, status])
   @@index([prepaidAt, settledAt])
@@ -2935,4 +3633,424 @@ model Signature {
   @@index([documentId])
   @@index([kind])
   @@map("signatures")
+}
+
+// ===========================================================================
+//  EXERCICE COMPTABLE ET DONNÉES BUDGÉTAIRES DU CFO (§ 14.2, 14.3, 14.5, 14.6)
+//
+//  Ces quatre modèles portent ce que le § 19 laissait ouvert : taux de
+//  financement réel, budget de charges fixes, prévision de volumes. Rien de
+//  tout cela n'est écrit dans le code — ce sont des valeurs d'entreprise, elles
+//  se saisissent et se révisent.
+//
+//  ⚠️ TOUT EST RATTACHÉ À UN EXERCICE, ET L'EXERCICE EST LUI-MÊME UNE DONNÉE.
+//
+//     Un taux de financement « de 10 % » sans exercice ne veut rien dire : les
+//     conditions bancaires se renégocient, et l'affaire close en 2026 doit
+//     rester évaluée aux conditions de 2026, pas à celles de 2027. Sans
+//     rattachement, changer le taux réécrit le passé.
+// ===========================================================================
+
+/// État d'un exercice comptable.
+enum FiscalYearStatus {
+  PLANNED // Budget en construction, rien n'est opposable.
+  OPEN // Exercice courant : les valeurs s'appliquent.
+  CLOSED // Clos : les valeurs restent lisibles, plus modifiables.
+
+  @@map("fiscal_year_status")
+}
+
+/// Nature d'une prévision : le budget initial ne s'écrase jamais (§ 14.3).
+enum ForecastKind {
+  BUDGET // Validé par le DG, figé. Une seule version courante par exercice.
+  REVISION // Révision trimestrielle, datée, à côté du budget.
+
+  @@map("forecast_kind")
+}
+
+/// L'exercice comptable (§ 14.3).
+///
+/// Ni l'année civile ni une constante : une entreprise peut clôturer en juin,
+/// et la Côte d'Ivoire n'impose pas le 31 décembre à toutes les formes
+/// sociales. Les bornes sont donc saisies.
+model FiscalYear {
+  id String @id @default(uuid()) @db.Uuid
+  /// Millésime, tel qu'on le nomme : 2026 pour l'exercice 2026.
+  year  Int    @unique @db.SmallInt
+  label String @db.VarChar(48)
+
+  startsOn DateTime @map("starts_on") @db.Date
+  endsOn   DateTime @map("ends_on") @db.Date
+
+  status FiscalYearStatus @default(PLANNED)
+
+  /// Exercice de référence pour les calculs qui n'en désignent pas un.
+  /// Un déclencheur garantit qu'il n'y en a jamais deux (§ 11).
+  isCurrent Boolean @default(false) @map("is_current")
+
+  notes String? @db.VarChar(500)
+
+  authorId String? @map("author_id") @db.Uuid
+  author   User?   @relation("FiscalYearAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  financingRates   FinancingRate[]
+  fixedCostBudgets FixedCostBudget[]
+  salesForecasts   SalesForecast[]
+
+  @@index([isCurrent])
+  @@map("fiscal_years")
+}
+
+/// Conditions de financement réelles de l'exercice (§ 5.4, § 14.6).
+///
+/// Le coût de portage s'en déduit. Il était illustré à 10 % l'an dans un
+/// paramètre global — donc identique pour tous les exercices, ce qui revenait à
+/// réécrire le coût des affaires passées à chaque renégociation bancaire.
+model FinancingRate {
+  id           String     @id @default(uuid()) @db.Uuid
+  fiscalYearId String     @map("fiscal_year_id") @db.Uuid
+  fiscalYear   FiscalYear @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
+
+  /// Taux annuel effectif, en pourcentage. 12.5 = 12,5 % l'an.
+  annualRatePct Decimal @map("annual_rate_pct") @db.Decimal(9, 4)
+
+  /// Base de jours de l'année financière : 360 en usage bancaire, 365 en
+  /// exact/exact. Le choix change le coût de portage de 1,4 %.
+  carryingDaysPerYear Int @default(360) @map("carrying_days_per_year") @db.SmallInt
+
+  /// D'où vient le taux — convention de découvert, lettre de crédit, moyenne
+  /// pondérée. Sans cette trace, personne ne peut le contester ni le refaire.
+  source String? @db.VarChar(240)
+
+  /// Versionnement : une révision crée une ligne, jamais un écrasement.
+  version   Int     @default(1) @db.SmallInt
+  isCurrent Boolean @default(true) @map("is_current")
+
+  authorId String? @map("author_id") @db.Uuid
+  author   User?   @relation("FinancingRateAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([fiscalYearId, version])
+  @@index([fiscalYearId, isCurrent])
+  @@map("financing_rates")
+}
+
+/// Charges fixes annuelles, pour le point mort (§ 14.5).
+///
+/// Le § 14.5 retient UN SEUL BLOC au niveau entreprise, et n'attribue des
+/// charges fixes à un segment que lorsqu'elles lui sont réellement imputables
+/// — la barge au maritime. `segment` nul signifie donc « entreprise entière »,
+/// et c'est le cas normal, pas une valeur manquante.
+model FixedCostBudget {
+  id           String     @id @default(uuid()) @db.Uuid
+  fiscalYearId String     @map("fiscal_year_id") @db.Uuid
+  fiscalYear   FiscalYear @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
+
+  /// Poste de charge fixe : loyers, salaires structure, assurances, amortissements.
+  label String @db.VarChar(160)
+
+  /// Nul = entreprise entière. Renseigné seulement si la charge est
+  /// RÉELLEMENT attribuable au segment (§ 14.5).
+  segment CommercialSegment?
+
+  annualAmount Decimal  @map("annual_amount") @db.Decimal(18, 4)
+  currencyCode String   @map("currency_code") @db.Char(3)
+  currency     Currency @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
+
+  version   Int     @default(1) @db.SmallInt
+  isCurrent Boolean @default(true) @map("is_current")
+
+  notes String? @db.VarChar(500)
+
+  authorId String? @map("author_id") @db.Uuid
+  author   User?   @relation("FixedCostBudgetAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([fiscalYearId, isCurrent])
+  @@map("fixed_cost_budgets")
+}
+
+/// Prévision de vente — maille segment × produit × mois (§ 14.3).
+///
+/// ⚠️ ON PRÉVOIT UN VOLUME, ON DÉRIVE LE CHIFFRE D'AFFAIRES.
+///
+///    Le prix bouge sans que l'entreprise le décide — publications DGH, taux de
+///    change. Une prévision saisie en chiffre d'affaires laisserait une hausse
+///    de prix masquer une perte de volume. Le prix de référence est stocké à
+///    part précisément pour que l'écart de PRIX s'analyse séparément de l'écart
+///    de VOLUME.
+///
+/// Le détail client est volontairement écarté : trop lourd à tenir pour ce
+/// qu'il apporte. Le détail produit, lui, est indispensable —
+/// l'approvisionnement s'engage par produit.
+model SalesForecast {
+  id           String     @id @default(uuid()) @db.Uuid
+  fiscalYearId String     @map("fiscal_year_id") @db.Uuid
+  fiscalYear   FiscalYear @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
+
+  segment   CommercialSegment
+  productId String  @map("product_id") @db.Uuid
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  /// Mois de l'exercice, 1 à 12 — rang dans l'exercice, pas mois civil : un
+  /// exercice qui commence en juillet a son mois 1 en juillet.
+  monthIndex Int @map("month_index") @db.SmallInt
+
+  forecastVolume Decimal       @map("forecast_volume") @db.Decimal(18, 4)
+  uom            UnitOfMeasure
+
+  /// Prix unitaire de référence servant à dériver le CA prévisionnel.
+  referencePrice Decimal  @map("reference_price") @db.Decimal(18, 4)
+  currencyCode   String   @map("currency_code") @db.Char(3)
+  currency       Currency @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
+
+  /// BUDGET ou RÉVISION. Le budget validé ne s'écrase jamais (§ 14.3, étape 5).
+  kind ForecastKind @default(BUDGET)
+
+  version   Int     @default(1) @db.SmallInt
+  isCurrent Boolean @default(true) @map("is_current")
+
+  notes String? @db.VarChar(500)
+
+  authorId String? @map("author_id") @db.Uuid
+  author   User?   @relation("SalesForecastAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([fiscalYearId, segment, productId, monthIndex, kind, version])
+  @@index([fiscalYearId, isCurrent])
+  @@map("sales_forecasts")
+}
+
+// ===========================================================================
+//  CRM — PIPELINE, OPPORTUNITÉS ET INTERACTIONS (§ 15)
+//
+//  Prospect → Qualification → Opportunité → Offre → Négociation → Contrat →
+//  Client → Opération → Facture → Encaissement.
+//
+//  Le CRM n'est pas un carnet d'adresses : il alimente la PRÉVISION (§ 14.3),
+//  qui alimente l'assiette d'absorption (§ 14.2), qui alimente le seuil de
+//  marge (§ 5.4). Une opportunité mal tenue se paie trois étages plus loin.
+// ===========================================================================
+
+/// Issue d'une étape de pipeline. Détermine ce que l'étape SIGNIFIE, sans
+/// figer son libellé ni son rang — les deux se paramètrent.
+enum CrmStageOutcome {
+  OPEN // L'affaire est vivante et progresse.
+  WON // Gagnée : elle devient une affaire.
+  LOST // Perdue.
+  DORMANT // Mise en veille : ni gagnée ni perdue, sortie du pipeline actif.
+
+  @@map("crm_stage_outcome")
+}
+
+/// Nature d'une interaction (§ 15).
+enum CrmInteractionKind {
+  CALL // Appel
+  EMAIL // Courriel
+  MEETING // Réunion
+  VISIT // Visite
+  MESSAGE // Message
+  OFFER // Offre
+  REPORT // Compte rendu
+  DOCUMENT // Document
+  COMPLAINT // Réclamation
+
+  @@map("crm_interaction_kind")
+}
+
+/// Étape du pipeline commercial (§ 15).
+///
+/// ⚠️ LES ÉTAPES SONT DES DONNÉES, PAS UNE ÉNUMÉRATION.
+///
+///    Un pipeline se retaille : on fusionne deux étapes, on en insère une, on
+///    change une probabilité après trois mois d'observation. Figé dans le code,
+///    chacun de ces gestes devient une migration — donc n'a pas lieu, et le
+///    pipeline finit par décrire une organisation qui n'existe plus.
+///
+/// ⚠️ `probabilityPct` EST DÉLIBÉRÉMENT NULLABLE.
+///
+///    « Valeur pondérée = CA prévisionnel × Probabilité » (§ 15). Inscrire des
+///    probabilités d'illustration — 10 %, 25 %, 50 % — produirait un pipeline
+///    pondéré convaincant que personne n'aurait décidé, et sur lequel on
+///    engagerait des achats. Tant que la probabilité n'est pas saisie, la
+///    valeur pondérée n'est pas calculée et le dit.
+model CrmPipelineStage {
+  id    String @id @default(uuid()) @db.Uuid
+  code  String @unique @db.VarChar(48)
+  label String @db.VarChar(120)
+
+  /// Rang dans le pipeline. Unique : deux étapes au même rang rendraient
+  /// l'ordre dépendant de l'ordre physique des lignes.
+  rank Int @db.SmallInt
+
+  outcome CrmStageOutcome @default(OPEN)
+
+  /// Probabilité de conversion, en pourcentage. NULL = non décidée.
+  probabilityPct Decimal? @map("probability_pct") @db.Decimal(5, 2)
+
+  /// Au-delà de ce délai sans interaction, l'opportunité est signalée comme
+  /// dormante. NULL = pas de veille sur cette étape.
+  stalledAfterDays Int? @map("stalled_after_days") @db.SmallInt
+
+  description String? @db.VarChar(500)
+  isActive    Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  opportunities    CrmOpportunity[]
+  transitionsFrom  CrmStageTransition[] @relation("CrmTransitionFrom")
+  transitionsTo    CrmStageTransition[] @relation("CrmTransitionTo")
+
+  @@unique([rank])
+  @@map("crm_pipeline_stages")
+}
+
+/// Opportunité commerciale (§ 15).
+///
+/// ⚠️ LE CA PRÉVISIONNEL N'EST PAS SAISI : IL SE DÉRIVE D'UN VOLUME.
+///
+///    Même raison qu'au § 14.3 — le prix suit les publications DGH et le
+///    change, le volume est ce que l'entreprise pilote. Une opportunité saisie
+///    en francs laisserait une hausse de prix masquer une ambition revue à la
+///    baisse, et le pipeline alimenterait la prévision avec un chiffre qui ne
+///    dit pas ce qu'on croit.
+model CrmOpportunity {
+  id        String @id @default(uuid()) @db.Uuid
+  reference String @unique @db.VarChar(24)
+  title     String @db.VarChar(200)
+
+  /// Le tiers concerné — PROSPECT ou CLIENT déjà établi. Un prospect est un
+  /// tiers comme un autre : le promouvoir en client ne doit pas recréer sa
+  /// fiche ni perdre son historique.
+  partnerId String  @map("partner_id") @db.Uuid
+  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+
+  segment   CommercialSegment
+  productId String?  @map("product_id") @db.Uuid
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  estimatedVolume Decimal       @map("estimated_volume") @db.Decimal(18, 4)
+  uom             UnitOfMeasure
+
+  /// Prix de référence servant à dériver le CA prévisionnel.
+  referencePrice Decimal  @map("reference_price") @db.Decimal(18, 4)
+  currencyCode   String   @map("currency_code") @db.Char(3)
+  currency       Currency @relation("CrmOpportunityCurrency", fields: [currencyCode], references: [code], onDelete: Restrict)
+
+  stageId String           @map("stage_id") @db.Uuid
+  stage   CrmPipelineStage @relation(fields: [stageId], references: [id], onDelete: Restrict)
+
+  /// Probabilité propre à CETTE opportunité, quand elle diffère de celle de
+  /// l'étape. Renseignée, elle prime ; sinon celle de l'étape s'applique.
+  probabilityOverridePct Decimal? @map("probability_override_pct") @db.Decimal(5, 2)
+
+  ownerId String @map("owner_id") @db.Uuid
+  owner   User   @relation("CrmOpportunityOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+
+  expectedCloseDate DateTime? @map("expected_close_date") @db.Date
+
+  /// ⚠️ LA PROCHAINE ACTION EST OBLIGATOIRE (§ 15).
+  ///
+  ///    « Chaque étape porte […] une prochaine action. » Une opportunité sans
+  ///    prochaine action n'est pas suivie : elle dort jusqu'à ce que quelqu'un
+  ///    la retrouve par hasard. C'est la première cause de pipeline mort.
+  nextAction    String   @map("next_action") @db.VarChar(300)
+  nextActionDue DateTime @map("next_action_due") @db.Date
+
+  /// Renseignés à la sortie du pipeline. Le motif de perte est ce qu'on relit
+  /// en fin de trimestre — sans lui, on refait les mêmes offres.
+  closedAt   DateTime? @map("closed_at") @db.Timestamptz(3)
+  lossReason String?   @map("loss_reason") @db.VarChar(500)
+
+  /// L'affaire née de l'opportunité gagnée. La boucle du § 15 se ferme ici.
+  dealId String? @unique @map("deal_id") @db.Uuid
+  deal   Deal?   @relation(fields: [dealId], references: [id], onDelete: SetNull)
+
+  notes String? @db.VarChar(1000)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  interactions CrmInteraction[]
+  transitions  CrmStageTransition[]
+
+  @@index([stageId])
+  @@index([ownerId])
+  @@index([partnerId])
+  @@index([nextActionDue])
+  @@map("crm_opportunities")
+}
+
+/// Passage d'une étape à l'autre — écrit par déclencheur, jamais à la main.
+///
+/// La probabilité EN VIGUEUR au moment du passage est recopiée : la relire
+/// aujourd'hui donnerait la probabilité actuelle de l'étape, et l'analyse de
+/// conversion porterait sur des chiffres qui n'ont jamais été ceux du moment.
+model CrmStageTransition {
+  id            String         @id @default(uuid()) @db.Uuid
+  opportunityId String         @map("opportunity_id") @db.Uuid
+  opportunity   CrmOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  fromStageId String?           @map("from_stage_id") @db.Uuid
+  fromStage   CrmPipelineStage? @relation("CrmTransitionFrom", fields: [fromStageId], references: [id], onDelete: Restrict)
+  toStageId   String            @map("to_stage_id") @db.Uuid
+  toStage     CrmPipelineStage  @relation("CrmTransitionTo", fields: [toStageId], references: [id], onDelete: Restrict)
+
+  probabilityAtPct Decimal? @map("probability_at_pct") @db.Decimal(5, 2)
+  weightedValueAt  Decimal? @map("weighted_value_at") @db.Decimal(18, 4)
+
+  note String? @db.VarChar(500)
+
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+
+  @@index([opportunityId, occurredAt])
+  @@map("crm_stage_transitions")
+}
+
+/// Interaction avec le tiers (§ 15).
+///
+/// ⚠️ ACTION SUIVANTE ET DATE DE RELANCE SONT OBLIGATOIRES.
+///
+///    « Chaque interaction comporte une action suivante et une date de
+///    relance. » Facultatives, elles seraient omises précisément sur les
+///    échanges anodins — ceux dont on se souvient le moins et qu'on ne relance
+///    jamais. La contrainte est portée par la base, pas par l'écran : un import
+///    ou un appel d'API la contournerait autrement.
+model CrmInteraction {
+  id            String         @id @default(uuid()) @db.Uuid
+  opportunityId String         @map("opportunity_id") @db.Uuid
+  opportunity   CrmOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  kind       CrmInteractionKind
+  occurredAt DateTime           @map("occurred_at") @db.Timestamptz(3)
+
+  /// Ce qui s'est dit. Obligatoire : une interaction sans compte rendu ne
+  /// transmet rien à celui qui reprendra le dossier.
+  summary String @db.VarChar(2000)
+
+  /// Interlocuteur rencontré, tel qu'il s'est présenté.
+  contactName String? @map("contact_name") @db.VarChar(160)
+
+  nextAction    String   @map("next_action") @db.VarChar(300)
+  nextActionDue DateTime @map("next_action_due") @db.Date
+
+  /// Vrai quand l'action suivante a été faite. C'est ce drapeau, et lui seul,
+  /// qui fait disparaître la relance des alertes.
+  nextActionDone Boolean @default(false) @map("next_action_done")
+
+  authorId String @map("author_id") @db.Uuid
+  author   User   @relation("CrmInteractionAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([opportunityId, occurredAt])
+  @@index([nextActionDue, nextActionDone])
+  @@map("crm_interactions")
 }

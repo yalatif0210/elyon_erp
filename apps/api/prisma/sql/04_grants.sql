@@ -32,16 +32,26 @@ BEGIN
   EXECUTE 'REVOKE UPDATE, DELETE, TRUNCATE ON audit_logs FROM erp_app';
   EXECUTE 'GRANT SELECT, INSERT ON audit_logs TO erp_app';
 
+  -- Journal terrain (§ 10.2). Il conserve qu'un événement a été REFUSÉ : le
+  -- droit de le réécrire suffirait à faire disparaître la trace d'une tentative
+  -- hors des règles, et l'identifiant redeviendrait libre pour un renvoi.
+  EXECUTE 'REVOKE UPDATE, DELETE, TRUNCATE ON field_sync_events FROM erp_app';
+  EXECUTE 'GRANT SELECT, INSERT ON field_sync_events TO erp_app';
+
   -- --- Registre des dérogations : pas d'effacement -------------------------
   -- Une dérogation se révoque ou se clôture ; elle ne disparaît jamais.
   EXECUTE 'REVOKE DELETE, TRUNCATE ON derogations FROM erp_app';
   EXECUTE 'REVOKE DELETE, TRUNCATE ON delegations FROM erp_app';
 
   -- --- Historiques opposables : pas d'effacement ---------------------------
-  -- Cotations, taux de change, prix administrés et taux d'absorption rendent
-  -- reproductibles des pièces déjà émises. On clôt une période, on n'efface pas.
-  EXECUTE 'REVOKE DELETE, TRUNCATE ON price_assessments FROM erp_app';
+  -- Taux de change, prix administrés et taux d'absorption rendent reproductibles
+  -- des pièces déjà émises. On clôt une période, on n'efface pas.
   EXECUTE 'REVOKE DELETE, TRUNCATE ON fx_rates FROM erp_app';
+  EXECUTE 'REVOKE DELETE, TRUNCATE ON supplier_prices FROM erp_app';
+  EXECUTE 'REVOKE DELETE, TRUNCATE ON deal_status_transitions FROM erp_app';
+  EXECUTE 'REVOKE DELETE, TRUNCATE ON operation_status_transitions FROM erp_app';
+  EXECUTE 'REVOKE DELETE, TRUNCATE ON generated_documents FROM erp_app';
+  EXECUTE 'REVOKE DELETE, TRUNCATE ON signatures FROM erp_app';
   EXECUTE 'REVOKE DELETE, TRUNCATE ON administered_prices FROM erp_app';
   EXECUTE 'REVOKE DELETE, TRUNCATE ON absorption_rates FROM erp_app';
 
@@ -55,10 +65,45 @@ BEGIN
 
   -- --- Vues et fonctions de service ---------------------------------------
   EXECUTE 'GRANT SELECT ON v_transport_compliance TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_partner_credit_exposure TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_margin_band_watch TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_margin_band_by_owner TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_margin_variance TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_cost_reconciliation TO erp_app';
   EXECUTE 'GRANT SELECT ON v_compliance_expiry_watch TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_outstanding_advances TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_quotation_variance TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_invariant_breaches TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_parametres_requis TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_parametres_requis_sonde TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_couverture_budgetaire TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_marge_cout_variable TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_point_mort TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_bfr_exploitation TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_prevision_vente TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_prevision_en_vigueur TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_reste_a_facturer TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_rapprochement_encaissements TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_creances_echues TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_assiette_absorption TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_crm_pipeline TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_crm_pipeline_par_etape TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_crm_alertes TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_crm_conversion TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_tableau_operationnel TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_tableau_operationnel_compte TO erp_app';
+  -- L'historique des passages d'étape ne se RÉÉCRIT pas : c'est lui qui mesure
+  -- la conversion. Il disparaît en revanche avec l'opportunité qu'il décrit —
+  -- sans quoi une opportunité créée par erreur serait indestructible, et
+  -- entrerait à jamais dans la valeur pondérée puis dans la prévision.
+  EXECUTE 'REVOKE UPDATE, TRUNCATE ON crm_stage_transitions FROM erp_app';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION exercice_courant() TO erp_app';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION taux_financement(uuid) TO erp_app';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION jours_portage_an(uuid) TO erp_app';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION resolve_hse_checklist(uuid) TO erp_app';
   EXECUTE 'GRANT EXECUTE ON FUNCTION resolve_fx_rate(char, char, date, text) TO erp_app';
   EXECUTE 'GRANT EXECUTE ON FUNCTION resolve_administered_price(text, uuid, text, date) TO erp_app';
-  EXECUTE 'GRANT EXECUTE ON FUNCTION resolve_margin_threshold(text, uuid, date) TO erp_app';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION resolve_margin_threshold(text, uuid, char, text, date) TO erp_app';
   EXECUTE 'GRANT EXECUTE ON FUNCTION resolve_ullage_tolerance(text, text, uuid, date) TO erp_app';
 
   -- --- Aucun DDL -----------------------------------------------------------

@@ -1,3 +1,5 @@
+@import './assets/fonts/fonts.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,110 +7,568 @@
 /*
  * DESIGN SYSTEM — SPECIFICATIONS.md § 17
  *
- * Look « dashboard de trading professionnel » : fond slate très sombre, accent
- * cyan électrique, densité d'information élevée.
+ * Transposition du template AZIA (BootstrapDash, licence MIT) sur notre socle
+ * Angular 18 + Tailwind.
  *
- * RÈGLE D'ACCESSIBILITÉ STRICTE (§ 17.2) : un statut ne repose JAMAIS sur la
- * seule teinte. Toujours couleur + icône + libellé. Environ 8 % des hommes
- * présentent une déficience de vision des couleurs ; sur un verrou de sécurité,
- * un rouge indistinct d'un vert est un risque opérationnel.
+ * Le template d'origine est un projet Angular 9 sous Bootstrap 4 et jQuery.
+ * Sa CHARTE est reprise ici à l'identique — palette, typographie, métriques,
+ * traitement des cartes, des tables et de la barre latérale — mais réécrite
+ * dans notre idiome. Les valeurs ci-dessous sont celles d'Azia, relevées dans
+ * ses fichiers SCSS et non approximées :
+ *
+ *   _variables.scss   gris à bias bleu, indigo primaire, rayon 3px, base 14px
+ *   _cards.scss       carte à angles VIFS, entête sans filet inférieur
+ *   _table.scss       entête 11px capitales, interlettrage 0,5px, cellules 9/15
+ *   _sidebar.scss     240px, séparateurs POINTILLÉS, actif en couleur de texte
+ *   _header.scss      64px, ombre large et diffuse
+ *
+ * CE QUI EST CONSERVÉ DE NOTRE CÔTÉ : la règle d'accessibilité du § 17.2 —
+ * couleur + icône + libellé — et le liseré de sévérité. Azia ne les porte pas,
+ * mais ils sont additifs et ne contredisent pas sa charte : sur un verrou de
+ * sécurité, un rouge indistinct d'un vert est un risque opérationnel.
  */
 
 @layer base {
+  :root {
+    /* --- Gris à bias bleu — Azia _variables.scss ------------------------ */
+    --gray-100: #f4f5f8;
+    --gray-200: #e3e7ed;
+    --gray-300: #cdd4e0;
+    --gray-400: #b4bdce;
+    --gray-500: #97a3b9;
+    --gray-600: #7987a1;
+    --gray-700: #596882;
+    --gray-800: #3b4863;
+    --gray-900: #1c273c;
+
+    /* --- Encre et fonds ------------------------------------------------- */
+    --paper: #f4f5f8; /* $gray-100 — fond de la zone de travail */
+    --surface: #ffffff; /* cartes, barre latérale, entête */
+    --headline: #031b4e; /* $az-color-headline — titres */
+    --ink: #1c273c; /* $gray-900 — texte fort */
+    --ink-soft: #4e5f83; /* $az-color-text — texte courant */
+    --ink-muted: #7987a1; /* $gray-600 — libellés, entêtes de table */
+    --ink-faint: #b4bdce; /* $gray-400 — texte inactif */
+    --rule: #e3e7ed; /* $gray-200 */
+    --rule-strong: #cdd4e0; /* $gray-300 */
+
+    /* --- Accents Azia --------------------------------------------------- */
+    --primary: #5b47fb; /* $indigo — accent primaire */
+    --primary-hover: #4531fa;
+    --primary-wash: #eeecff;
+    --secondary: #3366ff; /* $blue */
+    --teal: #00cccc;
+
+    /* --- Sémantique : réservée au statut (§ 17.2) ------------------------ */
+    --ok: #10b759;
+    --ok-wash: #e4f8ed;
+    --warn: #f7b731;
+    --warn-ink: #96700f; /* texte lisible sur fond clair */
+    --warn-wash: #fdf3e0;
+    --info: #3366ff;
+    --info-wash: #e7eeff;
+    --crit: #dc3545;
+    --crit-wash: #fce9eb;
+
+    /* --- Métriques Azia -------------------------------------------------- */
+    --radius: 3px; /* $border-radius */
+    --h-base: 38px; /* $az-height-base */
+    --h-header: 64px; /* $az-height-header */
+    --w-sidebar: 240px; /* $az-width-sidebar */
+    /* Ombre large et diffuse — signature d'Azia sur l'entête et les cartes. */
+    --shadow-soft: 0 0 30px rgba(28, 39, 60, 0.08);
+
+    color-scheme: light;
+  }
+
   html {
-    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
-    @apply bg-slate-950 text-slate-200 antialiased;
-    font-feature-settings: 'cv02', 'cv03', 'cv04';
+    background-color: var(--paper);
+    color: var(--ink-soft);
+    font-size: 14px; /* $font-size-base : .875rem */
+    line-height: 1.462; /* relevé sur les cellules de table d'Azia */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Chiffres alignés en colonne — indispensable sur des tables financières. */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    color: var(--headline);
+  }
+
+  /*
+   * Chiffres alignés en colonne. Obligatoire sur tout montant, volume et
+   * pourcentage : sans cela, comparer deux marges d'un coup d'œil dans une
+   * table devient une lecture caractère par caractère.
+   */
   .tabular,
   td.num,
-  th.num {
+  th.num,
+  .font-mono {
     font-variant-numeric: tabular-nums;
+  }
+
+  td.num,
+  th.num {
+    text-align: right;
+  }
+
+  /* Le focus clavier est visible partout — il ne se supprime jamais. */
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: var(--radius);
+  }
+
+  ::selection {
+    background: var(--primary-wash);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
 @layer components {
-  /* --- Conteneurs ------------------------------------------------------- */
-  .card {
-    @apply rounded-lg border border-slate-800 bg-slate-900;
+  /* --- Entête de page — .az-content-header ------------------------------ */
+  .page-title {
+    @apply font-display text-[20px] font-semibold tracking-[-0.01em];
+    color: var(--headline);
+    text-wrap: balance;
   }
+  .page-sub {
+    @apply mt-1 text-[13px];
+    color: var(--ink-muted);
+  }
+
+  /* --- Cartes : angles VIFS, ombre diffuse — Azia _cards.scss ------------ */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 0;
+    box-shadow: var(--shadow-soft);
+  }
+  /*
+   * Azia ne pose PAS de filet sous l'entête de carte : la séparation se fait
+   * par l'espace et le contraste de graisse. On respecte ce parti.
+   */
   .card-header {
-    @apply flex items-center justify-between border-b border-slate-800 px-4 py-3;
+    @apply flex items-center justify-between gap-3 px-[15px] pb-2 pt-[15px];
   }
   .card-title {
-    @apply text-sm font-semibold text-slate-100;
+    @apply font-display text-[14px] font-bold;
+    color: var(--gray-900);
   }
   .card-body {
-    @apply p-4;
+    @apply px-[15px] pb-[15px];
   }
 
   /* --- Boutons ---------------------------------------------------------- */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm
-           font-medium transition-all disabled:cursor-not-allowed disabled:opacity-40;
+    @apply inline-flex items-center justify-center gap-1.5 px-4 text-[13px]
+           font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    height: 38px; /* $az-height-base */
+    border-radius: var(--radius);
   }
   .btn-primary {
-    @apply btn bg-sky-500 text-slate-950 hover:bg-sky-400;
+    @apply btn;
+    background: var(--primary);
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--primary-hover);
   }
   .btn-ghost {
-    @apply btn border border-slate-800 text-slate-300 hover:border-slate-700 hover:text-slate-100;
+    @apply btn;
+    background: var(--surface);
+    border: 1px solid var(--rule-strong);
+    color: var(--ink-soft);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--primary);
   }
   .btn-danger {
-    @apply btn bg-rose-500 text-slate-950 hover:bg-rose-400;
+    @apply btn;
+    background: var(--crit);
+    color: #fff;
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: #c22b3a;
+  }
+
+  /* Un lien reste un lien : souligné à l'approche, jamais une couleur seule. */
+  .link {
+    color: var(--primary);
+    @apply font-medium;
+  }
+  .link:hover {
+    color: var(--primary-hover);
+    @apply underline underline-offset-2;
   }
 
   /* --- Champs ----------------------------------------------------------- */
   .field {
-    @apply w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm
-           text-slate-100 placeholder:text-slate-600
-           focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500;
+    @apply w-full px-3 text-[13px];
+    height: 38px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--rule-strong);
+    color: var(--ink);
+  }
+  .field::placeholder {
+    color: var(--ink-faint);
+  }
+  .field:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(91, 71, 251, 0.25); /* $input-btn-focus-color */
+  }
+  textarea.field {
+    @apply py-2;
+    height: auto;
   }
   .label {
-    @apply mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-400;
+    @apply mb-1 block text-[11px] font-medium uppercase tracking-[0.5px];
+    color: var(--ink-muted);
   }
 
-  /* --- Tables denses ---------------------------------------------------- */
+  /* --- Tables — Azia _table.scss ---------------------------------------- */
   .table {
-    @apply w-full text-left text-sm;
+    @apply w-full border-collapse text-left text-[13px];
+    color: var(--gray-800);
   }
+  /*
+   * L'entête flotte au-dessus du corps : pas de fond, pas de padding haut,
+   * seulement un filet inférieur. C'est la signature de table d'Azia.
+   */
   .table thead th {
-    @apply border-b border-slate-800 px-3 py-2 text-xs font-medium uppercase
-           tracking-wide text-slate-500;
+    @apply whitespace-nowrap px-[15px] pb-[5px] pt-0 text-[11px] font-bold uppercase;
+    letter-spacing: 0.5px;
+    color: var(--ink-muted);
+    border-bottom: 1px solid var(--rule-strong);
   }
   .table tbody td {
-    @apply border-b border-slate-800/60 px-3 py-2 text-slate-300;
+    @apply px-[15px] py-[9px] align-middle;
+    line-height: 1.462;
+    border-bottom: 1px solid var(--rule);
   }
-  .table tbody tr:hover {
-    @apply bg-slate-800/30;
+  .table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .table tbody tr:hover td {
+    background: var(--gray-100);
+  }
+  /* Identifiant de ligne : ce par quoi l'utilisateur désigne l'objet. */
+  .table .ref {
+    @apply font-mono text-[12px] font-medium;
+    color: var(--gray-900);
   }
 
-  /* --- Badges de statut : couleur + icône + libellé --------------------- */
+  /*
+   * Liseré de sévérité — AJOUT au template. La forme double la teinte : une
+   * ligne qui réclame une décision se repère sans lire, et sans dépendre de
+   * la perception des couleurs (§ 17.2).
+   */
+  .row-crit td:first-child {
+    box-shadow: inset 3px 0 0 var(--crit);
+  }
+  .row-warn td:first-child {
+    box-shadow: inset 3px 0 0 var(--warn);
+  }
+
+  /* --- Badges de statut : couleur + icône + libellé ---------------------- */
   .badge {
-    @apply inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium;
+    @apply inline-flex items-center gap-1 whitespace-nowrap px-2 py-[3px]
+           text-[11px] font-medium;
+    border-radius: var(--radius);
   }
   .badge-ok {
-    @apply badge bg-emerald-500/15 text-emerald-400 ring-1 ring-inset ring-emerald-500/30;
+    @apply badge;
+    background: var(--ok-wash);
+    color: var(--ok);
   }
   .badge-wait {
-    @apply badge bg-amber-500/15 text-amber-400 ring-1 ring-inset ring-amber-500/30;
+    @apply badge;
+    background: var(--warn-wash);
+    color: var(--warn-ink);
   }
   .badge-transit {
-    @apply badge bg-blue-500/15 text-blue-400 ring-1 ring-inset ring-blue-500/30;
+    @apply badge;
+    background: var(--info-wash);
+    color: var(--info);
   }
   .badge-blocked {
-    @apply badge bg-rose-500/15 text-rose-400 ring-1 ring-inset ring-rose-500/30;
+    @apply badge;
+    background: var(--crit-wash);
+    color: var(--crit);
   }
   .badge-neutral {
-    @apply badge bg-slate-700/40 text-slate-400 ring-1 ring-inset ring-slate-600/40;
+    @apply badge;
+    background: var(--gray-100);
+    color: var(--ink-muted);
   }
 
-  /* --- Pastilles produit : teintes désaturées, canal distinct des statuts */
+  /* --- Bandeau de synthèse ---------------------------------------------- */
+  .stat {
+    @apply flex flex-col gap-1 px-[15px] py-4;
+  }
+  .stat-label {
+    @apply text-[11px] font-medium uppercase tracking-[0.5px];
+    color: var(--ink-muted);
+  }
+  .stat-value {
+    @apply font-display tabular text-[28px] font-semibold leading-none;
+    color: var(--headline);
+  }
+  .stat-note {
+    @apply text-[11px];
+    color: var(--ink-faint);
+  }
+
+  /* --- Barre latérale — Azia _sidebar.scss ------------------------------- */
+  .nav-label {
+    @apply pb-[5px] pt-5 text-[10px] font-medium uppercase;
+    letter-spacing: 0.5px;
+    color: var(--ink-muted);
+    border-bottom: 1px dotted var(--rule-strong);
+  }
+  /*
+   * Les entrées sont séparées par un pointillé qui démarre APRÈS l'icône —
+   * left: 30px chez Azia. Le filet souligne le libellé, pas la colonne.
+   */
+  .nav-item {
+    @apply relative flex items-center gap-2 text-[14px] font-medium;
+    height: 40px;
+    color: var(--gray-900);
+  }
+  .nav-item + .nav-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 30px;
+    right: 0;
+    border-top: 1px dotted var(--rule-strong);
+  }
+  .nav-item:hover {
+    color: var(--primary);
+  }
+  /* L'actif se marque par la COULEUR DU TEXTE, pas par une pastille pleine. */
+  .nav-item.nav-active {
+    color: var(--primary);
+    font-weight: 700;
+  }
+
+  /* --- Pastilles produit : canal visuel distinct des statuts -------------- */
   .dot {
-    @apply inline-block h-2 w-2 shrink-0 rounded-full;
+    @apply inline-block h-1.5 w-1.5 shrink-0 rounded-full;
+  }
+
+  /* --- Vide : on explique, on ne se contente pas de « aucune donnée » ----- */
+  .empty {
+    @apply px-[15px] py-12 text-center text-[13px];
+    color: var(--ink-muted);
+  }
+
+  /* =====================================================================
+   *  CADRE TERRAIN — mêmes couleurs, autres métriques
+   *
+   *  L'agent travaille debout, sur la tablette, en plein soleil et parfois
+   *  avec des gants. Les métriques du bureau — 38 px de haut, 13 px de
+   *  texte, une table à douze colonnes — y sont inutilisables : on vise à
+   *  côté et on ne lit pas. Le préfixe `t-` reprend donc la CHARTE (palette
+   *  Azia, rayon 3 px, filets) en changeant ce qui doit changer :
+   *
+   *    · toute cible tactile fait 56 px au moins — la recommandation
+   *      d'accessibilité est de 44, on prend de la marge pour les gants ;
+   *    · le texte courant passe de 13 à 16 px, les valeurs à 18 ;
+   *    · le contraste monte : `--ink` plutôt que `--ink-soft` en courant,
+   *      un écran lu à 50 000 lux ne pardonne pas les gris intermédiaires ;
+   *    · une seule colonne, toujours — deux colonnes sur une tablette tenue
+   *      d'une main obligent à chercher où reprendre la lecture.
+   * ===================================================================== */
+
+  .t-screen {
+    @apply mx-auto w-full max-w-[760px] px-4 pt-4;
+    /* Marge basse généreuse : la barre d'action est fixée au bas de l'écran
+       et masquerait sinon la dernière ligne de contenu. */
+    padding-bottom: 132px;
+  }
+
+  .t-title {
+    @apply font-display text-[22px] font-semibold leading-tight tracking-[-0.01em];
+    color: var(--headline);
+    text-wrap: balance;
+  }
+  .t-sub {
+    @apply mt-1 text-[15px];
+    color: var(--ink-soft);
+  }
+  .t-hint {
+    @apply mt-1.5 text-[13px] leading-relaxed;
+    color: var(--ink-muted);
+  }
+
+  /* Carte tactile — cliquable en entier, jamais par un lien de 12 px. */
+  .t-card {
+    @apply block w-full text-left;
+    background: var(--surface);
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-soft);
+    padding: 16px;
+  }
+  .t-card + .t-card {
+    margin-top: 12px;
+  }
+  .t-card:active {
+    background: var(--gray-100);
+  }
+
+  /* Bandeau de section : ce qu'on regarde, sans concurrencer le titre. */
+  .t-section {
+    @apply mb-2 mt-6 text-[12px] font-bold uppercase tracking-[0.7px];
+    color: var(--ink-muted);
+  }
+
+  /* --- Boutons tactiles ------------------------------------------------- */
+  .t-btn {
+    @apply inline-flex w-full items-center justify-center gap-2 px-4 text-[17px]
+           font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-45;
+    min-height: 60px;
+    border-radius: var(--radius);
+  }
+  .t-btn-primary {
+    @apply t-btn;
+    background: var(--primary);
+    color: #fff;
+  }
+  .t-btn-primary:active:not(:disabled) {
+    background: var(--primary-hover);
+  }
+  .t-btn-ghost {
+    @apply t-btn;
+    background: var(--surface);
+    border: 1px solid var(--rule-strong);
+    color: var(--ink);
+  }
+  .t-btn-ghost:active:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  /*
+   * Trio de résultat d'un point de contrôle. La teinte SEULE ne dit jamais
+   * rien (§ 17.2) : chaque bouton porte son libellé, et l'état retenu est
+   * marqué par un cerclage épais, lisible en niveaux de gris.
+   */
+  .t-choice {
+    @apply inline-flex flex-1 items-center justify-center px-2 text-center text-[15px] font-semibold;
+    min-height: 60px;
+    border-radius: var(--radius);
+    border: 1px solid var(--rule-strong);
+    background: var(--surface);
+    color: var(--ink-soft);
+  }
+  .t-choice-on-ok {
+    border: 3px solid var(--ok);
+    background: var(--ok-wash);
+    color: #0a7a3b;
+  }
+  .t-choice-on-crit {
+    border: 3px solid var(--crit);
+    background: var(--crit-wash);
+    color: var(--crit);
+  }
+  .t-choice-on-neutral {
+    border: 3px solid var(--gray-600);
+    background: var(--gray-100);
+    color: var(--gray-900);
+  }
+
+  /* --- Champs tactiles --------------------------------------------------- */
+  .t-field {
+    @apply w-full px-3.5 text-[17px];
+    min-height: 56px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--rule-strong);
+    color: var(--ink);
+  }
+  .t-field:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(91, 71, 251, 0.28);
+  }
+  textarea.t-field {
+    @apply py-3;
+    min-height: 120px;
+  }
+  .t-label {
+    @apply mb-1.5 block text-[13px] font-bold uppercase tracking-[0.5px];
+    color: var(--ink-muted);
+  }
+
+  /* --- Barre d'action fixée au bas de l'écran ---------------------------- */
+  .t-actionbar {
+    @apply fixed inset-x-0 bottom-0 z-40 border-t px-4 py-3;
+    border-color: var(--rule-strong);
+    background: var(--surface);
+    box-shadow: 0 -2px 20px rgba(28, 39, 60, 0.1);
+    /* Encoche et barre gestuelle des tablettes récentes. */
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /*
+   * Marquage BLOQUANT. Un point bloquant empêche l'opération d'avancer : il
+   * doit se reconnaître avant d'être lu. Bande latérale épaisse + fond lavé
+   * + pastille libellée — trois canaux, dont deux survivent au soleil et au
+   * daltonisme.
+   */
+  .t-blocking {
+    border-left: 6px solid var(--crit);
+    background: var(--crit-wash);
+  }
+
+  /* --- Paire clé/valeur du dossier d'opération --------------------------- */
+  .t-row {
+    @apply flex items-baseline justify-between gap-4 py-2.5;
+    border-bottom: 1px solid var(--rule);
+  }
+  .t-row:last-child {
+    border-bottom: 0;
+  }
+  .t-key {
+    @apply shrink-0 text-[13px] font-medium uppercase tracking-[0.4px];
+    color: var(--ink-muted);
+  }
+  .t-val {
+    @apply text-right text-[16px] font-medium;
+    color: var(--ink);
+  }
+
+  /*
+   * Code d'énumération rendu par l'API et affiché TEL QUEL.
+   *
+   * On ne lui invente pas de traduction française : une correspondance écrite
+   * ici se périmerait à la première valeur ajoutée côté serveur, et afficherait
+   * alors un libellé faux — pire qu'un code brut. La graisse et la casse
+   * signalent qu'il s'agit d'un code, pas d'une phrase.
+   */
+  .t-code {
+    @apply inline-block font-mono text-[13px] font-semibold uppercase tracking-[0.4px];
+    color: var(--gray-800);
   }
 }

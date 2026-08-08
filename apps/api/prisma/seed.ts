@@ -86,6 +86,22 @@ async function main(): Promise<void> {
     { key: 'DOC_EXPIRY_ALERT_DAYS', value: '60', valueType: 'number', description: 'Préavis d\'alerte avant expiration d\'une pièce de conformité (§ 6.6).' },
     { key: 'FISCAL_NORMALIZED_INVOICING', value: 'false', valueType: 'boolean', description: 'Transmission FNE à la DGI. À activer une fois l\'API communiquée (§ 9.5).' },
     { key: 'CURRENT_FISCAL_YEAR', value: '2026', valueType: 'number', description: 'Exercice courant — sélection du taux d\'absorption applicable (§ 14.2).' },
+    { key: 'MARGIN_BAND_ALERT_PCT', value: '15', valueType: 'number', description: 'Largeur de la bande de surveillance AU-DESSUS du seuil minimum de marge. Une affaire qui s\'y trouve n\'est pas anormale ; une concentration chez un même commercial l\'est (§ 5.4).' },
+    { key: 'MARGIN_VARIANCE_ALERT_PCT', value: '20', valueType: 'number', description: 'Écart toléré entre marge approuvée et marge réalisée avant signalement. Vaut dans les deux sens (§ 5.4).' },
+    { key: 'PURCHASE_PRICE_BAND_PCT', value: '3', valueType: 'number', description: 'Bande symétrique, en pourcentage, dans laquelle le prix d\'achat retenu peut s\'écarter du prix fournisseur validé sans motif écrit (§ 5.4). La règle est appliquée EN BASE : la ligne était lue par le déclencheur sans jamais exister, chacun tombant sur son défaut de 3 — donc invisible et inajustable depuis l\'écran de paramétrage.' },
+    { key: 'CARRYING_DAYS_PER_YEAR', value: '360', valueType: 'number', description: 'Base annuelle du calcul de portage financier — 360 jours en base commerciale (§ 5.4). À aligner sur la convention de la banque : en base 365, le portage retenu ici est surestimé de 1,4 %, et l\'inverse si la banque compte en 360 alors qu\'on saisit 365. Ne jamais poser 0 : la formule divise par cette valeur.' },
+    { key: 'MARGIN_EXCLUDED_COST_POSTS', value: 'ACHAT_PRODUIT,PORTAGE_FINANCIER', valueType: 'string', description: 'Codes des postes de coût direct EXCLUS du cumul des charges, séparés par des virgules : la formule de marge les porte déjà (achat via le prix d\'achat, portage via son propre calcul). En retirer un le fait compter DEUX FOIS et effondre la marge affichée ; en ajouter un à tort le fait disparaître du coût de revient (§ 5.4).' },
+
+    // --- Pièces jointes du terrain (§ 10.2) -------------------------------
+    { key: 'FIELD_ATTACHMENT_MAX_MB', value: '8', valueType: 'number', description: "Poids maximal d'une pièce jointe remontée du terrain, en Mo. La tablette compresse avant d'envoyer ; ce plafond est le garde-fou. Trop bas, une photo de scellé prise en plein soleil est refusée et le contrôle reste sans preuve ; trop haut, une opération à vingt photos sature la liaison de l'agent. Un plafond technique de 32 Mo protège la mémoire du serveur en amont, quelle que soit cette valeur." },
+    { key: 'FIELD_ATTACHMENT_MIME_TYPES', value: 'image/jpeg,image/png,image/webp,application/pdf', valueType: 'string', description: "Types de fichiers admis en pièce jointe du terrain, séparés par des virgules. En retirer un fait refuser les tablettes qui le produisent — certaines n'émettent que du WebP. En ajouter un exécutable n'a aucun sens : le volume de stockage est monté sans droit d'exécution." },
+
+    // --- Sécurité de la connexion (§ 1.4) ---------------------------------
+    { key: 'LOGIN_MAX_FAILED_ATTEMPTS', value: '5', valueType: 'number', description: 'Nombre d\'échecs consécutifs avant verrouillage temporaire d\'un compte. Trop haut, les essais de mot de passe en série deviennent viables ; trop bas, un utilisateur qui se trompe de clavier s\'exclut lui-même. Une valeur inférieure à 1 est ignorée.' },
+    { key: 'LOGIN_LOCK_MINUTES', value: '15', valueType: 'number', description: 'Durée du verrouillage après le nombre d\'échecs ci-dessus, en minutes. À 0 le verrouillage n\'existe plus — la valeur est ignorée et ramenée à 1. Rallonger au-delà de l\'heure transforme chaque erreur de saisie en appel au support.' },
+    { key: 'LOGIN_RATE_PER_MINUTE', value: '30', valueType: 'number', description: 'Tentatives de connexion tolérées par minute et par ADRESSE IP. Ne protège pas un compte désigné (c\'est le rôle du verrouillage ci-dessus) mais l\'abus volumétrique. NE PREND EFFET QU\'AU REDÉMARRAGE DE L\'API. Attention : tout un bureau partage une seule sortie internet, donc un seul compteur.' },
+    { key: 'API_RATE_PER_MINUTE', value: '120', valueType: 'number', description: 'Requêtes tolérées par minute et par adresse IP sur l\'ensemble de l\'API. NE PREND EFFET QU\'AU REDÉMARRAGE DE L\'API. Trop bas, un écran de pilotage qui rafraîchit ses tuiles bloque son propre utilisateur ; une valeur inférieure à 1 est ignorée, sans quoi l\'API se fermerait à tous.' },
+    { key: 'TOTP_REQUIRED_ROLES', value: 'DG,FINANCE_CFO,ACCOUNTANT,IT_ADMIN', valueType: 'string', description: 'Rôles internes pour lesquels le second facteur est obligatoire, séparés par des virgules (§ 1.4). Un rôle mal orthographié est ignoré — et le rôle qu\'on croyait couvert ne l\'est plus. Vider la liste ne désactive pas la 2FA : le système revient à cette liste par défaut.' },
   ];
   for (const s of settings) {
     await prisma.systemSetting.upsert({ where: { key: s.key }, update: {}, create: s });
@@ -154,56 +170,13 @@ async function main(): Promise<void> {
   console.log(`  ✓ ${fxDefs.length} taux de change (dont 1 parité fixe protégée en écriture)`);
 
   // =========================================================================
-  //  5. COTATIONS PLATTS  (§ 5.6)
-  // =========================================================================
-  const indexDefs = [
-    { code: 'PLATTS_FOB_ROT_GASOIL_10PPM', name: 'Platts FOB Rotterdam Barges Gasoil 10 ppm', provider: 'PLATTS', location: 'ROTTERDAM', currencyCode: 'USD', uom: UnitOfMeasure.MT },
-    { code: 'PLATTS_CIF_MED_HSFO_380', name: 'Platts CIF Med Cargoes HSFO 380 cSt', provider: 'PLATTS', location: 'MED', currencyCode: 'USD', uom: UnitOfMeasure.MT },
-    { code: 'PLATTS_FOB_ROT_GASOLINE', name: 'Platts FOB Rotterdam Barges Premium Unleaded', provider: 'PLATTS', location: 'ROTTERDAM', currencyCode: 'USD', uom: UnitOfMeasure.MT },
-  ];
-  const indices: Record<string, string> = {};
-  for (const i of indexDefs) {
-    const created = await prisma.priceIndex.upsert({ where: { code: i.code }, update: {}, create: i });
-    indices[i.code] = created.id;
-  }
-
-  const quotes = [
-    { date: '2026-07-20', low: 672.5, high: 674.5 },
-    { date: '2026-07-21', low: 675.0, high: 677.0 },
-    { date: '2026-07-22', low: 679.25, high: 681.25 },
-    { date: '2026-07-23', low: 676.75, high: 678.75 },
-    { date: '2026-07-24', low: 680.0, high: 682.0 },
-  ];
-  for (const q of quotes) {
-    await prisma.priceAssessment.upsert({
-      where: {
-        priceIndexId_quoteDate: {
-          priceIndexId: indices['PLATTS_FOB_ROT_GASOIL_10PPM'],
-          quoteDate: D(q.date),
-        },
-      },
-      update: {},
-      create: {
-        priceIndexId: indices['PLATTS_FOB_ROT_GASOIL_10PPM'],
-        quoteDate: D(q.date),
-        low: q.low.toFixed(4),
-        high: q.high.toFixed(4),
-        // Le « mean of Platts » est la moyenne de la fourchette — vérifié par CHECK.
-        mean: ((q.low + q.high) / 2).toFixed(4),
-        sourceReference: 'Platts European Marketscan',
-      },
-    });
-  }
-  console.log(`  ✓ ${indexDefs.length} cotations Platts · ${quotes.length} relevés`);
-
-  // =========================================================================
-  //  6. PRODUITS
+  //  5. PRODUITS
   // =========================================================================
   const productDefs = [
-    { code: 'FUEL_180', name: 'Fuel Oil 180 cSt', referenceDensity15: '0.985000', viscosityCst: '180.000', flashPointC: '66.00', maxSulphurPct: '3.5000', uiColorToken: 'violet-400/70', defaultUom: UnitOfMeasure.MT, defaultPriceIndexId: indices['PLATTS_CIF_MED_HSFO_380'] },
-    { code: 'MGO', name: 'Marine Gas Oil', referenceDensity15: '0.860000', viscosityCst: '4.500', flashPointC: '60.00', maxSulphurPct: '0.1000', uiColorToken: 'cyan-400/70', defaultUom: UnitOfMeasure.MT, defaultPriceIndexId: indices['PLATTS_FOB_ROT_GASOIL_10PPM'] },
-    { code: 'DIESEL', name: 'Gasoil / Diesel', referenceDensity15: '0.840000', viscosityCst: '3.200', flashPointC: '55.00', maxSulphurPct: '0.0050', uiColorToken: 'amber-400/70', defaultUom: UnitOfMeasure.L, defaultPriceIndexId: indices['PLATTS_FOB_ROT_GASOIL_10PPM'] },
-    { code: 'GASOLINE', name: 'Essence Super', referenceDensity15: '0.745000', viscosityCst: '0.600', flashPointC: '-43.00', maxSulphurPct: '0.0010', uiColorToken: 'emerald-400/70', defaultUom: UnitOfMeasure.L, defaultPriceIndexId: indices['PLATTS_FOB_ROT_GASOLINE'] },
+    { code: 'FUEL_180', name: 'Fuel Oil 180 cSt', referenceDensity15: '0.985000', viscosityCst: '180.000', flashPointC: '66.00', maxSulphurPct: '3.5000', uiColorToken: 'violet-400/70', defaultUom: UnitOfMeasure.MT },
+    { code: 'MGO', name: 'Marine Gas Oil', referenceDensity15: '0.860000', viscosityCst: '4.500', flashPointC: '60.00', maxSulphurPct: '0.1000', uiColorToken: 'cyan-400/70', defaultUom: UnitOfMeasure.MT },
+    { code: 'DIESEL', name: 'Gasoil / Diesel', referenceDensity15: '0.840000', viscosityCst: '3.200', flashPointC: '55.00', maxSulphurPct: '0.0050', uiColorToken: 'amber-400/70', defaultUom: UnitOfMeasure.L },
+    { code: 'GASOLINE', name: 'Essence Super', referenceDensity15: '0.745000', viscosityCst: '0.600', flashPointC: '-43.00', maxSulphurPct: '0.0010', uiColorToken: 'emerald-400/70', defaultUom: UnitOfMeasure.L },
   ];
   const products: Record<string, string> = {};
   for (const p of productDefs) {
@@ -213,7 +186,7 @@ async function main(): Promise<void> {
   console.log(`  ✓ ${productDefs.length} produits`);
 
   // =========================================================================
-  //  7. PRIX ADMINISTRÉS  (§ 5.3)
+  //  6. PRIX ADMINISTRÉS  (§ 5.3)
   //
   //  Simple référence consultable au moment de fixer un prix de vente.
   //  Aucune décomposition, aucune dérivation automatique : seuls comptent
@@ -247,7 +220,7 @@ async function main(): Promise<void> {
   console.log(`  ✓ ${administeredDefs.length} prix administrés de référence (DGH, SIR)`);
 
   // =========================================================================
-  //  8. TIERS  (§ 6.1, § 6.3, § 6.4)
+  //  7. TIERS  (§ 6.1, § 6.3, § 6.4)
   // =========================================================================
   const partnerDefs = [
     // --- Clients, par segment ---
@@ -313,12 +286,12 @@ async function main(): Promise<void> {
   console.log(`  ✓ ${portalDefs.length} comptes portail client`);
 
   // =========================================================================
-  //  9. PRIX FOURNISSEURS — historisés, validés  (§ 6.3)
+  //  8. PRIX FOURNISSEURS — historisés, validés  (§ 6.3)
   // =========================================================================
   const supplierPriceDefs = [
     { supplierCode: 'SUP-SIR', productCode: 'DIESEL', unitPrice: '700.0000', pricingMethod: 'Prix administré SIR', sourceLabel: 'SIR', uom: UnitOfMeasure.L },
-    { supplierCode: 'SUP-MKT-01', productCode: 'DIESEL', unitPrice: '755.0000', discountPct: '2.500000', pricingMethod: 'Prix de vente marketeur avec réduction négociée', sourceLabel: 'Marketeur', uom: UnitOfMeasure.L },
-    { supplierCode: 'SUP-MKT-01', productCode: 'GASOLINE', unitPrice: '755.0000', discountPct: '2.000000', pricingMethod: 'Prix de vente marketeur avec réduction négociée', sourceLabel: 'Marketeur', uom: UnitOfMeasure.L },
+    { supplierCode: 'SUP-MKT-01', productCode: 'DIESEL', unitPrice: '755.0000', pricingMethod: 'Prix de vente marketeur, net de remise', sourceLabel: 'Marketeur', uom: UnitOfMeasure.L },
+    { supplierCode: 'SUP-MKT-01', productCode: 'GASOLINE', unitPrice: '755.0000', pricingMethod: 'Prix de vente marketeur, net de remise', sourceLabel: 'Marketeur', uom: UnitOfMeasure.L },
   ];
   for (const sp of supplierPriceDefs) {
     const exists = await prisma.supplierPrice.findFirst({
@@ -330,7 +303,6 @@ async function main(): Promise<void> {
         supplierId: partners[sp.supplierCode],
         productId: products[sp.productCode],
         unitPrice: sp.unitPrice,
-        discountPct: sp.discountPct ?? null,
         currencyCode: 'XOF',
         uom: sp.uom,
         pricingMethod: sp.pricingMethod,
@@ -344,7 +316,7 @@ async function main(): Promise<void> {
   console.log(`  ✓ ${supplierPriceDefs.length} prix fournisseurs validés et historisés`);
 
   // =========================================================================
-  //  10. RÉPERTOIRE DES POSTES DE COÛTS  (§ 6.5)
+  //  9. RÉPERTOIRE DES POSTES DE COÛTS  (§ 6.5)
   //
   //  NATURE et VARIABILITÉ sont deux axes indépendants. Noter les cas qui
   //  brisent la corrélation attendue : location de dépôt dédiée (directe et
@@ -426,12 +398,13 @@ async function main(): Promise<void> {
   console.log('      dont 2 calculés par le système (ullage, portage) et 2 cas hors corrélation nature/variabilité');
 
   // =========================================================================
-  //  11. GRILLES DE SEUILS  (§ 5.4, § 8.3)
+  //  10. GRILLES DE SEUILS  (§ 5.4, § 8.3)
   // =========================================================================
+  // Les seuils valent pour TOUS les segments — B2B, Retail et soutage maritime.
   const thresholdDefs = [
     { segment: CommercialSegment.B2B, directFloor: '10.0000', minimumMargin: '30.0000' },
     { segment: CommercialSegment.RETAIL, directFloor: '10.0000', minimumMargin: '30.0000' },
-    // MARITIME : volontairement absent — seuils à définir plutôt qu'inventés (§ 19).
+    { segment: CommercialSegment.MARITIME, directFloor: '10.0000', minimumMargin: '30.0000' },
   ];
   for (const t of thresholdDefs) {
     const exists = await prisma.marginThreshold.findFirst({
@@ -450,8 +423,7 @@ async function main(): Promise<void> {
       },
     });
   }
-  console.log('  ✓ Seuils de marge : plancher direct 10 FCFA/L · seuil minimum 30 FCFA/L (B2B, Retail)');
-  console.log('      MARITIME laissé vide — à définir (§ 19)');
+  console.log(`  ✓ Seuils de marge : plancher 10 FCFA/L · seuil 30 FCFA/L — ${thresholdDefs.length} segments`);
 
   // Tolérance d'ullage — une ligne globale par défaut.
   // ⚠️ Le seuil critique est un PLACEHOLDER : à caler sur vos contrats de
@@ -474,7 +446,7 @@ async function main(): Promise<void> {
   console.log('  ✓ Tolérance d\'ullage : alerte > 0,2 % · critique > 0,4 % (placeholder à caler)');
 
   // =========================================================================
-  //  12. TRANSPORT ET CONFORMITÉ  (§ 6.4)
+  //  11. TRANSPORT ET CONFORMITÉ  (§ 6.4)
   //  Une pièce expirée fait basculer le porteur en non conforme —
   //  statut DÉRIVÉ par trigger, jamais saisi.
   // =========================================================================
@@ -536,18 +508,31 @@ async function main(): Promise<void> {
   console.log(`  ✓ ${vehicleDefs.length} véhicules · ${driverDefs.length} chauffeurs · ${complianceDefs.length} pièces de conformité`);
 
   // =========================================================================
-  //  13. MODÈLE DE CHECKLIST HSE  (§ 7.4)
+  //  12. MODÈLE DE CHECKLIST HSE  (§ 7.4)
   //  Extensible par paramétrage — aucun développement pour ajouter un point.
   // =========================================================================
+  // Les types d'opération sont amorcés par la migration, à partir de
+  // l'énumération des modes de transport — ils existent donc déjà ici. Le
+  // rattachement du modèle à son type est ce qui rend la checklist
+  // ATTEIGNABLE : c'est par le type porté par l'opération que la base la
+  // retrouve. Un modèle non rattaché ne s'oppose à personne, en silence.
+  const typeRoute = await prisma.operationType.findUnique({ where: { code: 'ROUTE' } });
+  if (!typeRoute) {
+    throw new Error(
+      'Type d’opération « ROUTE » absent : la migration types_operation n’a pas été appliquée.',
+    );
+  }
+
   const tpl = await prisma.hseChecklistTemplate.upsert({
     where: { code: 'LIVRAISON_ROUTIERE_V1' },
-    update: {},
+    update: { operationTypes: { connect: { id: typeRoute.id } } },
     create: {
       code: 'LIVRAISON_ROUTIERE_V1',
       label: 'Livraison routière — checklist standard',
       applicableSegments: [CommercialSegment.B2B, CommercialSegment.RETAIL],
       applicableTransportModes: [TransportMode.TRUCK],
       applicableRiskLevels: [HseRiskLevel.STANDARD, HseRiskLevel.REINFORCED],
+      operationTypes: { connect: { id: typeRoute.id } },
     },
   });
 
@@ -583,7 +568,7 @@ async function main(): Promise<void> {
   console.log(`  ✓ 1 modèle de checklist HSE · ${items.length} points de contrôle`);
 
   // =========================================================================
-  //  14. SÉQUENCES DE NUMÉROTATION
+  //  13. SÉQUENCES DE NUMÉROTATION
   //  month = 0 → séquence annuelle (OP-2026-000154)
   //  month 1-12 → séquence mensuelle (DEAL-2026-08-001)
   // =========================================================================

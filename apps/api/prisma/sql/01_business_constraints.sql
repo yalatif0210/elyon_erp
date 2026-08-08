@@ -10,8 +10,8 @@
 --  Ne jamais l'appliquer « à côté » : Prisma détecterait une dérive de schéma.
 --
 --  Les invariants transactionnels (verrou finance, verrou HSE, facture sur
---  relevé faisant autorité, prix indexé arrêté) arrivent au lot 2 avec les
---  entités Deal et Opération.
+--  relevé faisant autorité) arrivent au lot 2 avec les entités Deal et
+--  Opération.
 --
 --  Idempotent — pas de BEGIN/COMMIT : la migration fournit sa transaction.
 -- ===========================================================================
@@ -146,64 +146,13 @@ ALTER TABLE partner_sites
 
 
 -- ---------------------------------------------------------------------------
---  C. PRODUITS ET RÉFÉRENCES DE PRIX  (§ 5.3, § 5.5, § 6.2)
+--  C. PRODUITS  (§ 6.2)
 -- ---------------------------------------------------------------------------
 
 ALTER TABLE products
   DROP CONSTRAINT IF EXISTS chk_products_density_range,
   ADD  CONSTRAINT chk_products_density_range
        CHECK (reference_density_15 > 0.4 AND reference_density_15 < 1.2);
-
-ALTER TABLE price_assessments
-  DROP CONSTRAINT IF EXISTS chk_price_assessments_range,
-  ADD  CONSTRAINT chk_price_assessments_range
-       CHECK (low > 0 AND high >= low),
-
-  -- Le « mean of Platts » est la moyenne de la fourchette publiée, pas une
-  -- valeur libre : une saisie divergente fausserait tout prix indexé.
-  DROP CONSTRAINT IF EXISTS chk_price_assessments_mean,
-  ADD  CONSTRAINT chk_price_assessments_mean
-       CHECK (abs(mean - round((low + high) / 2, 4)) <= 0.0001);
-
-ALTER TABLE administered_prices
-  DROP CONSTRAINT IF EXISTS chk_administered_prices_positive,
-  ADD  CONSTRAINT chk_administered_prices_positive
-       CHECK (price > 0),
-
-  DROP CONSTRAINT IF EXISTS chk_administered_prices_period,
-  ADD  CONSTRAINT chk_administered_prices_period
-       CHECK (effective_to IS NULL OR effective_to >= effective_from),
-
-  -- Un prix administré est publié par la DGH (pompe) ou fixé par la SIR.
-  -- Aucun autre type de référence n'a sa place dans cette table.
-  DROP CONSTRAINT IF EXISTS chk_administered_prices_reference_type,
-  ADD  CONSTRAINT chk_administered_prices_reference_type
-       CHECK (reference_type::text IN ('PUMP', 'SIR'));
-
-COMMENT ON TABLE administered_prices IS
-  'Prix administrés DGH / SIR — RÉFÉRENCE CONSULTABLE au moment de fixer un prix de vente (§ 5.3). Aucune décomposition, aucune dérivation automatique. N''alimente jamais un coût : le coût d''achat provient exclusivement d''un supplier_prices validé.';
-
-ALTER TABLE supplier_prices
-  DROP CONSTRAINT IF EXISTS chk_supplier_prices_positive,
-  ADD  CONSTRAINT chk_supplier_prices_positive
-       CHECK (unit_price >= 0 AND (min_volume IS NULL OR min_volume > 0)),
-
-  DROP CONSTRAINT IF EXISTS chk_supplier_prices_period,
-  ADD  CONSTRAINT chk_supplier_prices_period
-       CHECK (effective_to IS NULL OR effective_to >= effective_from),
-
-  DROP CONSTRAINT IF EXISTS chk_supplier_prices_discount_range,
-  ADD  CONSTRAINT chk_supplier_prices_discount_range
-       CHECK (discount_pct IS NULL OR (discount_pct >= 0 AND discount_pct <= 100)),
-
-  -- Un prix fournisseur validé porte son valideur et sa date (§ 6.3).
-  DROP CONSTRAINT IF EXISTS chk_supplier_prices_validation_complete,
-  ADD  CONSTRAINT chk_supplier_prices_validation_complete
-       CHECK (
-         (validated_by_id IS NULL AND validated_at IS NULL)
-         OR (validated_by_id IS NOT NULL AND validated_at IS NOT NULL)
-       );
-
 
 -- ---------------------------------------------------------------------------
 --  D. POSTES DE COÛTS, ABSORPTION ET SEUILS  (§ 5.4, § 6.5, § 14.2)
@@ -466,3 +415,83 @@ ALTER TABLE system_settings
   DROP CONSTRAINT IF EXISTS chk_system_settings_value_type,
   ADD  CONSTRAINT chk_system_settings_value_type
        CHECK (value_type IN ('string', 'number', 'boolean', 'json'));
+
+
+-- ---------------------------------------------------------------------------
+--  La tolérance d'arrondi d'une devise.
+--
+--  Fonction et non constante : le nombre de décimales est une donnée du
+--  référentiel des devises, administrable, et non un fait figé dans un CHECK.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION tolerance_arrondi(p_currency_code char(3))
+RETURNS numeric AS $$
+  -- Une demi-unité de la plus petite subdivision : c'est ce qu'un arrondi
+  -- correct peut écarter, ni plus ni moins. Le repli à 2 décimales ne sert que
+  -- si la devise a disparu du référentiel — auquel cas la pièce a d'autres
+  -- problèmes.
+  SELECT COALESCE(
+    (SELECT 0.5 / power(10, c.decimal_places)::numeric
+       FROM currencies c WHERE c.code = p_currency_code),
+    0.005);
+$$ LANGUAGE sql STABLE;
+
+COMMENT ON FUNCTION tolerance_arrondi IS
+  'Écart maximal admissible entre un montant stocké et son calcul exact, DÉRIVÉ du nombre de décimales de la devise (§ 9.2). Une tolérance écrite en dur ne tolère rien en XOF et trop ailleurs.';
+
+
+-- ---------------------------------------------------------------------------
+--  REPRISE — les pièces déjà émises portent des fractions qui n'existent pas.
+--
+--  ⚠️ SANS ELLE, LA CONTRAINTE CI-DESSOUS REFUSE DE S'INSTALLER : les pièces
+--     antérieures ont été calculées à quatre décimales quelle que soit la
+--     devise, et violent donc la règle qu'on pose.
+--
+--  Le montant retenu est celui du plan DOCUMENT — c'est-à-dire ce que le
+--  client a RÉELLEMENT reçu et ce qu'il paiera. Aligner la transaction sur le
+--  document, et non l'inverse, est le seul choix défendable : la pièce
+--  imprimée fait foi, et c'est le stock qui s'en était écarté.
+--
+--  ⚠️ Les pièces dont le plan document est libellé dans une AUTRE devise sont
+--     écartées : leur montant imprimé n'est pas comparable au montant de
+--     transaction, et l'aligner dessus serait une conversion déguisée. Elles
+--     sont simplement arrondies à la précision de leur propre devise.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  n int;
+BEGIN
+  UPDATE invoices i
+     SET gross_amount    = round(i.gross_amount,    c.decimal_places),
+         discount_amount = round(i.discount_amount, c.decimal_places),
+         total_amount    = round(i.total_amount,    c.decimal_places),
+         vat_amount      = round(i.vat_amount,      c.decimal_places),
+         paid_amount     = round(i.paid_amount,     c.decimal_places)
+    FROM currencies c
+   WHERE c.code = i.currency_code
+     AND (i.gross_amount <> round(i.gross_amount, c.decimal_places)
+       OR i.total_amount <> round(i.total_amount, c.decimal_places)
+       OR i.vat_amount   <> round(i.vat_amount,   c.decimal_places)
+       OR i.paid_amount  <> round(i.paid_amount,  c.decimal_places));
+
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n > 0 THEN
+    RAISE NOTICE 'Reprise : % pièce(s) ramenée(s) à la précision de leur devise.', n;
+  END IF;
+
+  -- Le brut doit ensuite RESTER cohérent avec volume × prix : l'arrondi du
+  -- brut peut l'écarter de son produit exact au-delà de la tolérance quand le
+  -- produit lui-même tombe loin d'un entier. On réaligne le prix unitaire, qui
+  -- porte quatre décimales et supporte l'ajustement sans se voir.
+  UPDATE invoices i
+     SET unit_price = round(i.gross_amount / i.billed_volume, 4)
+    FROM currencies c
+   WHERE c.code = i.currency_code
+     AND i.billed_volume > 0
+     AND abs(i.gross_amount - i.billed_volume * i.unit_price)
+         > 0.5 / power(10, c.decimal_places)::numeric;
+
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n > 0 THEN
+    RAISE NOTICE 'Reprise : prix unitaire réaligné sur % pièce(s).', n;
+  END IF;
+END $$;

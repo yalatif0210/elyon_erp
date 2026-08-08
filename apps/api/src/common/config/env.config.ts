@@ -79,7 +79,15 @@ export const TOKEN_TTL = {
   refreshSeconds: 7 * 24 * 60 * 60,
 } as const;
 
-/** Politique de verrouillage après échecs de connexion. */
+/**
+ * Politique de verrouillage après échecs de connexion — VALEURS DE REPLI.
+ *
+ * La politique effective est lue en base à chaque échec, sous les clés
+ * `LOGIN_MAX_FAILED_ATTEMPTS` et `LOGIN_LOCK_MINUTES` : c'est une règle de
+ * gestion, elle se règle par écran, pas par livraison. Ces deux nombres ne
+ * servent que si la ligne a disparu ou devient illisible — auquel cas le
+ * système garde une politique plutôt que de n'en avoir aucune.
+ */
 export const LOGIN_POLICY = {
   maxFailedAttempts: 5,
   lockMinutes: 15,

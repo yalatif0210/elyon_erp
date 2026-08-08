@@ -1,5 +1,13 @@
-import { Controller, Get, Injectable, Query } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import {
+  Controller,
+  Get,
+  Injectable,
+  Param,
+  ParseUUIDPipe,
+  Query,
+  Req,
+} from '@nestjs/common';
+import { CommercialSegment, UserRole } from '@prisma/client';
 import { IsIn, IsOptional } from 'class-validator';
 import { Realm, RequireRealm, Roles, SkipAudit } from '../common/auth/realm';
 import { Page, PaginationQuery, paginate } from '../common/http/pagination.dto';
@@ -40,7 +48,6 @@ export class ReferentialsService {
     return this.prisma.product.findMany({
       where: { isActive: true },
       orderBy: { code: 'asc' },
-      include: { defaultPriceIndex: { select: { code: true, name: true } } },
     });
   }
 
@@ -50,6 +57,114 @@ export class ReferentialsService {
       where: { isActive: true },
       orderBy: [{ displayOrder: 'asc' }, { code: 'asc' }],
       include: { costPool: { select: { code: true, label: true, allocationBasis: true } } },
+    });
+  }
+
+  /**
+   * Types d'opération proposés à la création (§ 7.1).
+   *
+   * Le nombre de checklists rattachées est renvoyé avec chaque type : un type
+   * qui n'en porte aucune n'apporte aucun contrôle, et celui qui compose le
+   * déroulé doit pouvoir s'en apercevoir au moment où il choisit, pas au
+   * moment où la checklist s'ouvre vide.
+   */
+  async operationTypes(segment?: CommercialSegment) {
+    const rows = await this.prisma.operationType.findMany({
+      where: { isActive: true },
+      orderBy: [{ displayOrder: 'asc' }, { code: 'asc' }],
+      include: {
+        _count: { select: { checklists: { where: { isActive: true, isCurrent: true } } } },
+      },
+    });
+
+    // Une liste de segments VIDE vaut « tous » — la même convention que les
+    // checklists. Filtrer sur l'appartenance stricte masquerait les types
+    // génériques, c'est-à-dire la majorité.
+    return rows
+      .filter((t) => !segment || t.segments.length === 0 || t.segments.includes(segment))
+      .map(({ _count, ...t }) => ({ ...t, checklistCount: _count.checklists }));
+  }
+
+  /**
+   * Modèles de checklist HSE — servis pour ALIMENTER LES LISTES DE CHOIX.
+   *
+   * Sans cette lecture, le champ « Modèle de checklist » de l'écran de
+   * paramétrage retombe en saisie libre et l'utilisateur doit deviner le code
+   * exact : une faute de frappe rattache un point de contrôle à rien, et le
+   * point n'est jamais opposé sur le terrain.
+   */
+  hseChecklists() {
+    return this.prisma.hseChecklistTemplate.findMany({
+      where: { isActive: true },
+      orderBy: [{ code: 'asc' }],
+      select: {
+        id: true,
+        code: true,
+        label: true,
+        version: true,
+        isCurrent: true,
+        operationTypes: { select: { code: true, label: true } },
+        _count: { select: { items: true } },
+      },
+    });
+  }
+
+  /**
+   * Exigences d'un site de livraison — consultables partout où le site apparaît.
+   *
+   * Une seule lecture pour tous les écrans qui en ont besoin : préparation
+   * d'opération, dossier d'opération, fiche de site sur la tablette. Deux
+   * lectures finiraient par diverger, et c'est l'agent devant la barrière qui
+   * en paierait le prix.
+   */
+  siteRequirements(siteId: string) {
+    return this.prisma.siteRequirement.findMany({
+      where: { siteId: siteId, isActive: true, type: { isActive: true } },
+      orderBy: { type: { displayOrder: 'asc' } },
+      select: {
+        id: true,
+        detail: true,
+        isBlocking: true,
+        type: { select: { code: true, label: true, description: true } },
+      },
+    });
+  }
+
+  /**
+   * Sites, filtrés par USAGE.
+   *
+   * ⚠️ L'USAGE EST UNE DONNÉE DU LIEU, PAS UNE DÉDUCTION SUR SA NATURE.
+   *
+   *    Rien ici ne présume qu'une station-service ne charge pas, ni qu'un
+   *    dépôt ne reçoit pas : c'est l'exploitant qui déclare, site par site, ce
+   *    que le lieu sait faire. Une station-service EST un lieu de chargement
+   *    dans ce métier — on y prend du produit pour dépanner un client, et le
+   *    système ne doit pas en décider à la place de qui le sait.
+   *
+   *    Le filtre ne fait donc que refléter ce qui a été déclaré. Un lieu qui
+   *    porte les deux usages apparaît dans les deux listes — c'est le cas que
+   *    l'ancien modèle obligeait à dupliquer.
+   */
+  sites(usage?: 'LOADING' | 'DELIVERY') {
+    return this.prisma.site.findMany({
+      where: {
+        isActive: true,
+        ...(usage ? { usages: { has: usage as never } } : {}),
+      },
+      orderBy: [{ city: 'asc' }, { name: 'asc' }],
+      select: {
+        id: true, code: true, name: true, city: true, usages: true,
+        accessInstructions: true, openingHours: true, safetyInstructions: true,
+        defaultHseRiskLevel: true,
+        requirements: {
+          where: { isActive: true },
+          orderBy: { type: { displayOrder: 'asc' } },
+          select: {
+            id: true, detail: true, isBlocking: true,
+            type: { select: { code: true, label: true, description: true } },
+          },
+        },
+      },
     });
   }
 
@@ -99,7 +214,24 @@ export class ReferentialsService {
     });
   }
 
-  async partners(query: PaginationQuery & { type?: string }): Promise<Page<unknown>> {
+  /**
+   * Répertoire des tiers.
+   *
+   * ⚠️ Le PLAFOND et le STATUT de crédit ne sortent que pour les rôles qui y
+   *    ont droit. Les autres ont besoin de la liste — pour choisir un client,
+   *    un transporteur, un site — pas de son risque financier. Les retirer de
+   *    la sélection plutôt que de refuser la route entière : le coordinateur
+   *    logistique doit pouvoir choisir un transporteur.
+   */
+  async partners(
+    query: PaginationQuery & { type?: string },
+    role?: UserRole,
+  ): Promise<Page<unknown>> {
+    const voitLeCredit =
+      role === UserRole.DG ||
+      role === UserRole.FINANCE_CFO ||
+      role === UserRole.ACCOUNTANT ||
+      role === UserRole.CCOO;
     const where = {
       isActive: true,
       ...(query.type ? { type: query.type as never } : {}),
@@ -119,8 +251,68 @@ export class ReferentialsService {
         skip: query.skip,
         take: query.pageSize,
         orderBy: { legalName: 'asc' },
-        include: {
-          sites: { where: { isActive: true }, select: { id: true, code: true, name: true, city: true } },
+        // ⚠️ CE QUI SORT EST ÉNUMÉRÉ, ET LE RISQUE CRÉDIT EN EST ABSENT SAUF
+        //    POUR QUI Y A DROIT.
+        //
+        //    La requête rendait le modèle ENTIER — plafond, statut et
+        //    approbateur de crédit compris — à tout rôle interne, alors que la
+        //    route dédiée (`/supervision/credit-exposure`) répond 403 au
+        //    coordinateur logistique. Une habilitation ne vaut rien si une
+        //    autre porte l'ignore.
+        //
+        //    Énuméré plutôt que masqué : une colonne ajoutée demain ne sortira
+        //    pas par défaut. C'est le bon sens du défaut sur une route qui
+        //    sert des données de risque.
+        select: {
+          id: true,
+          code: true,
+          legalName: true,
+          type: true,
+          countryCode: true,
+          segment: true,
+          taxpayerAccountNumber: true,
+          rccmNumber: true,
+          taxRegime: true,
+          isVatExempt: true,
+          vatExemptionReference: true,
+          paymentTermsDays: true,
+          supplierTermsDays: true,
+          isActive: true,
+          ...(voitLeCredit
+            ? {
+                creditLimit: true as const,
+                creditLimitCurrencyCode: true as const,
+                creditStatus: true as const,
+              }
+            : {}),
+          // Les sites d'un tiers, AVEC les exigences du lieu qu'ils désignent.
+          //
+          // Les exigences appartiennent au LIEU et se saisissent au
+          // référentiel des sites (§ 6.2). Elles sont exposées ICI parce que
+          // c'est là qu'on choisit une destination : celui qui prépare
+          // l'opération doit les voir au moment où il décide, pas quand le
+          // camion est à la barrière.
+          sites: {
+            where: { isActive: true },
+            select: {
+              id: true, code: true, name: true, city: true,
+              site: {
+                select: {
+                  id: true, code: true, name: true, city: true,
+                  accessInstructions: true, openingHours: true, safetyInstructions: true,
+                  defaultHseRiskLevel: true,
+                  requirements: {
+                    where: { isActive: true },
+                    orderBy: { type: { displayOrder: 'asc' } },
+                    select: {
+                      id: true, detail: true, isBlocking: true,
+                      type: { select: { code: true, label: true, description: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
           _count: { select: { complianceRecords: true, vehicles: true, drivers: true } },
         },
       }),
@@ -172,15 +364,58 @@ export class ReferentialsController {
     return this.service.administeredPrices();
   }
 
+  /**
+   * ⚠️ CETTE ROUTE SERT DES DONNÉES DE RISQUE CLIENT.
+   *
+   *    `partners()` rend le modèle entier, plafond de crédit et statut de
+   *    crédit compris. Elle ne portait AUCUN contrôle de rôle : le
+   *    coordinateur logistique, à qui `/supervision/credit-exposure` répond
+   *    403, y lisait les plafonds et les encours de tous les clients.
+   *
+   *    L'habilitation posée ailleurs ne vaut rien si une autre porte l'ignore.
+   */
   @Get('partners')
-  partners(@Query() query: PartnerQuery) {
-    return this.service.partners(query);
+  @Roles(
+    UserRole.DG,
+    UserRole.FINANCE_CFO,
+    UserRole.ACCOUNTANT,
+    UserRole.CCOO,
+    UserRole.ASSISTANT_DG,
+    UserRole.SALES_REP,
+    UserRole.LOGISTICS_COORD,
+  )
+  partners(@Query() query: PartnerQuery, @Req() req: { auth: { role?: UserRole } }) {
+    return this.service.partners(query, req.auth.role);
   }
 
   @Get('cost-posts')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT, UserRole.CCOO, UserRole.LOGISTICS_COORD)
   costPosts() {
     return this.service.costPosts();
+  }
+
+  @Get('operation-types')
+  @Roles(UserRole.DG, UserRole.CCOO, UserRole.LOGISTICS_COORD, UserRole.SALES_REP)
+  operationTypes(@Query('segment') segment?: CommercialSegment) {
+    return this.service.operationTypes(segment);
+  }
+
+  @Get('sites/:id/requirements')
+  @Roles(UserRole.DG, UserRole.CCOO, UserRole.LOGISTICS_COORD, UserRole.SALES_REP)
+  siteRequirements(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.siteRequirements(id);
+  }
+
+  @Get('sites')
+  @Roles(UserRole.DG, UserRole.CCOO, UserRole.LOGISTICS_COORD, UserRole.SALES_REP)
+  sites(@Query('usage') usage?: 'LOADING' | 'DELIVERY') {
+    return this.service.sites(usage);
+  }
+
+  @Get('hse-checklists')
+  @Roles(UserRole.DG, UserRole.CCOO, UserRole.LOGISTICS_COORD)
+  hseChecklists() {
+    return this.service.hseChecklists();
   }
 
   @Get('absorption-rates')

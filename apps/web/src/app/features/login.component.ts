@@ -9,56 +9,103 @@ import { IconComponent } from '../shared/icon.component';
   standalone: true,
   imports: [FormsModule, IconComponent],
   template: `
-    <div class="flex min-h-screen items-center justify-center px-4">
-      <div class="w-full max-w-sm">
-        <div class="mb-8 text-center">
-          <div class="mb-3 inline-flex h-11 w-11 items-center justify-center rounded-lg bg-sky-500 text-slate-950">
-            <erp-icon name="layers" [size]="22" />
+    <div class="flex min-h-screen">
+      <!--
+        Le panneau de gauche n'est pas décoratif : il énonce ce que la console
+        engage. Un ERP dont chaque écriture est journalisée et dont les verrous
+        sont opposables se présente comme tel dès la porte.
+      -->
+      <div class="hidden w-[46%] flex-col justify-between border-r border-rule bg-surface p-10 lg:flex">
+        <div class="flex items-center gap-2.5">
+          <div class="flex h-7 w-7 items-center justify-center rounded-[3px] bg-primary text-white">
+            <erp-icon name="layers" [size]="15" />
           </div>
-          <h1 class="text-lg font-semibold text-slate-100">Elyon Trading</h1>
-          <p class="mt-1 text-sm text-slate-500">Console interne</p>
+          <span class="text-[13px] font-semibold text-ink">Elyon Trading</span>
         </div>
 
-        <form class="card p-5" (ngSubmit)="submit()">
-          <div class="mb-4">
-            <label class="label" for="email">Adresse électronique</label>
-            <input id="email" name="email" type="email" class="field" autocomplete="username"
-                   [(ngModel)]="email" required />
+        <div class="max-w-md">
+          <h2 class="text-[26px] font-semibold leading-[1.25] tracking-[-0.02em] text-ink">
+            Distribution pétrolière —<br />de l’affaire à la facture.
+          </h2>
+          <p class="mt-4 text-[14px] leading-relaxed text-ink-soft">
+            Trois verrous encadrent l’exécution : aucune opération sur une affaire non
+            approuvée, aucun chargement sans contrôles HSE validés, aucun moyen non
+            conforme affecté sans l’accord du DG.
+          </p>
+          <dl class="mt-8 grid grid-cols-3 gap-px overflow-hidden rounded-[3px] border border-rule bg-rule">
+            <div class="bg-surface px-3 py-3">
+              <dt class="text-[11px] uppercase tracking-[0.06em] text-ink-muted">Verrous</dt>
+              <dd class="tabular mt-1 text-[20px] font-semibold text-ink">3</dd>
+            </div>
+            <div class="bg-surface px-3 py-3">
+              <dt class="text-[11px] uppercase tracking-[0.06em] text-ink-muted">Périmètres</dt>
+              <dd class="tabular mt-1 text-[20px] font-semibold text-ink">3</dd>
+            </div>
+            <div class="bg-surface px-3 py-3">
+              <dt class="text-[11px] uppercase tracking-[0.06em] text-ink-muted">Devise pivot</dt>
+              <dd class="mt-1 font-mono text-[20px] font-semibold text-ink">USD</dd>
+            </div>
+          </dl>
+        </div>
+
+        <p class="text-[11px] text-ink-faint">Côte d’Ivoire · XOF local, USD pivot</p>
+      </div>
+
+      <!-- Panneau de saisie -->
+      <div class="flex flex-1 items-center justify-center px-6 py-12">
+        <div class="w-full max-w-[340px]">
+          <div class="mb-7 lg:hidden">
+            <div class="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-[3px] bg-primary text-white">
+              <erp-icon name="layers" [size]="18" />
+            </div>
+            <h1 class="text-[17px] font-semibold text-ink">Elyon Trading</h1>
           </div>
 
-          <div class="mb-4">
-            <label class="label" for="password">Mot de passe</label>
-            <input id="password" name="password" type="password" class="field"
-                   autocomplete="current-password" [(ngModel)]="password" required />
-          </div>
+          <h1 class="page-title">Connexion</h1>
+          <p class="page-sub mb-6">Console interne — accès réservé au personnel Elyon.</p>
 
-          <!-- Le champ n'apparaît qu'après un refus explicite pour code manquant :
-               l'afficher d'emblée déroute les comptes sans second facteur. -->
-          @if (totpRequired()) {
-            <div class="mb-4">
-              <label class="label" for="totp">Code de vérification</label>
-              <input id="totp" name="totp" inputmode="numeric" maxlength="6"
-                     class="field font-mono tracking-widest" placeholder="000000"
-                     autocomplete="one-time-code" [(ngModel)]="totpCode" />
+          <form (ngSubmit)="submit()" novalidate>
+            <div class="mb-3.5">
+              <label class="label" for="email">Adresse électronique</label>
+              <input id="email" name="email" type="email" class="field" autocomplete="username"
+                     [(ngModel)]="email" required />
             </div>
-          }
 
-          @if (error()) {
-            <div class="mb-4 flex items-start gap-2 rounded-md bg-rose-500/10 px-3 py-2
-                        text-sm text-rose-400 ring-1 ring-inset ring-rose-500/30">
-              <erp-icon name="alert-triangle" [size]="15" />
-              <span>{{ error() }}</span>
+            <div class="mb-3.5">
+              <label class="label" for="password">Mot de passe</label>
+              <input id="password" name="password" type="password" class="field"
+                     autocomplete="current-password" [(ngModel)]="password" required />
             </div>
-          }
 
-          <button type="submit" class="btn-primary w-full" [disabled]="busy()">
-            {{ busy() ? 'Connexion…' : 'Se connecter' }}
-          </button>
-        </form>
+            <!-- Le champ n'apparaît qu'après un refus explicite pour code manquant :
+                 l'afficher d'emblée déroute les comptes sans second facteur. -->
+            @if (totpRequired()) {
+              <div class="mb-3.5">
+                <label class="label" for="totp">Code de vérification</label>
+                <input id="totp" name="totp" inputmode="numeric" maxlength="6"
+                       class="field font-mono tracking-[0.35em]" placeholder="000000"
+                       autocomplete="one-time-code" [(ngModel)]="totpCode" />
+              </div>
+            }
 
-        <p class="mt-6 text-center text-xs text-slate-600">
-          Accès réservé. Toute connexion est journalisée.
-        </p>
+            @if (error()) {
+              <div class="mb-3.5 flex items-start gap-2 rounded-[3px] border border-crit/25
+                          bg-crit-wash px-3 py-2 text-[13px] text-crit" role="alert">
+                <erp-icon name="alert-triangle" [size]="14" class="mt-0.5" />
+                <span>{{ error() }}</span>
+              </div>
+            }
+
+            <button type="submit" class="btn-primary mt-1 w-full" [disabled]="busy()">
+              {{ busy() ? 'Connexion…' : 'Se connecter' }}
+            </button>
+          </form>
+
+          <p class="mt-6 border-t border-rule pt-4 text-[11px] leading-relaxed text-ink-faint">
+            Toute connexion est journalisée — auteur, horodatage et adresse. Le journal
+            d’audit est inscrit en base et ne peut être réécrit.
+          </p>
+        </div>
       </div>
     </div>
   `,

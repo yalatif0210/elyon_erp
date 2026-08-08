@@ -41,16 +41,61 @@ const MARKER = '-- @erp:business-sql-injected';
 
 /** Fichiers injectés, dans cet ordre — les triggers dépendent des tables. */
 const SQL_FILES = [
+  // Dépose les vues qui dépendent de fonctions recréées plus bas. EN PREMIER,
+  // sans quoi PostgreSQL refuse de remplacer ces fonctions — et l'échec
+  // n'apparaît qu'à la migration SUIVANTE, sur un changement sans rapport.
+  '00_prelude.sql',
   '01_business_constraints.sql',
+  // Opposabilité des dérogations : DÉFINIE AVANT les verrous qui l'appellent.
+  '13_derogations_opposables.sql',
+  // Statut de conformité calculé à la lecture : AVANT la vue qui l'appelle.
+  '14_conformite_dans_le_temps.sql',
   '02_audit_immutability.sql',
   '03_views_and_functions.sql',
+  '05_lot2_invariants.sql',
+  '06_lot2_views.sql',
+  '07_apurement_avances.sql',
+  '08_bareme_de_couts.sql',
+  '09_reprise_invariants.sql',
+  '10_types_operation.sql',
+  '11_journal_terrain.sql',
+  '12_exigence_photo.sql',
+  '16_sites_de_livraison.sql',
+  // Après 05, dont il remplace trois CHECK.
+  '17_arrondi_devise.sql',
+  '18_perte_volume_statistique.sql',
+  '19_verrou_credit.sql',
+  '20_tarif_transporteur.sql',
+  '21_referentiels_administrables.sql',
+  // Exercice comptable et données budgétaires : AVANT 25, qui les lit, et
+  // AVANT 22, dont deux sources de tâches lisent la couverture budgétaire.
+  '24_exercice_et_budget.sql',
+  '25_pilotage_financier.sql',
+  // L'assiette d'absorption est un volume, pas un chiffre d'affaires.
+  '26_assiette_en_volume.sql',
+  // CRM et tableau de bord : AVANT 22, dont la file lit les alertes CRM.
+  '27_crm_pipeline.sql',
+  '28_tableau_operationnel.sql',
+  // Une prévision reste dans les bornes de son exercice.
+  '29_prevision_dans_les_bornes.sql',
+  // Issus de l'audit : la facturation est bornée, l'encaissement est dérivé.
+  '30_facturation_bornee.sql',
+  '31_encaissement_fiable.sql',
+  // La file de tâches lit TOUTES les vues précédentes : elle vient en dernier.
+  '22_file_de_taches.sql',
+  // Paramètres requis : AVANT 15, dont deux règles d'invariant les lisent.
+  '23_parametres_obligatoires.sql',
+  // L'audit permanent vient EN DERNIER : il lit tout ce qui précède.
+  '15_audit_complet.sql',
+  // Les privilèges viennent EN DERNIER : ils portent sur des objets que les
+  // fichiers précédents viennent de créer.
   '04_grants.sql',
 ];
 
 const migrationName = process.argv[2] ?? 'init';
 
-function run(command, args) {
-  execFileSync(command, args, { cwd: API_ROOT, stdio: 'inherit' });
+function capture(command, args) {
+  return execFileSync(command, args, { cwd: API_ROOT, encoding: 'utf8' });
 }
 
 function latestMigrationDir() {
@@ -61,40 +106,100 @@ function latestMigrationDir() {
   return dirs.length > 0 ? join(MIGRATIONS_DIR, dirs[dirs.length - 1]) : null;
 }
 
+/** Base de travail jetable : Prisma y rejoue l'historique pour calculer l'écart. */
+function shadowUrl() {
+  if (process.env.SHADOW_DATABASE_URL) return process.env.SHADOW_DATABASE_URL;
+  const base = process.env.DATABASE_URL;
+  if (!base) throw new Error('DATABASE_URL absent.');
+  return base.replace(/\/([^/?]+)(\?|$)/, '/$1_shadow$2');
+}
+
+/**
+ * `migrate diff` exige que la base de travail EXISTE — contrairement à
+ * `migrate dev`, qui la crée au vol. On la crée donc soi-même, faute de quoi
+ * la commande échoue sur tout environnement neuf : conteneur, CI ou serveur.
+ *
+ * L'échec est ignoré : le cas courant est qu'elle existe déjà.
+ */
+function ensureShadowDatabase() {
+  const url = new URL(shadowUrl());
+  const dbName = url.pathname.replace(/^\//, '');
+  const maintenance = new URL(shadowUrl());
+  maintenance.pathname = '/postgres';
+
+  try {
+    execFileSync('npx', ['prisma', 'db', 'execute', '--url', maintenance.toString(), '--stdin'], {
+      cwd: API_ROOT,
+      input: `CREATE DATABASE "${dbName}";`,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    console.log(`  ✓ base de travail « ${dbName} » créée`);
+  } catch {
+    // Existe déjà, ou droits insuffisants — le diff dira si c'est bloquant.
+  }
+}
+
 // ---------------------------------------------------------------------------
-//  1. Générer la migration sans l'appliquer.
-//     --create-only produit le fichier SQL et s'arrête : il reste modifiable.
+//  1. Calculer l'écart entre l'historique de migration et le schéma courant.
+//
+//  `migrate dev --create-only` serait le chemin naturel, mais il EXIGE une
+//  confirmation interactive dès qu'il détecte une perte de données — colonne
+//  ou table supprimée. Impossible en conteneur, en CI ou sur un serveur.
+//
+//  `migrate diff` fait le même calcul sans rien demander. La contrepartie est
+//  qu'il n'avertit pas : c'est à la relecture du migration.sql généré de
+//  repérer un DROP non voulu. D'où l'affichage des opérations destructrices
+//  ci-dessous.
 // ---------------------------------------------------------------------------
 console.log(`→ Génération de la migration « ${migrationName} »…`);
+ensureShadowDatabase();
 
-const before = latestMigrationDir();
-run('npx', ['prisma', 'migrate', 'dev', '--name', migrationName, '--create-only', '--skip-generate']);
-let after = latestMigrationDir();
+let diffSql = '';
+try {
+  diffSql = capture('npx', [
+    'prisma', 'migrate', 'diff',
+    '--from-migrations', './prisma/migrations',
+    '--to-schema-datamodel', './prisma/schema.prisma',
+    '--shadow-database-url', shadowUrl(),
+    '--script',
+  ]);
+} catch (error) {
+  console.error('✗ Calcul de l’écart impossible.');
+  console.error(error.stderr?.toString() ?? error.message);
+  process.exit(1);
+}
+
+const isEmpty = /^\s*(--\s*This is an empty migration\.?\s*)?$/i.test(diffSql);
+
+// Signaler les opérations destructrices : migrate diff ne le fait pas.
+const destructive = diffSql
+  .split('\n')
+  .filter((l) => /^\s*(DROP TABLE|DROP COLUMN|ALTER TABLE .* DROP COLUMN|DROP TYPE)/i.test(l));
+if (destructive.length > 0) {
+  console.log('\n  ⚠️  Opérations destructrices détectées — à relire avant application :');
+  for (const line of destructive) console.log(`     ${line.trim()}`);
+  console.log('');
+}
+
+const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+let after = join(MIGRATIONS_DIR, `${stamp}_${migrationName}`);
+mkdirSync(after, { recursive: true });
+writeFileSync(join(after, 'migration.sql'), isEmpty ? '' : diffSql, 'utf8');
+console.log(`  ✓ ${isEmpty ? 'aucun changement de schéma' : 'écart de schéma'} → ${after}`);
 
 // ---------------------------------------------------------------------------
 //  Cas « SQL seul » : corriger un trigger, une vue ou une contrainte sans
-//  toucher au schéma Prisma.
-//
-//  Prisma ne génère alors AUCUNE migration. Sans ce traitement, le script
-//  injecterait le SQL dans la dernière migration — DÉJÀ APPLIQUÉE —, ce qui
-//  changerait son empreinte et ferait échouer tout `migrate deploy` ultérieur
-//  sur les environnements où elle est enregistrée.
-//
-//  On crée donc nous-mêmes un dossier de migration vide, que Prisma appliquera
-//  comme n'importe quel autre. Le SQL de prisma/sql/ étant idempotent, le
-//  rejouer intégralement est sans effet de bord.
+//  toucher au schéma Prisma. Le dossier est créé quand même — sans lui, le
+//  script injecterait le SQL dans la migration précédente, DÉJÀ APPLIQUÉE,
+//  ce qui changerait son empreinte et casserait tout `migrate deploy` futur.
 // ---------------------------------------------------------------------------
-if (!after || after === before) {
-  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
-  after = join(MIGRATIONS_DIR, `${stamp}_${migrationName}`);
-  mkdirSync(after, { recursive: true });
+if (isEmpty) {
   writeFileSync(
     join(after, 'migration.sql'),
     '-- Migration sans changement de schéma Prisma : correctif SQL seul.\n' +
       '-- Le contenu utile est injecté ci-dessous depuis prisma/sql/.\n',
     'utf8',
   );
-  console.log('  Aucun changement de schéma — migration SQL seule créée.');
 }
 
 // ---------------------------------------------------------------------------

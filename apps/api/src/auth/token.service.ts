@@ -82,6 +82,18 @@ export class TokenService {
     return this.redis.revokeAllForSubject(realm, subjectId);
   }
 
+  /**
+   * Révoque toutes les sessions SAUF celle en cours.
+   *
+   * Employé au changement de mot de passe : l'utilisateur vient de prouver
+   * qui il est, le déconnecter de son propre poste serait gratuit. Les autres
+   * jetons, eux, doivent tomber — un mot de passe changé après compromission
+   * ne vaut rien si le jeton déjà volé survit jusqu'à son expiration.
+   */
+  async revokeAllExcept(realm: Realm, subjectId: string, keepSid: string): Promise<number> {
+    return this.redis.revokeAllForSubject(realm, subjectId, keepSid);
+  }
+
   // -------------------------------------------------------------------------
 
   private async sign(

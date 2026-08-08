@@ -1,13 +1,39 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ActorType } from '@prisma/client';
 import { AuditService } from '../common/audit/audit.service';
 import { Public, Realm, RequireRealm } from '../common/auth/realm';
+import { RATE_WINDOW_MS, loginRateLimit } from '../common/config/rate-limits';
 import { AuthService } from './auth.service';
-import { FieldLoginDto, LoginDto, RefreshDto, TotpConfirmDto } from './auth.dto';
+import {
+  ChangePasswordDto,
+  FieldLoginDto,
+  LoginDto,
+  RefreshDto,
+  TotpConfirmDto,
+} from './auth.dto';
 
-/** Limitation de débit sur la connexion : 5 tentatives par minute et par IP. */
-const LOGIN_THROTTLE = { default: { limit: 5, ttl: 60_000 } };
+/**
+ * Limitation de débit sur la connexion — LOGIN_RATE_PER_MINUTE, par IP.
+ *
+ * La protection contre les essais de mot de passe en série ne repose PAS sur
+ * ce compteur : elle repose sur le verrouillage PAR COMPTE
+ * (LOGIN_MAX_FAILED_ATTEMPTS échecs, puis LOGIN_LOCK_MINUTES de blocage).
+ * C'est lui qui protège une cible désignée, et il ne dépend pas de l'adresse
+ * d'où viennent les tentatives.
+ *
+ * Le compteur par IP ne sert qu'à contenir l'abus volumétrique. Le régler
+ * trop bas se retourne contre l'entreprise : tout un bureau derrière une seule
+ * sortie internet partage le même compteur, et un utilisateur qui se trompe
+ * trois fois bloque ses collègues.
+ *
+ * ⚠️ La limite est passée en FONCTION, pas en nombre. Le décorateur est
+ *    évalué à l'import du module — bien avant la base — et fige tout nombre
+ *    qu'on lui donne ; la fonction, elle, est résolue à chaque requête et rend
+ *    la valeur lue au démarrage. Changer LOGIN_RATE_PER_MINUTE exige donc un
+ *    redémarrage de l'API, comme le dit la description du paramètre.
+ */
+const LOGIN_THROTTLE = { default: { limit: () => loginRateLimit(), ttl: RATE_WINDOW_MS } };
 
 function context(req: any) {
   return {
@@ -64,6 +90,31 @@ export class InternalAuthController {
   async confirm(@Body() dto: TotpConfirmDto, @Req() req: any): Promise<void> {
     await this.auth.confirmTotpEnrollment(Realm.INTERNAL, req.auth.sub, dto.code);
   }
+
+  /**
+   * Changement de mot de passe.
+   *
+   * Tous les comptes naissent avec un mot de passe provisoire et
+   * `mustChangePassword`. Sans cette route, l'obligation affichée en tête
+   * d'écran était impossible à satisfaire — on exigeait une action qui
+   * n'existait pas.
+   *
+   * Volontairement HORS de la limitation de débit de connexion : la session
+   * est déjà authentifiée, et brider quelqu'un qui se trompe en resaisissant
+   * son mot de passe actuel n'ajoute aucune protection.
+   */
+  @Patch('password')
+  @HttpCode(HttpStatus.OK)
+  changePassword(@Body() dto: ChangePasswordDto, @Req() req: any) {
+    return this.auth.changePassword(
+      Realm.INTERNAL,
+      req.auth.sub,
+      req.auth.sid,
+      dto.currentPassword,
+      dto.newPassword,
+      context(req),
+    );
+  }
 }
 
 // ===========================================================================
@@ -102,6 +153,31 @@ export class PortalAuthController {
   @Get('me')
   me(@Req() req: any) {
     return { id: req.auth.sub, realm: req.auth.realm, partnerId: req.auth.partnerId };
+  }
+
+  /**
+   * Changement de mot de passe.
+   *
+   * Tous les comptes naissent avec un mot de passe provisoire et
+   * `mustChangePassword`. Sans cette route, l'obligation affichée en tête
+   * d'écran était impossible à satisfaire — on exigeait une action qui
+   * n'existait pas.
+   *
+   * Volontairement HORS de la limitation de débit de connexion : la session
+   * est déjà authentifiée, et brider quelqu'un qui se trompe en resaisissant
+   * son mot de passe actuel n'ajoute aucune protection.
+   */
+  @Patch('password')
+  @HttpCode(HttpStatus.OK)
+  changePassword(@Body() dto: ChangePasswordDto, @Req() req: any) {
+    return this.auth.changePassword(
+      Realm.PORTAL,
+      req.auth.sub,
+      req.auth.sid,
+      dto.currentPassword,
+      dto.newPassword,
+      context(req),
+    );
   }
 }
 
@@ -152,6 +228,31 @@ export class FieldAuthController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async confirm(@Body() dto: TotpConfirmDto, @Req() req: any): Promise<void> {
     await this.auth.confirmTotpEnrollment(Realm.FIELD, req.auth.sub, dto.code);
+  }
+
+  /**
+   * Changement de mot de passe.
+   *
+   * Tous les comptes naissent avec un mot de passe provisoire et
+   * `mustChangePassword`. Sans cette route, l'obligation affichée en tête
+   * d'écran était impossible à satisfaire — on exigeait une action qui
+   * n'existait pas.
+   *
+   * Volontairement HORS de la limitation de débit de connexion : la session
+   * est déjà authentifiée, et brider quelqu'un qui se trompe en resaisissant
+   * son mot de passe actuel n'ajoute aucune protection.
+   */
+  @Patch('password')
+  @HttpCode(HttpStatus.OK)
+  changePassword(@Body() dto: ChangePasswordDto, @Req() req: any) {
+    return this.auth.changePassword(
+      Realm.FIELD,
+      req.auth.sub,
+      req.auth.sid,
+      dto.currentPassword,
+      dto.newPassword,
+      context(req),
+    );
   }
 }
 

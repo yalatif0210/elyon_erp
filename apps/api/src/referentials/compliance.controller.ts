@@ -9,10 +9,14 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import { ComplianceType, UserRole } from '@prisma/client';
+import {
+  ActorType,
+  AuditAction, ComplianceType, UserRole } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsDateString, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { Realm, RequireRealm, Roles } from '../common/auth/realm';
+import { SettingsService } from '../common/config/settings.service';
+import { AuditService } from '../common/audit/audit.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 
 /**
@@ -76,7 +80,11 @@ class CreateComplianceDto {
 
 @Injectable()
 export class ComplianceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settings: SettingsService,
+    private readonly audit: AuditService,
+  ) {}
 
   /** État de conformité consolidé — vue v_transport_compliance. */
   async overview(): Promise<unknown[]> {
@@ -119,7 +127,7 @@ export class ComplianceService {
     // Le rattachement à exactement un porteur est vérifié en base
     // (chk_compliance_single_owner) : inutile de le dupliquer ici, la
     // contrainte remontera en 422 via le filtre Prisma.
-    return this.prisma.complianceRecord.create({
+    const piece = await this.prisma.complianceRecord.create({
       data: {
         type: dto.type,
         reference: dto.reference,
@@ -132,6 +140,24 @@ export class ComplianceService {
         recordedById: actorId,
       },
     });
+
+    // ⚠️ CETTE ÉCRITURE NE LAISSAIT AUCUNE TRACE D'AUDIT.
+    //
+    //    C'est pourtant la pièce qui rend un transporteur, un véhicule ou un
+    //    chauffeur AFFECTABLE (§ 6.4) : enregistrer une assurance périmée comme
+    //    valide ouvre le verrou de conformité. Le seul témoin était la colonne
+    //    `recordedById` de la ligne elle-même — modifiable, et effacée par la
+    //    correction suivante.
+    await this.audit.record({
+      actorType: ActorType.INTERNAL_USER,
+      actorId,
+      action: AuditAction.CREATE,
+      entityType: 'ComplianceRecord',
+      entityId: piece.id,
+      after: piece,
+    });
+
+    return piece;
   }
 
   findOne(id: string) {
@@ -146,11 +172,16 @@ export class ComplianceService {
     });
   }
 
-  private async noticeDays(): Promise<number> {
-    const setting = await this.prisma.systemSetting.findUnique({
-      where: { key: 'DOC_EXPIRY_ALERT_DAYS' },
-    });
-    return Number(setting?.value ?? 60);
+  /**
+   * Préavis d'alerte sur les pièces à échéance (§ 6.6).
+   *
+   * Passe par le service de paramétrage plutôt que par une lecture directe :
+   * celle-ci rendait NaN sur une valeur non numérique — l'horizon de la
+   * surveillance disparaissait alors sans message, et la liste des pièces à
+   * renouveler revenait vide comme si tout était en règle.
+   */
+  private noticeDays(): Promise<number> {
+    return this.settings.number('DOC_EXPIRY_ALERT_DAYS', 60);
   }
 }
 

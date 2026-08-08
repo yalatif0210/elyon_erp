@@ -16,7 +16,19 @@ export function remainingLabel(days: number): string {
 
 /** Couleur du délai : échu, proche, confortable. */
 export function daysClass(days: number): string {
-  if (days < 0) return 'text-rose-400';
-  if (days <= 30) return 'text-amber-400';
-  return 'text-slate-300';
+  if (days < 0) return 'font-semibold text-crit';
+  if (days <= 30) return 'font-semibold text-warn-ink';
+  return 'text-ink-soft';
+}
+
+/**
+ * Liseré de sévérité porté par la ligne de table.
+ *
+ * La forme double la teinte : une échéance échue se repère sans lire et sans
+ * dépendre de la perception des couleurs (§ 17.2).
+ */
+export function rowClass(days: number): string {
+  if (days < 0) return 'row-crit';
+  if (days <= 30) return 'row-warn';
+  return '';
 }
