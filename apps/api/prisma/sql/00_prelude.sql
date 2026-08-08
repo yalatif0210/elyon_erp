@@ -35,6 +35,7 @@ DROP VIEW IF EXISTS v_taches CASCADE;
 DROP VIEW IF EXISTS v_invariant_breaches CASCADE;
 DROP VIEW IF EXISTS v_tableau_operationnel_compte CASCADE;
 DROP VIEW IF EXISTS v_tableau_operationnel CASCADE;
+DROP VIEW IF EXISTS v_performance_commerciale CASCADE;
 DROP VIEW IF EXISTS v_crm_conversion CASCADE;
 DROP VIEW IF EXISTS v_crm_alertes CASCADE;
 DROP VIEW IF EXISTS v_crm_pipeline_par_etape CASCADE;

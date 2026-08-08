@@ -68,6 +68,7 @@ BEGIN
   EXECUTE 'GRANT SELECT ON v_partner_credit_exposure TO erp_app';
   EXECUTE 'GRANT SELECT ON v_margin_band_watch TO erp_app';
   EXECUTE 'GRANT SELECT ON v_margin_band_by_owner TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_performance_commerciale TO erp_app';
   EXECUTE 'GRANT SELECT ON v_margin_variance TO erp_app';
   EXECUTE 'GRANT SELECT ON v_cost_reconciliation TO erp_app';
   EXECUTE 'GRANT SELECT ON v_compliance_expiry_watch TO erp_app';

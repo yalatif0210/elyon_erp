@@ -96,7 +96,8 @@ budget de charges fixes. La file de tâches vous guide.
 - Lire les **paramètres système** ni les **taux d'absorption**.
 - Lire le **BFR**, le **rapprochement des coûts**, les **avances non apurées**, les
   **invariants**.
-- ⚠️ Lire la **concentration par commercial**. Voir § 2 bis.
+- Lire la **concentration par commercial** et la **performance par commercial** : ouvertes
+  depuis le 8 août, au même titre que le DG.
 
 ---
 
@@ -216,9 +217,12 @@ siennes.
 vente et les marges estimées. Défendable — le logisticien doit savoir ce qu'il transporte —
 mais c'est de l'information commerciale.
 
-**3. Le CCOO ne voit pas la concentration par commercial.** C'est pourtant la lecture qui
-révèle un vendeur dont toutes les affaires effleurent le seuil, et le CCOO en est le
-supérieur. Cela ressemble à un oubli de ma part plutôt qu'à un choix. Je peux l'ouvrir.
+**3. ~~Le CCOO ne voit pas la concentration par commercial.~~ TRANCHÉ — ouvert.**
+Le dirigeant : « le CCOO doit voir la concentration par commercial ainsi que les
+statistiques par commercial au même titre que le DG ». Fait, et la **performance par
+commercial** a été créée avec — elle n'existait pas, alors que le § 16 la demande.
+Réservée à DG, CFO et CCOO : un tableau comparatif ouvert aux commerciaux contredirait la
+règle qui veut que chacun ne voie que ses propres affaires.
 
 ---
 

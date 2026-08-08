@@ -89,6 +89,30 @@ export class SupervisionService {
     );
   }
 
+  /**
+   * Performance par commercial (§ 16).
+   *
+   * Trois familles de chiffres qu'on ne mélange pas : ce qui est ESPÉRÉ (le
+   * pipeline, qui dépend de probabilités déclarées), ce qui est SIGNÉ (les
+   * affaires, qui ne dépendent d'aucune hypothèse), et À QUEL PRIX c'est signé
+   * (marge, proximité du seuil). Un commercial qui remplit son pipeline sans
+   * rien signer et un autre qui signe tout au ras du seuil ont tous deux un
+   * problème — un indicateur unique les confondrait.
+   */
+  performanceCommerciale() {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT owner_id, commercial, role,
+              opportunites_ouvertes, ca_previsionnel, valeur_ponderee,
+              sans_probabilite, actions_en_retard,
+              gagnees, perdues, conversion_pct,
+              affaires, volume, chiffre_affaires, affaires_approuvees,
+              marge_unitaire_moyenne, affaires_sur_derogation,
+              affaires_dans_la_bande, part_dans_la_bande_pct, ecart_moyen_au_seuil_pct
+         FROM v_performance_commerciale
+        ORDER BY chiffre_affaires DESC NULLS LAST, commercial`,
+    );
+  }
+
   /** Écart entre marge approuvée et marge réalisée, dans les deux sens. */
   marginVariance(thresholdPct: number) {
     return this.prisma.$queryRawUnsafe(
@@ -336,10 +360,31 @@ export class SupervisionController {
     return this.service.marginBand();
   }
 
+  /**
+   * Concentration par commercial.
+   *
+   * ⚠️ LE CCOO EN EST LE PREMIER DESTINATAIRE, ET IL EN ÉTAIT EXCLU.
+   *
+   *    Cette lecture révèle un vendeur dont toutes les affaires effleurent le
+   *    seuil — un motif, pas un cas isolé. Le CCOO encadre ces vendeurs ; le
+   *    laisser dehors revenait à confier le signal à ceux qui ne peuvent rien
+   *    en faire au quotidien.
+   *
+   *    Les commerciaux, eux, restent exclus : un tableau comparatif de leurs
+   *    collègues contredirait la règle qui veut que chacun ne voie que ses
+   *    propres affaires.
+   */
   @Get('margin-band/by-owner')
-  @Roles(UserRole.DG, UserRole.FINANCE_CFO)
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO)
   byOwner() {
     return this.service.marginBandByOwner();
+  }
+
+  /** Performance par commercial (§ 16) — pipeline, conversion, réalisé, qualité. */
+  @Get('performance-commerciale')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO)
+  performanceCommerciale() {
+    return this.service.performanceCommerciale();
   }
 
   @Get('margin-variance')

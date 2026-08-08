@@ -1,5 +1,12 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
-import { ApiService, CrmAlerte, CrmConversion, CrmEtape, CrmPipelineRow } from '../core/api.service';
+import {
+  ApiService,
+  CrmAlerte,
+  CrmConversion,
+  CrmEtape,
+  CrmPipelineRow,
+  PerformanceCommerciale,
+} from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
 import { dateOnly } from '../shared/format';
 
@@ -180,6 +187,89 @@ import { dateOnly } from '../shared/format';
       </section>
     }
 
+    <!-- ============ Performance par commercial (§ 16) ============ -->
+    @if (performances().length > 0) {
+      <section class="mb-5">
+        <div class="mb-2 flex items-center gap-2">
+          <erp-icon name="users" [size]="15" class="text-ink-muted" />
+          <h2 class="text-[13px] font-semibold text-ink">Performance par commercial</h2>
+        </div>
+        <p class="mb-2 text-[12px] leading-relaxed text-ink-faint">
+          Trois familles de chiffres, et on ne les confond pas : ce qui est <strong>espéré</strong>
+          — le pipeline, qui repose sur des probabilités déclarées —, ce qui est
+          <strong>signé</strong>, qui ne repose sur aucune hypothèse, et <strong>à quel prix</strong>
+          c'est signé. Un commercial qui remplit son pipeline sans rien signer et un autre qui
+          signe tout au ras du seuil ont tous deux un problème ; un chiffre unique les
+          confondrait.
+        </p>
+        <div class="card overflow-x-auto">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Commercial</th>
+                <th class="num">Opportunités</th>
+                <th class="num">CA prévisionnel</th>
+                <th class="num">Pondéré</th>
+                <th class="num">Conversion</th>
+                <th class="num">Affaires</th>
+                <th class="num">Chiffre d'affaires</th>
+                <th class="num">Marge moyenne</th>
+                <th class="num">Dans la bande</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (p of performances(); track p.owner_id) {
+                <tr>
+                  <td>
+                    <span class="block text-[13px] text-ink">{{ p.commercial }}</span>
+                    @if (nombreBrut(p.actions_en_retard) > 0) {
+                      <span class="block text-[11px] font-medium text-crit">
+                        {{ p.actions_en_retard }} action(s) en retard
+                      </span>
+                    }
+                  </td>
+                  <td class="num tabular text-ink-soft">{{ p.opportunites_ouvertes }}</td>
+                  <td class="num tabular text-ink-faint">{{ nombre(p.ca_previsionnel) }}</td>
+                  <td class="num tabular text-ink">
+                    {{ p.valeur_ponderee === null ? '—' : nombre(p.valeur_ponderee) }}
+                    @if (nombreBrut(p.sans_probabilite) > 0) {
+                      <span class="ml-1 text-[11px] font-normal text-warn-ink">
+                        ({{ p.sans_probabilite }} hors total)
+                      </span>
+                    }
+                  </td>
+                  <td class="num tabular font-medium text-ink">
+                    {{ p.conversion_pct === null ? 'pas de recul' : p.conversion_pct + ' %' }}
+                    <span class="block text-[11px] font-normal text-ink-faint">
+                      {{ p.gagnees }} gagnée(s) · {{ p.perdues }} perdue(s)
+                    </span>
+                  </td>
+                  <td class="num tabular text-ink">{{ p.affaires }}</td>
+                  <td class="num tabular text-ink">{{ nombre(p.chiffre_affaires) }}</td>
+                  <td class="num tabular text-ink-soft">
+                    {{ p.marge_unitaire_moyenne === null ? '—' : nombre(p.marge_unitaire_moyenne) }}
+                  </td>
+                  <!-- La part dans la bande est le signal qui compte : une affaire
+                       à 31 est banale, un vendeur dont tout atterrit à 31 ne l'est
+                       pas. -->
+                  <td class="num tabular font-medium" [class]="teinteBande(p.part_dans_la_bande_pct)">
+                    {{ p.part_dans_la_bande_pct === null
+                       ? '—'
+                       : p.affaires_dans_la_bande + ' (' + p.part_dans_la_bande_pct + ' %)' }}
+                    @if (nombreBrut(p.affaires_sur_derogation) > 0) {
+                      <span class="block text-[11px] font-normal text-warn-ink">
+                        dont {{ p.affaires_sur_derogation }} sur dérogation
+                      </span>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    }
+
     <!-- ============ Les opportunités ouvertes ============ -->
     <section class="mb-5">
       <div class="mb-2 flex items-center gap-2">
@@ -244,6 +334,7 @@ export class CrmComponent implements OnInit {
   protected readonly etapes = signal<CrmEtape[]>([]);
   protected readonly alertes = signal<CrmAlerte[]>([]);
   protected readonly conversions = signal<CrmConversion[]>([]);
+  protected readonly performances = signal<PerformanceCommerciale[]>([]);
 
   protected readonly enRetard = computed(
     () => this.alertes().filter((a) => a.retard_jours > 0).length,
@@ -260,6 +351,9 @@ export class CrmComponent implements OnInit {
     this.api.crmParEtape().subscribe({ next: (r) => this.etapes.set(r), error: vide });
     this.api.crmAlertes().subscribe({ next: (r) => this.alertes.set(r), error: vide });
     this.api.crmConversion().subscribe({ next: (r) => this.conversions.set(r), error: vide });
+    // Repli silencieux : un rôle sans accès à la performance garde le reste
+    // de l'écran plutôt que de perdre le pipeline entier.
+    this.api.performanceCommerciale().subscribe({ next: (r) => this.performances.set(r), error: vide });
   }
 
   protected nombre(v: string | null): string {
@@ -279,6 +373,20 @@ export class CrmComponent implements OnInit {
   protected echeance(a: CrmAlerte): string {
     if (a.retard_jours > 0) return `${a.retard_jours} j de retard`;
     return dateOnly(a.echeance);
+  }
+
+  /**
+   * Un vendeur dont une affaire sur deux effleure le seuil.
+   *
+   * Le seuil de teinte porte sur la PART, pas sur le nombre : trois affaires
+   * dans la bande sur trois est un motif, trois sur quarante ne l'est pas.
+   */
+  protected teinteBande(part: string | null): string {
+    if (part === null) return 'text-ink-faint';
+    const n = Number(part);
+    if (n >= 50) return 'text-crit';
+    if (n >= 25) return 'text-warn-ink';
+    return 'text-ink-soft';
   }
 
   protected issueLibelle(issue: string): string {

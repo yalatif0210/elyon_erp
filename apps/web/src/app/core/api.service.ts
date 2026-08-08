@@ -643,6 +643,42 @@ export interface CrmAlerte {
   retard_jours: number;
 }
 
+/**
+ * Performance par commercial (§ 16).
+ *
+ * ⚠️ TROIS FAMILLES DE CHIFFRES, QU'UN INDICATEUR UNIQUE CONFONDRAIT.
+ *
+ *    Ce qui est ESPÉRÉ — le pipeline, qui dépend de probabilités déclarées.
+ *    Ce qui est SIGNÉ — les affaires, qui ne dépendent d'aucune hypothèse.
+ *    À QUEL PRIX — marge, et proximité du seuil.
+ *
+ *    Un commercial qui remplit son pipeline sans rien signer, et un autre qui
+ *    signe tout au ras du seuil, ont tous deux un problème. Le tableau les
+ *    distingue.
+ */
+export interface PerformanceCommerciale {
+  owner_id: string;
+  commercial: string;
+  role: string;
+  opportunites_ouvertes: string;
+  ca_previsionnel: string;
+  valeur_ponderee: string | null;
+  sans_probabilite: string;
+  actions_en_retard: string;
+  gagnees: string;
+  perdues: string;
+  conversion_pct: string | null;
+  affaires: string;
+  volume: string;
+  chiffre_affaires: string;
+  affaires_approuvees: string;
+  marge_unitaire_moyenne: string | null;
+  affaires_sur_derogation: string;
+  affaires_dans_la_bande: string;
+  part_dans_la_bande_pct: string | null;
+  ecart_moyen_au_seuil_pct: string | null;
+}
+
 /** Probabilité AFFICHÉE contre conversion OBSERVÉE — l'honnêteté du pipeline. */
 export interface CrmConversion {
   etape_code: string;
@@ -1263,6 +1299,12 @@ export class ApiService {
 
   crmAlertes(): Observable<CrmAlerte[]> {
     return this.http.get<CrmAlerte[]>(`${this.base}/crm/alertes`);
+  }
+
+  performanceCommerciale(): Observable<PerformanceCommerciale[]> {
+    return this.http.get<PerformanceCommerciale[]>(
+      `${this.base}/supervision/performance-commerciale`,
+    );
   }
 
   crmConversion(): Observable<CrmConversion[]> {

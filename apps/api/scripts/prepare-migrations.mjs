@@ -76,6 +76,8 @@ const SQL_FILES = [
   // CRM et tableau de bord : AVANT 22, dont la file lit les alertes CRM.
   '27_crm_pipeline.sql',
   '28_tableau_operationnel.sql',
+  // Performance par commercial : lit le CRM (27) et la bande de marge (06).
+  '32_performance_commerciale.sql',
   // Une prévision reste dans les bornes de son exercice.
   '29_prevision_dans_les_bornes.sql',
   // Issus de l'audit : la facturation est bornée, l'encaissement est dérivé.
