@@ -61,16 +61,11 @@ print("RECETTE DES CORRECTIFS D'AUDIT")
 print("=" * 70)
 cfo = token("cfo@elyon-trading.example")
 
-# --- contexte : une affaire et son reliquat ------------------------------
-code, reste = call("/api/internal/supervision/reste-a-facturer", cfo)
-if code == 404:
-    # La route n'est pas exposee : on lit l'affaire par l'API des affaires.
-    code, deals = call("/api/internal/deals?pageSize=50", cfo)
-    items = deals.get("items", deals) if isinstance(deals, dict) else deals
-    affaire = next((d for d in items if d["reference"] == "DEAL-2026-08-001"), None)
-else:
-    affaire = None
-
+# --- contexte : l'affaire temoin -----------------------------------------
+# tests/recette/nettoyage.sql a retabli, avant cette campagne, un cumul facture
+# DETERMINISTE sur cette affaire : 29 925 L sur 30 000 contractes, soit 75 L de
+# reliquat. Les cas ci-dessous s'appuient sur ce reliquat, et la suite est donc
+# rejouable autant de fois qu'on veut.
 code, deals = call("/api/internal/deals?pageSize=50", cfo)
 items = deals.get("items", deals) if isinstance(deals, dict) else deals
 affaire = next((d for d in items if d["reference"] == "DEAL-2026-08-001"), None)
@@ -146,11 +141,20 @@ cats = {t["categorie"] for t in taches} if isinstance(taches, list) else set()
 cas("les FNE non transmises remontent", "FNE_NON_TRANSMISE" in cats, str(sorted(cats))[:200])
 cas("le reliquat a facturer remonte", "RESTE_A_FACTURER" in cats, str(sorted(cats))[:200])
 
-# --- nettoyage : annulation, jamais suppression --------------------------
-for pid in creees:
-    call(f"/api/internal/invoices/{pid}/cancel", cfo, "PATCH", {"reason": "piece de recette"})
+# --- nettoyage ------------------------------------------------------------
+# ⚠️ IL N'EXISTE AUCUNE ROUTE D'ANNULATION DE PIECE.
+#
+#    L'API n'expose que la creation, la conversion, l'emission et
+#    l'encaissement. Une premiere version de cette suite appelait
+#    /invoices/:id/cancel — qui repondait 404 en silence, laissant les pieces
+#    d'essai actives et faisant echouer la campagne SUIVANTE.
+#
+#    Les pieces creees ici sont donc annulees par tests/recette/nettoyage.sql,
+#    joue AVANT chaque campagne.
+#
+#    Ce constat vaut d'etre remonte : une piece emise par erreur ne peut
+#    aujourd'hui se corriger que par un avoir. C'est defendable fiscalement,
+#    mais l'absence de toute voie d'annulation merite d'etre tranchee.
 
 print("\n" + "=" * 70)
 print(f"{ok}/{ok + ko} cas conformes")
-if creees:
-    print("Pieces de recette a annuler :", ", ".join(creees))

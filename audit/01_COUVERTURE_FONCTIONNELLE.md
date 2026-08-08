@@ -370,5 +370,76 @@ porte des volumes importants, la sévérité monte à S2.
 
 ---
 
+---
+
+## 9. REMÉDIATION — CE QUI A ÉTÉ CORRIGÉ
+
+> ⚠️ **Changement de posture, déclaré.** La règle 1 du prompt impose la lecture seule.
+> Le dirigeant a explicitement demandé la correction des défauts avant la phase suivante :
+> à partir d'ici, l'auditeur devient réparateur. Tout ce qui suit est **postérieur** aux
+> constats, et chaque correctif est éprouvé par la recette, pas par relecture.
+
+### 9.1 Les défauts constatés, et leur traitement
+
+| # | Défaut | Traitement | Preuve |
+|---|---|---|---|
+| 1 | Cumul facturé non borné | Déclencheur `enforce_facturation_bornee` : Σ(SIMPLE + FNE − avoirs) ≤ `contracted_volume`, tolérance relative d'un dix-millième. Vue `v_reste_a_facturer`. Règle d'invariant. Deux sources de tâches. | `recette_audit` : *facturer 5 000 L au-delà du reliquat : refusé* · *50 L dans le reliquat : accepté* · *proforma hors contrat : libre* |
+| 2 | FNE non transmises, silencieuses | Source de tâche `FNE_NON_TRANSMISE`, bloquante au-delà de 30 jours. La transmission elle-même attend l'API DGI, dépendance externe assumée. | *les FNE non transmises remontent* |
+| 3 | Solde encaissé divergeable | Le solde est **dérivé** du journal par déclencheur ; sa saisie manuelle est refusée. Vue `v_rapprochement_encaissements`. Règle d'invariant. | *le solde suit le journal* · *le solde cumule les deux* |
+| 4 | Encaissement non idempotent, course | Le solde n'est plus écrit par l'application. La course se referme au moteur : le second règlement recalcule, dépasse, et `paid_amount <= total_amount` le refuse. Index unique sur la référence bancaire. | *même référence bancaire : refusée* · *encaisser plus que le total : refusé* |
+| 5 | `OVERDUE` jamais posé | Statut **dérivé** — `statut_creance_effectif`, `v_creances_echues` avec balance âgée par tranches. Source de tâche `CREANCE_ECHUE`. | vue lisible, tâche présente |
+| 6 | Cinq arrondis concurrents, erreur sur les cas limites | Une seule autorité : `common/money/money.ts`. L'arrondi passe par la notation exponentielle — `roundTo(1.005, 2)` rend désormais 1,01 et non 1. | vérifié sur 1,005 · 8,615 · 2,675 · −1,005 |
+| 7 | 130 fichiers hors contrôle de version | Branche `sauvegarde/lots-3-4-et-audit` : 169 fichiers ajoutés, 44 modifiés. Aucun secret dans l'index. | `git log` |
+| 8 | Recette hors dépôt, non rejouable | Rapatriée dans `tests/recette/`, lancée par `npm test`. | 194/194 sur 9 suites |
+
+### 9.2 Trois défauts découverts **dans les correctifs eux-mêmes**
+
+Ils méritent d'être consignés : ils n'auraient pas été trouvés par relecture, seulement en
+se servant de ce qu'on venait d'écrire.
+
+**a) Un verrou qui empêchait de réparer ce qu'il dénonçait.** La première version du
+contrôle de facturation se déclenchait sur toute écriture. Annuler une pièce en double —
+le geste que son propre message recommandait — modifie le statut, ce qui rejouait le
+contrôle, qui constatait le dépassement préexistant, et refusait. La règle correcte n'est
+pas « le cumul doit être conforme » mais « cette écriture ne doit pas **aggraver** le
+cumul ». Une annulation, une réduction, un avoir passent toujours.
+
+**b) Une tolérance monétaire appliquée à un volume.** Réflexe de réutilisation :
+`tolerance_arrondi(devise)` était déjà paramétrée. Elle vaut une demi-unité de la plus
+petite subdivision — 0,5 en XOF. Appliquée à un volume, elle n'a aucun sens : arbitraire
+sur 30 000 L, absurde sur 12 000 000. Remplacée par un écart relatif au contrat.
+
+**c) Une recette qui ne passait qu'une fois.** Les suites créaient des exercices, des
+opportunités et des pièces, et échouaient au second passage sur leurs propres traces.
+Pire : `recette_dettes` change un mot de passe et ne le restaure qu'à sa dernière ligne —
+interrompue avant, elle laissait le compte inaccessible à **toutes** les campagnes
+suivantes. C'est précisément le reproche que cet audit adressait à la recette d'alors ;
+le corriger à moitié n'aurait rien corrigé. `tests/recette/nettoyage.sql` rétablit
+désormais un état déterministe avant chaque campagne, et le lanceur rejoue une suite
+interrompue après la fenêtre du limiteur de débit.
+
+**Vérification de la rejouabilité** : deux campagnes complètes enchaînées sans
+intervention → **194/194 et 194/194**.
+
+### 9.3 Ce qui reste ouvert
+
+| Point | État |
+|---|---|
+| Transmission DGI | Attend l'API que le dirigeant doit communiquer. L'attente est désormais **visible**. |
+| Aucune voie d'annulation de pièce | L'API n'expose ni annulation ni suppression : une pièce émise par erreur ne se corrige que par avoir. Défendable fiscalement, mais à trancher explicitement. |
+| Référentiel pays | `countryCode` reste en saisie libre sur les tiers et les sites. Trois options ont été soumises au dirigeant (liste ISO complète, pays d'activité seulement, statu quo) — **sans réponse à ce jour**. Je ne choisis pas à sa place. |
+| Barge, maintenance, recouvrement actif, portail client | Absents. Voir § 5. |
+| Arithmétique décimale exacte | Les calculs restent en flottant. Centralisés, donc migrables d'un seul geste. À engager si le volume en devise à deux décimales devient significatif. |
+
+### 9.4 État après remédiation
+
+```
+194/194 cas conformes sur 9 suites, rejouables
+v_invariant_breaches = 0
+8 écrans en 200
+```
+
+---
+
 *Phase 1 close. Aucune modification du code. Deux transactions de test ouvertes en base,
 toutes deux annulées (`ROLLBACK`) ; aucune donnée n'a été écrite.*
