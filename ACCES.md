@@ -102,6 +102,38 @@ docker compose exec -T postgres psql -U erp_migrator -d erp < sauvegardes/avant-
 
 ---
 
+## 5 bis. LA RECETTE NE PASSE PLUS — ET C'EST NORMAL
+
+> ⚠️ **Les 194 cas de recette s'appuient sur le jeu de démonstration.** Vous venez de me
+> le faire effacer : ils ne peuvent plus tourner. Ce n'est pas une régression, c'est la
+> conséquence directe de la purge — mais vous devez le savoir avant de lancer `npm test`
+> et de croire à une casse.
+
+Deux façons de revenir à un état vérifiable, selon ce que vous voulez :
+
+**Régénérer le jeu de démonstration** — la base repart avec ses clients, affaires et
+opérations fictives :
+
+```
+docker compose --profile tools run --rm migrator npm run db:seed
+```
+
+**Restaurer exactement l'état d'avant la purge** — y compris les traces d'audit :
+
+```
+docker compose exec -T postgres psql -U erp_migrator -d erp < sauvegardes/avant-purge-20260808-1159.sql
+```
+
+**Pour vos essais réels, ne faites ni l'un ni l'autre.** La base vide est ce que vous
+avez demandé, et c'est le bon terrain pour découvrir ce qui rame : une application qui
+ne connaît rien de vous vous obligera à tout saisir, et c'est précisément là que les
+frottements se voient.
+
+Quand vous voudrez que je vérifie une correction, je régénérerai le jeu, je jouerai la
+recette, puis je repurgerai.
+
+---
+
 ## 6. LA DEVISE — CE QUI A CHANGÉ
 
 Vous aviez raison : **le dollar s'imposait sans qu'on l'ait choisi.** Trois endroits,
