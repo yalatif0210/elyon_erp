@@ -67,38 +67,61 @@ et aucune route ne sert de données. À construire.
 
 ## 5. CE QUI RESTE EN BASE
 
-La purge a effacé **toute l'activité** et conservé **tout le paramétrage** — sans quoi
-l'application vous laisserait tout passer et ne montrerait rien de ce qu'elle sait
-refuser.
+Deux purges successives : l'activité d'abord, puis les référentiels métier que vous avez
+désignés — **73 produits, 55 cours de change, 18 seuils de marge**.
 
-| Conservé | Nombre |
-|---|---|
-| Comptes internes / terrain | 8 / 2 |
-| Devises | 3 — XOF (locale), USD (pivot), EUR |
-| Produits | 73 |
-| Cours de change | 55 |
-| Seuils de marge | 18 |
-| Postes de coût | 24 |
-| Barèmes de coût | 2 |
-| Types d'opération | 5 |
-| Modèles de checklist HSE | 1 |
-| Étapes du pipeline commercial | 13 |
-| Paramètres système | 21 |
+### Vidé, et administrable
 
-| Effacé | |
-|---|---|
-| Tiers, sites, véhicules, chauffeurs | 0 |
-| Affaires, opérations, factures, encaissements | 0 |
-| Journal terrain, journal d'audit | 0 |
-| Exercices comptables et données budgétaires | 0 |
-| Compteurs de numérotation | remis à 1 |
+| Référentiel | Où le saisir | Import fichier |
+|---|---|---|
+| **Produits** | `/parametrage` → Produits | oui |
+| **Cours de change** | `/parametrage` → Taux de change | oui |
+| **Seuils de marge** | `/parametrage` → Seuils de marge | oui |
+| Tiers, sites, véhicules, chauffeurs | idem | oui |
+| Affaires, opérations, factures, encaissements | écrans métier | — |
 
-**Sauvegarde avant purge** : `sauvegardes/avant-purge-20260808-1159.sql` (3,6 Mo).
-Restauration :
+Écriture vérifiée sur les trois : produit **201**, cours de change **201**, seuil de marge
+**201**. Les lignes d'essai ont été retirées — la base est vierge.
 
-```
-docker compose exec -T postgres psql -U erp_migrator -d erp < sauvegardes/avant-purge-20260808-1159.sql
-```
+> ⚠️ **Conséquence immédiate, à connaître avant de vous étonner.**
+>
+> Sans cours de change, **aucune conversion n'est possible** : le plan pivot ne se calcule
+> pas et toute pièce monétaire sera refusée. Sans produit, aucune affaire ne se crée. Sans
+> seuil de marge, le verrou de marge n'a rien à faire respecter et tout passe.
+>
+> C'est le comportement correct — on ne convertit pas sans taux, on ne vend pas un produit
+> qui n'existe pas — mais l'application paraîtra bloquée tant que le premier cours et le
+> premier produit ne sont pas saisis. Un système qui inventerait un taux de change mentirait
+> sur tout ce qu'il calcule ensuite.
+
+### Conservé, et pourquoi
+
+| Référentiel | Lignes | Nature |
+|---|---|---|
+| Comptes internes / terrain | 8 / 2 | Vos accès |
+| **Devises** | 3 — XOF, USD, EUR | Cadre monétaire. Les vider empêcherait toute saisie, y compris celle des cours. |
+| Postes de coût | 24 | Nomenclature de coûts |
+| Types d'opération | 5 — ROUTE, SOUTAGE, BARGE, PIPELINE, RAIL | Vos modes d'exécution |
+| Types d'exigence de site | 9 | Nomenclature |
+| Étapes du pipeline commercial | 13 | **Nommées par votre § 15.** Probabilités laissées vides. |
+| Modèle de checklist HSE + points | 1 + 20 | Livraison routière |
+| Paramètres système | 21 | Délais d'alerte, TVA, verrouillage de connexion |
+
+### ⚠️ Ce qui reste préchargé et relève du même principe que vous venez de poser
+
+Vous avez désigné trois référentiels. **Quatre autres portent des valeurs d'entreprise que
+personne chez vous n'a décidées** — je ne les ai pas touchés parce que vous ne les avez pas
+nommés, et je ne décide pas à votre place :
+
+| Référentiel | Lignes | Ce que ça vaut |
+|---|---|---|
+| **Barèmes de coût** | 2 | Montants de référence par poste — ce sont vos coûts standards |
+| **Tolérances d'ullage** | 1 | Seuil de perte admissible, illustré à 0,2 % par le § 19 |
+| **Regroupements de charges** | 5 | Dont **2 sont des essais de recette** (`BANQUE-900`, `TEST-CA`), désactivés et renommés |
+| **Taux d'absorption** | 5 | Budget ÷ assiette — ce sont vos charges de structure |
+
+Dites-moi si je les vide aussi. Mon avis : oui pour les quatre, et il faudra en profiter
+pour supprimer les deux regroupements d'essai plutôt que de les laisser désactivés.
 
 ---
 
