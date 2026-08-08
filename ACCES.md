@@ -86,6 +86,9 @@ budget de charges fixes. La file de tâches vous guide.
 
 - Affaires et opérations de bout en bout, y compris la **création d'opération**.
 - Pipeline commercial complet, **y compris la conversion observée par étape**.
+- **Concentration par commercial** et **performance par commercial** — au même titre que
+  le DG. Les deux seules lectures qui comparent des personnes : elles disent quel vendeur
+  remplit son pipeline sans signer, et lequel signe tout au ras du seuil.
 - Produits, sites, exigences de site, véhicules, chauffeurs, types d'opération, modèles de
   checklist HSE, points de contrôle.
 - Surveillance : bande de marge, écart de marge, en-cours crédit, point mort.
@@ -96,8 +99,6 @@ budget de charges fixes. La file de tâches vous guide.
 - Lire les **paramètres système** ni les **taux d'absorption**.
 - Lire le **BFR**, le **rapprochement des coûts**, les **avances non apurées**, les
   **invariants**.
-- Lire la **concentration par commercial** et la **performance par commercial** : ouvertes
-  depuis le 8 août, au même titre que le DG.
 
 ---
 
