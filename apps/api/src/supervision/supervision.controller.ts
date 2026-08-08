@@ -99,17 +99,34 @@ export class SupervisionService {
    * rien signer et un autre qui signe tout au ras du seuil ont tous deux un
    * problème — un indicateur unique les confondrait.
    */
-  performanceCommerciale() {
+  performanceCommerciale(p: {
+    periode?: string;
+    ancre?: string;
+    debut?: string;
+    fin?: string;
+  }) {
+    // ⚠️ LA PÉRIODE EST RÉSOLUE EN BASE, PAS ICI.
+    //
+    //    Calculer les bornes d'un trimestre côté application les ferait
+    //    diverger de celles du SQL au premier fuseau ou au premier exercice
+    //    décalé. La fonction rend la période retenue AVEC les chiffres : ce que
+    //    l'écran affiche est exactement ce qui a été agrégé.
     return this.prisma.$queryRawUnsafe(
-      `SELECT owner_id, commercial, role,
-              opportunites_ouvertes, ca_previsionnel, valeur_ponderee,
-              sans_probabilite, actions_en_retard,
-              gagnees, perdues, conversion_pct,
-              affaires, volume, chiffre_affaires, affaires_approuvees,
-              marge_unitaire_moyenne, affaires_sur_derogation,
-              affaires_dans_la_bande, part_dans_la_bande_pct, ecart_moyen_au_seuil_pct
-         FROM v_performance_commerciale
+      `SELECT * FROM performance_commerciale($1::date, $2::date, $3::text, $4::date)
         ORDER BY chiffre_affaires DESC NULLS LAST, commercial`,
+      p.debut ?? null,
+      p.fin ?? null,
+      p.periode ?? null,
+      p.ancre ?? null,
+    );
+  }
+
+  /** Bornes d'un découpage nommé, pour que l'écran sache ce qu'il demande. */
+  bornesPeriode(periode?: string, ancre?: string) {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT * FROM periode_bornes($1::text, $2::date)`,
+      periode ?? null,
+      ancre ?? null,
     );
   }
 
@@ -381,10 +398,31 @@ export class SupervisionController {
   }
 
   /** Performance par commercial (§ 16) — pipeline, conversion, réalisé, qualité. */
+  /**
+   * Performance par commercial sur une PÉRIODE (§ 16).
+   *
+   * `periode` : MOIS · TRIMESTRE · SEMESTRE · ANNEE_CIVILE · EXERCICE.
+   * `ancre`   : un jour DANS la période voulue — « le trimestre du 15 mai ».
+   * `debut` / `fin` : bornes libres, qui l'emportent sur le découpage nommé.
+   *
+   * Sans rien : l'exercice comptable courant, ou l'année civile tant qu'aucun
+   * exercice n'est déclaré. La période retenue est rendue avec les chiffres.
+   */
   @Get('performance-commerciale')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO)
-  performanceCommerciale() {
-    return this.service.performanceCommerciale();
+  performanceCommerciale(
+    @Query('periode') periode?: string,
+    @Query('ancre') ancre?: string,
+    @Query('debut') debut?: string,
+    @Query('fin') fin?: string,
+  ) {
+    return this.service.performanceCommerciale({ periode, ancre, debut, fin });
+  }
+
+  @Get('periode-bornes')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO, UserRole.ACCOUNTANT)
+  bornesPeriode(@Query('periode') periode?: string, @Query('ancre') ancre?: string) {
+    return this.service.bornesPeriode(periode, ancre);
   }
 
   @Get('margin-variance')

@@ -78,6 +78,8 @@ const SQL_FILES = [
   '28_tableau_operationnel.sql',
   // Performance par commercial : lit le CRM (27) et la bande de marge (06).
   '32_performance_commerciale.sql',
+  // La performance se lit sur une période : 32 crée la vue, 33 la borne.
+  '33_performance_par_periode.sql',
   // Une prévision reste dans les bornes de son exercice.
   '29_prevision_dans_les_bornes.sql',
   // Issus de l'audit : la facturation est bornée, l'encaissement est dérivé.

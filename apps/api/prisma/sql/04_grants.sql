@@ -69,6 +69,9 @@ BEGIN
   EXECUTE 'GRANT SELECT ON v_margin_band_watch TO erp_app';
   EXECUTE 'GRANT SELECT ON v_margin_band_by_owner TO erp_app';
   EXECUTE 'GRANT SELECT ON v_performance_commerciale TO erp_app';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION performance_commerciale(date, date, text, date) TO erp_app';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION periode_performance_defaut() TO erp_app';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION periode_bornes(text, date) TO erp_app';
   EXECUTE 'GRANT SELECT ON v_margin_variance TO erp_app';
   EXECUTE 'GRANT SELECT ON v_cost_reconciliation TO erp_app';
   EXECUTE 'GRANT SELECT ON v_compliance_expiry_watch TO erp_app';

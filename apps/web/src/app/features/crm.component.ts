@@ -1,4 +1,5 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import {
   ApiService,
   CrmAlerte,
@@ -29,7 +30,7 @@ import { dateOnly } from '../shared/format';
 @Component({
   selector: 'erp-crm',
   standalone: true,
-  imports: [IconComponent],
+  imports: [FormsModule, IconComponent],
   template: `
     <header class="mb-6">
       <h1 class="page-title">Pipeline commercial</h1>
@@ -190,10 +191,39 @@ import { dateOnly } from '../shared/format';
     <!-- ============ Performance par commercial (§ 16) ============ -->
     @if (performances().length > 0) {
       <section class="mb-5">
-        <div class="mb-2 flex items-center gap-2">
+        <div class="mb-2 flex flex-wrap items-center gap-2">
           <erp-icon name="users" [size]="15" class="text-ink-muted" />
           <h2 class="text-[13px] font-semibold text-ink">Performance par commercial</h2>
+
+          <!-- Le sélecteur est à côté du titre, pas en haut d'écran : il ne
+               gouverne QUE ce tableau. Placé ailleurs, on croirait qu'il
+               s'applique au pipeline au-dessus, qui est un état courant et
+               n'a pas de période. -->
+          <div class="ml-auto flex items-center gap-2">
+            <select class="field h-7 py-0 text-[12px]" [(ngModel)]="periode" (change)="relire()">
+              @for (p of PERIODES; track p.code) {
+                <option [ngValue]="p.code">{{ p.label }}</option>
+              }
+            </select>
+            <input
+              type="date"
+              class="field h-7 w-[150px] py-0 text-[12px]"
+              [(ngModel)]="ancre"
+              (change)="relire()"
+              title="Un jour DANS la période voulue — le trimestre du 15 mai, par exemple"
+            />
+          </div>
         </div>
+
+        @if (performances()[0]; as p) {
+          <p class="mb-2 text-[12px] text-ink-faint">
+            Période retenue : <strong class="text-ink-soft">{{ p.periode_origine }}</strong>
+            — du {{ jour(p.periode_debut) }} au {{ jour(p.periode_fin) }}.
+            @if (enCours(p)) {
+              <span class="text-warn-ink">Période non close : les chiffres sont partiels.</span>
+            }
+          </p>
+        }
         <p class="mb-2 text-[12px] leading-relaxed text-ink-faint">
           Trois familles de chiffres, et on ne les confond pas : ce qui est <strong>espéré</strong>
           — le pipeline, qui repose sur des probabilités déclarées —, ce qui est
@@ -336,6 +366,26 @@ export class CrmComponent implements OnInit {
   protected readonly conversions = signal<CrmConversion[]>([]);
   protected readonly performances = signal<PerformanceCommerciale[]>([]);
 
+  /**
+   * Les cinq découpages, dans l'ordre du plus fin au plus large.
+   *
+   * Les bornes ne sont PAS calculées ici : l'écran envoie le nom du découpage,
+   * la base rend les dates. Un trimestre calculé côté écran et un trimestre
+   * calculé en SQL finiraient par diverger — sur un exercice décalé, ou sur un
+   * fuseau.
+   */
+  protected readonly PERIODES = [
+    { code: 'MOIS', label: 'Mois' },
+    { code: 'TRIMESTRE', label: 'Trimestre' },
+    { code: 'SEMESTRE', label: 'Semestre' },
+    { code: 'ANNEE_CIVILE', label: 'Année civile' },
+    { code: 'EXERCICE', label: 'Exercice comptable' },
+  ];
+
+  /** Vide = période par défaut, que la base choisit et renvoie. */
+  protected periode = '';
+  protected ancre = new Date().toISOString().slice(0, 10);
+
   protected readonly enRetard = computed(
     () => this.alertes().filter((a) => a.retard_jours > 0).length,
   );
@@ -353,7 +403,7 @@ export class CrmComponent implements OnInit {
     this.api.crmConversion().subscribe({ next: (r) => this.conversions.set(r), error: vide });
     // Repli silencieux : un rôle sans accès à la performance garde le reste
     // de l'écran plutôt que de perdre le pipeline entier.
-    this.api.performanceCommerciale().subscribe({ next: (r) => this.performances.set(r), error: vide });
+    this.relire();
   }
 
   protected nombre(v: string | null): string {
@@ -381,6 +431,18 @@ export class CrmComponent implements OnInit {
    * Le seuil de teinte porte sur la PART, pas sur le nombre : trois affaires
    * dans la bande sur trois est un motif, trois sur quarante ne l'est pas.
    */
+  protected relire(): void {
+    this.api.performanceCommerciale(this.periode || undefined, this.ancre || undefined).subscribe({
+      next: (r) => this.performances.set(r),
+      // Repli silencieux : un rôle sans accès garde le reste de l'écran.
+      error: () => this.performances.set([]),
+    });
+  }
+
+  protected enCours(p: PerformanceCommerciale): boolean {
+    return new Date(p.periode_fin) > new Date();
+  }
+
   protected teinteBande(part: string | null): string {
     if (part === null) return 'text-ink-faint';
     const n = Number(part);

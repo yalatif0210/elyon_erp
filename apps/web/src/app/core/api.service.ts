@@ -643,6 +643,14 @@ export interface CrmAlerte {
   retard_jours: number;
 }
 
+/** Bornes d'un découpage nommé, résolues EN BASE et non côté écran. */
+export interface BornesPeriode {
+  debut: string;
+  fin: string;
+  libelle: string;
+  en_cours: boolean;
+}
+
 /**
  * Performance par commercial (§ 16).
  *
@@ -660,6 +668,10 @@ export interface PerformanceCommerciale {
   owner_id: string;
   commercial: string;
   role: string;
+  /** La période RÉELLEMENT agrégée — rendue avec les chiffres, jamais devinée. */
+  periode_debut: string;
+  periode_fin: string;
+  periode_origine: string;
   opportunites_ouvertes: string;
   ca_previsionnel: string;
   valeur_ponderee: string | null;
@@ -1301,10 +1313,28 @@ export class ApiService {
     return this.http.get<CrmAlerte[]>(`${this.base}/crm/alertes`);
   }
 
-  performanceCommerciale(): Observable<PerformanceCommerciale[]> {
+  /**
+   * Performance par commercial sur une période.
+   *
+   * `periode` : MOIS · TRIMESTRE · SEMESTRE · ANNEE_CIVILE · EXERCICE.
+   * `ancre`   : un jour DANS la période voulue. Sans rien, la période par
+   * défaut — exercice courant, ou année civile s'il n'y en a pas.
+   */
+  performanceCommerciale(periode?: string, ancre?: string): Observable<PerformanceCommerciale[]> {
+    let params = new HttpParams();
+    if (periode) params = params.set('periode', periode);
+    if (ancre) params = params.set('ancre', ancre);
     return this.http.get<PerformanceCommerciale[]>(
       `${this.base}/supervision/performance-commerciale`,
+      { params },
     );
+  }
+
+  bornesPeriode(periode?: string, ancre?: string): Observable<BornesPeriode[]> {
+    let params = new HttpParams();
+    if (periode) params = params.set('periode', periode);
+    if (ancre) params = params.set('ancre', ancre);
+    return this.http.get<BornesPeriode[]>(`${this.base}/supervision/periode-bornes`, { params });
   }
 
   crmConversion(): Observable<CrmConversion[]> {
