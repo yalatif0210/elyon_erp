@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Injectable,
   Param,
@@ -444,8 +445,54 @@ export class DealsService {
     return this.recomputeMargins(id);
   }
 
-  async list(query: DealQuery): Promise<Page<unknown>> {
+  /**
+   * ⚠️ DEUX RÈGLES DE CONFIDENTIALITÉ, POSÉES ICI ET NULLE PART AILLEURS.
+   *
+   *    Elles étaient absentes toutes les deux, et c'est le dirigeant qui les a
+   *    tranchées : « un commercial ne voit que ses propres affaires, et un
+   *    coordinateur logistique ne voit pas les marges ».
+   *
+   *    Elles vivent au même endroit à dessein. Placées d'un côté dans la liste
+   *    et de l'autre dans le détail, elles auraient fini par diverger — et le
+   *    détail est justement le chemin qu'on emprunte en changeant un
+   *    identifiant dans l'URL.
+   */
+
+  /** Un commercial ne voit que les affaires dont il est propriétaire. */
+  private static filtrePropriete(role?: UserRole, actorId?: string) {
+    return role === UserRole.SALES_REP && actorId ? { ownerId: actorId } : {};
+  }
+
+  /**
+   * Le coordinateur logistique ne voit ni marge ni prix d'achat.
+   *
+   * Retirer la marge en laissant le prix d'achat serait une passoire : la
+   * marge s'en recalcule de tête. Le prix de VENTE reste visible — il faut
+   * savoir ce qu'on transporte — mais il ne suffit pas à reconstituer la marge
+   * sans les charges ni l'achat.
+   */
+  private static readonly CHAMPS_CONFIDENTIELS = [
+    'unitPurchasePrice',
+    'estimatedDirectMargin',
+    'estimatedFullMargin',
+    'realizedDirectMargin',
+    'realizedFullMargin',
+    'supplierPriceId',
+  ] as const;
+
+  private static voitLesMarges(role?: UserRole): boolean {
+    return role !== UserRole.LOGISTICS_COORD;
+  }
+
+  private static masqueMarges<T extends Record<string, unknown>>(ligne: T): T {
+    const copie = { ...ligne };
+    for (const champ of DealsService.CHAMPS_CONFIDENTIELS) delete copie[champ];
+    return copie;
+  }
+
+  async list(query: DealQuery, role?: UserRole, actorId?: string): Promise<Page<unknown>> {
     const where = {
+      ...DealsService.filtrePropriete(role, actorId),
       ...(query.status ? { status: query.status } : {}),
       ...(query.segment ? { segment: query.segment } : {}),
       ...(query.search ? { reference: { contains: query.search, mode: 'insensitive' as const } } : {}),
@@ -465,11 +512,23 @@ export class DealsService {
       }),
       this.prisma.deal.count({ where }),
     ]);
-    return paginate(items, total, query);
+    const visibles = DealsService.voitLesMarges(role)
+      ? items
+      : items.map((d) => DealsService.masqueMarges(d as Record<string, unknown>));
+    return paginate(visibles, total, query);
   }
 
-  /** Vue détaillée : le deal, sa chaîne de marge recalculée, et le verdict. */
-  async findOne(id: string) {
+  /**
+   * Vue détaillée : le deal, sa chaîne de marge recalculée, et le verdict.
+   *
+   * ⚠️ LE FILTRE DE LA LISTE NE PROTÈGE RIEN SANS CELUI-CI.
+   *
+   *    Restreindre la liste d'un commercial à ses propres affaires est
+   *    cosmétique tant que le détail répond à n'importe quel identifiant : il
+   *    suffit d'en changer un dans l'URL. C'est le défaut d'accès direct à
+   *    l'objet, et il se corrige où l'objet est servi.
+   */
+  async findOne(id: string, role?: UserRole, actorId?: string) {
     const deal = await this.prisma.deal.findUniqueOrThrow({
       where: { id },
       include: {
@@ -500,6 +559,20 @@ export class DealsService {
         statusTransitions: { orderBy: { createdAt: 'desc' }, take: 20 },
       },
     });
+
+    if (role === UserRole.SALES_REP && actorId && deal.ownerId !== actorId) {
+      throw new ForbiddenException(
+        'Cette affaire appartient à un autre commercial. Chacun ne consulte que les siennes.',
+      );
+    }
+
+    // Le coordinateur logistique reçoit l'affaire sans sa chaîne de marge : ni
+    // le détail du calcul, ni le verdict de seuil, ni les lignes de coût — qui
+    // reconstitueraient la marge à elles seules.
+    if (!DealsService.voitLesMarges(role)) {
+      const { costLines: _costLines, supplierPrice: _supplierPrice, ...reste } = deal;
+      return DealsService.masqueMarges(reste as Record<string, unknown>);
+    }
 
     const breakdown = await this.margin.computeForDeal(id);
     const verdict = await this.margin.evaluateThresholds(
@@ -766,14 +839,17 @@ export class DealsController {
 
   @Get()
   @Roles(UserRole.DG, UserRole.CCOO, UserRole.SALES_REP, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT, UserRole.LOGISTICS_COORD, UserRole.ASSISTANT_DG)
-  list(@Query() query: DealQuery) {
-    return this.service.list(query);
+  list(@Query() query: DealQuery, @Req() req: { auth: { role?: UserRole; sub: string } }) {
+    return this.service.list(query, req.auth.role, req.auth.sub);
   }
 
   @Get(':id')
   @Roles(UserRole.DG, UserRole.CCOO, UserRole.SALES_REP, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT, UserRole.LOGISTICS_COORD)
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.findOne(id);
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: { auth: { role?: UserRole; sub: string } },
+  ) {
+    return this.service.findOne(id, req.auth.role, req.auth.sub);
   }
 
   @Post()

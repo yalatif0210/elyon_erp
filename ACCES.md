@@ -23,37 +23,225 @@ docker compose up -d
 
 ---
 
-## 2. COMPTES INTERNES — 8 rôles
+## 2. CE QUE CHAQUE ACCÈS FAIT — ET NE FAIT PAS
 
-Tous vérifiés le 8 août : les 8 se connectent.
+Établi en **sondant réellement l'API** rôle par rôle : 43 routes de lecture appelées avec
+chacun des 8 comptes, plus les droits d'écriture extraits du registre. Ce qui suit est ce
+que le **serveur** autorise, pas ce que l'écran affiche.
 
-| Rôle | Identifiant | Ce qu'il voit et fait |
-|---|---|---|
-| **Directeur Général** | `dg@elyon-trading.example` | Tout. Valide les prix fournisseurs, accorde les dérogations, approuve les affaires sous le seuil de marge. Voit **toutes** les files de tâches. |
-| **Directeur Financier** | `cfo@elyon-trading.example` | Approbation crédit, seuils, garanties, exercice comptable et données budgétaires, pilotage financier. |
-| **CCOO** | `ccoo@elyon-trading.example` | Affaires, opérations, pipeline commercial, types d'opération. |
-| **Commercial** | `commercial@elyon-trading.example` | Affaires et pipeline. **Ne peut ni approuver, ni toucher au paramétrage.** |
-| **Coordinateur logistique** | `logistique@elyon-trading.example` | Opérations, affectation des moyens, conformité, exigences de site. |
-| **Comptable** | `comptable@elyon-trading.example` | Facturation, encaissements, achats, créances échues. |
-| **Assistante de direction** | `assistante@elyon-trading.example` | Documents, dérogations, coffre documentaire. |
-| **Administrateur** | `it@elyon-trading.example` | Comptes, paramètres système, invariants. |
+> ⚠️ **L'écran et le serveur ne disent pas la même chose, et c'est voulu.** La navigation
+> masque des entrées par confort ; le serveur, lui, refuse. Si un écran s'ouvre mais reste
+> vide, c'est le serveur qui a dit non — c'est lui qui fait autorité.
 
 > ⚠️ **Sept comptes sur huit exigent un changement de mot de passe à la première
 > connexion.** Ce n'est pas un défaut : c'est le comportement prévu pour un compte créé
-> avec un mot de passe provisoire. Un bandeau vous y conduit ; l'écran est
-> `/mon-compte`.
+> avec un mot de passe provisoire. Un bandeau vous y conduit, l'écran est `/mon-compte`.
+
+---
+
+### Directeur Général · `dg@elyon-trading.example`
+
+**Fait tout.** Seul rôle sans aucun refus : les 43 lectures lui sont ouvertes, et il écrit
+les **29 référentiels**.
+
+Ce qu'il est le **seul** à pouvoir faire :
+
+- **valider un prix fournisseur** — tant qu'il ne l'a pas fait, aucune affaire ne peut s'en
+  servir ;
+- **accorder une dérogation** — marge sous le plancher, moyen non conforme, verrou HSE ;
+- **approuver une affaire sous le seuil de marge** ;
+- voir **toutes les files de tâches**, pas seulement la sienne.
+
+*À tester :* créez une affaire volontairement sous le seuil, et regardez où elle s'arrête.
+
+---
+
+### Directeur Financier · `cfo@elyon-trading.example`
+
+**Fait** — 38 lectures, 19 référentiels en écriture.
+
+- Approbation crédit des affaires, plafonds, garanties, statut de crédit des clients.
+- **Exercice comptable et données budgétaires** : taux de financement, budget de charges
+  fixes, prévision de vente, taux d'absorption. C'est lui qui débloque tout le pilotage.
+- Seuils de marge, barèmes de coûts, tolérances d'ullage, prix administrés et fournisseurs.
+- Tout le pilotage financier : point mort, BFR, écart à la prévision, rapprochement des
+  coûts, en-cours crédit, avances non apurées.
+- Paramètres système.
+
+**Ne fait pas**
+
+- **Valider un prix fournisseur** — réservé au DG. Il peut le saisir, pas le rendre
+  opposable.
+- Lire les **modèles de checklist HSE**, les **types d'opération**, les **sites**.
+- Lire les **alertes du CRM** — il voit le pipeline et la conversion, pas les relances.
+
+*À tester :* c'est par lui que tout commence. Exercice comptable → taux de financement →
+budget de charges fixes. La file de tâches vous guide.
+
+---
+
+### CCOO · `ccoo@elyon-trading.example`
+
+**Fait** — 33 lectures, 17 référentiels en écriture. Le rôle le plus large après le DG.
+
+- Affaires et opérations de bout en bout, y compris la **création d'opération**.
+- Pipeline commercial complet, **y compris la conversion observée par étape**.
+- Produits, sites, exigences de site, véhicules, chauffeurs, types d'opération, modèles de
+  checklist HSE, points de contrôle.
+- Surveillance : bande de marge, écart de marge, en-cours crédit, point mort.
+
+**Ne fait pas**
+
+- Approuver le crédit, ni valider un prix fournisseur.
+- Lire les **paramètres système** ni les **taux d'absorption**.
+- Lire le **BFR**, le **rapprochement des coûts**, les **avances non apurées**, les
+  **invariants**.
+- ⚠️ Lire la **concentration par commercial**. Voir § 2 bis.
+
+---
+
+### Commercial · `commercial@elyon-trading.example`
+
+**Fait** — 16 lectures seulement, **un seul référentiel** en écriture (prix administrés).
+
+- Pipeline commercial : opportunités, interactions, relances, franchissement d'étapes.
+- Affaires : consultation et création.
+- Produits, sites, cours de change, prix administrés.
+
+**Ne fait pas** — c'est le rôle le plus fermé, délibérément.
+
+- **Aucune approbation**, ni crédit ni marge.
+- **Aucun accès à la conformité** des moyens.
+- **Aucun accès aux dérogations.**
+- **Aucun chiffre de pilotage** : ni point mort, ni BFR, ni en-cours crédit, ni bande de
+  marge, ni prévision.
+- Ne touche ni aux seuils, ni aux barèmes, ni aux tolérances, ni aux paramètres.
+
+*À tester :* connectez-vous avec ce compte et tentez `/pilotage` ou `/supervision`. Vous
+devez être refusé.
+
+---
+
+### Coordinateur logistique · `logistique@elyon-trading.example`
+
+**Fait** — 21 lectures, 10 référentiels en écriture.
+
+- **Création d'opération** — avec le CCOO, les deux seuls.
+- Conformité des moyens : vue d'ensemble, non-conformes, échéancier.
+- Véhicules, chauffeurs, sites, exigences de site, tarifs de transport, types d'opération,
+  modèles de checklist HSE.
+- Prévision de vente et couverture budgétaire, pour préparer l'approvisionnement.
+
+**Ne fait pas**
+
+- **Rien du CRM** : ni pipeline, ni alertes, ni conversion.
+- **Aucun chiffre financier** : ni en-cours crédit, ni BFR, ni point mort, ni bande de
+  marge, ni rapprochement des coûts.
+- Ni dérogations, ni seuils de marge, ni paramètres.
+
+---
+
+### Comptable · `comptable@elyon-trading.example`
+
+**Fait** — 25 lectures, 2 référentiels en écriture (postes de coûts, cours de change).
+
+- **Facturation** : proforma, facture simple, FNE, avoirs, émission.
+- **Encaissements** — seul avec le CFO à pouvoir enregistrer un règlement.
+- Achats et prépaiements fournisseurs, apurement manuel.
+- Créances échues, rapprochement des coûts, BFR, avances non apurées, point mort.
+
+**Ne fait pas**
+
+- **Rien du CRM.**
+- **Aucun accès à la conformité** des moyens.
+- Ne voit ni la **bande de marge**, ni la concentration par commercial.
+- Ne lit ni les **paramètres système**, ni les **sites**, ni les **types d'opération**.
+
+*À tester :* c'est le rôle qui butera le plus vite sur l'absence de cours de change.
+
+---
+
+### Assistante de direction · `assistante@elyon-trading.example`
+
+**Fait** — 17 lectures, un seul référentiel en écriture (tiers).
+
+- **Dérogations** : consultation du registre.
+- Documents et coffre documentaire.
+- Pipeline commercial et ses alertes.
+- Conformité : vue d'ensemble et échéancier.
+- Affaires, en consultation.
+
+**Ne fait pas**
+
+- **Aucune approbation, aucune validation.**
+- **Aucun chiffre de pilotage** — ni marge, ni crédit, ni BFR, ni point mort.
+- Ne lit ni les paramètres, ni les seuils, ni les barèmes, ni les sites, ni les types
+  d'opération.
+
+---
+
+### Administrateur · `it@elyon-trading.example`
+
+**Fait** — 13 lectures, **un seul référentiel** en écriture (paramètres système).
+
+- **Paramètres système** : délais d'alerte, TVA, verrouillage de connexion, plafonds de
+  débit.
+- **Invariants** et **paramètres requis** — la santé technique du système.
+- Comptes utilisateurs.
+
+**Ne fait pas** — et c'est le point important.
+
+- **Ne voit aucune affaire** — refusé sur `/deals` —, aucune opération commerciale, aucune
+  facture.
+- **Aucun chiffre financier** : ni marge, ni crédit, ni BFR, ni point mort, ni prévision.
+- **Rien du CRM**, rien de la conformité, aucune dérogation.
+
+> L'administrateur tient l'outil, pas l'entreprise. Il règle un délai d'alerte ; il ne peut
+> pas savoir combien vous vendez.
+
+---
+
+## 2 bis. TROIS POINTS À TRANCHER PENDANT VOS TESTS
+
+Ce sont des **décisions d'entreprise**, pas des défauts techniques. Le système fait ce
+qu'on lui a dit ; reste à savoir si c'est ce que vous voulez.
+
+**1. Un commercial voit les affaires de ses collègues, prix et marges compris.**
+La liste des affaires n'applique **aucun filtre de propriétaire** — vérifié dans le code,
+pas supposé. Chaque commercial voit donc le prix de vente et la marge de tous les autres.
+Dans beaucoup de maisons de négoce, c'est exclu. Dites-moi si chacun ne doit voir que les
+siennes.
+
+**2. Le coordinateur logistique et l'assistante lisent les affaires**, donc les prix de
+vente et les marges estimées. Défendable — le logisticien doit savoir ce qu'il transporte —
+mais c'est de l'information commerciale.
+
+**3. Le CCOO ne voit pas la concentration par commercial.** C'est pourtant la lecture qui
+révèle un vendeur dont toutes les affaires effleurent le seuil, et le CCOO en est le
+supérieur. Cela ressemble à un oubli de ma part plutôt qu'à un choix. Je peux l'ouvrir.
 
 ---
 
 ## 3. COMPTES TERRAIN — 2
 
-Réalm **séparé** : ces comptes ne peuvent pas ouvrir la console interne, et l'inverse est
-vrai. Ce n'est pas un filtrage d'affichage, c'est un cloisonnement au serveur.
+Réalm **séparé**, cloisonné au serveur : un jeton terrain est refusé sur toute la console
+interne, et l'inverse est vrai. Vérifié par appel, pas supposé.
 
-| Rôle | Identifiant | Ce qu'il voit |
-|---|---|---|
-| **Agent de terrain** | `agent.terrain@elyon-trading.example` | Ses opérations du jour, checklists, relevés, photos. **Ni prix, ni marge, ni encours.** |
-| **Contrôleur HSE** | `hse@elyon-trading.example` | Checklists à valider, incidents, non-conformités. |
+### Agent de terrain · `agent.terrain@elyon-trading.example`
+
+**Fait** — ses opérations du jour, les checklists HSE, les relevés de volume, les photos,
+la fiche du site et ses exigences, la file hors connexion.
+
+**Ne fait pas** — ne voit **ni prix, ni marge, ni encours**. Ne voit que **les opérations
+qui lui sont assignées**, jamais celles d'un collègue.
+
+### Contrôleur HSE · `hse@elyon-trading.example`
+
+**Fait** — valide les checklists, ouvre les incidents et les non-conformités, consulte les
+opérations sous contrôle.
+
+**Ne fait pas** — aucune donnée commerciale ni financière. Ne crée pas d'opération et ne
+saisit pas de relevé de volume.
 
 ---
 
