@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Injectable,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Query,
@@ -12,6 +13,7 @@ import { IsIn, IsOptional } from 'class-validator';
 import { Realm, RequireRealm, Roles, SkipAudit } from '../common/auth/realm';
 import { Page, PaginationQuery, paginate } from '../common/http/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { findReferential } from './registry';
 
 /**
  * Lecture des référentiels du lot 1.
@@ -325,6 +327,42 @@ export class ReferentialsService {
   settings() {
     return this.prisma.systemSetting.findMany({ orderBy: { key: 'asc' } });
   }
+
+  /**
+   * Lecture d'un référentiel désigné par sa CLÉ DE REGISTRE.
+   *
+   * Sert les référentiels qu'aucune route spécifique ne couvre — seize sur
+   * vingt-neuf au moment où cette méthode a été écrite. Le registre est la
+   * seule source : un référentiel ajouté devient lisible sans qu'on écrive
+   * quoi que ce soit ici.
+   *
+   * ⚠️ PLAFOND À 500 LIGNES, ET C'EST DÉLIBÉRÉ.
+   *
+   *    Cette lecture alimente des listes déroulantes. Au-delà de quelques
+   *    centaines d'entrées, une liste déroulante n'est plus utilisable et il
+   *    faut une recherche — le plafond fait apparaître le besoin au lieu de
+   *    laisser l'écran ramer en silence sur dix mille lignes.
+   */
+  async parReferentiel(key: string) {
+    const spec = findReferential(key);
+    if (!spec) {
+      throw new NotFoundException(
+        `Référentiel « ${key} » inconnu. Les référentiels disponibles sont ceux du registre (§ 1.1 bis).`,
+      );
+    }
+
+    const delegate = (this.prisma as unknown as Record<string, unknown>)[spec.model] as {
+      findMany: (a: unknown) => Promise<Record<string, unknown>[]>;
+    };
+    if (!delegate) {
+      throw new NotFoundException(`Référentiel « ${key} » sans table associée.`);
+    }
+
+    // Tri sur le premier champ d'identité : c'est celui qui désigne la ligne
+    // pour un humain, donc celui dans lequel il la cherchera.
+    const cle = spec.identity[0];
+    return delegate.findMany({ orderBy: { [cle]: 'asc' }, take: 500 });
+  }
 }
 
 /**
@@ -440,5 +478,51 @@ export class ReferentialsController {
   @Roles(UserRole.DG, UserRole.IT_ADMIN, UserRole.FINANCE_CFO)
   settings() {
     return this.service.settings();
+  }
+
+  /**
+   * LECTURE GÉNÉRIQUE D'UN RÉFÉRENTIEL DÉCLARÉ AU REGISTRE.
+   *
+   * ⚠️ LES ROUTES DE LECTURE ÉTAIENT UNE LISTE TENUE À LA MAIN.
+   *
+   *    Treize routes écrites une à une, face à VINGT-NEUF référentiels déclarés
+   *    au registre. Seize étaient donc écrivables et illisibles — et un
+   *    référentiel qu'on ne peut pas lire ne peut pas alimenter une liste
+   *    déroulante.
+   *
+   *    Conséquence constatée : cinq champs de référence retombaient en saisie
+   *    libre, dont `fiscalYearId` sur les trois écrans du paramétrage financier
+   *    — taux de financement, budget de charges fixes, prévision de vente.
+   *    Autrement dit, le premier geste du CFO consistait à recopier à la main
+   *    un identifiant technique.
+   *
+   *    Le registre sait déjà quels référentiels existent. Une liste tenue en
+   *    parallèle finit toujours par diverger : on n'oublie pas d'ajouter le
+   *    référentiel, on oublie d'ajouter sa route.
+   *
+   * ⚠️ DÉCLARÉE EN DERNIER, ET CE N'EST PAS UN DÉTAIL.
+   *
+   *    NestJS retient la PREMIÈRE route qui correspond. Placée plus haut,
+   *    `:key` avalerait `currencies`, `partners` et toutes les autres — avec
+   *    leurs filtres de rôle et leur pagination. Les routes spécifiques
+   *    gardent donc la main ; celle-ci ne sert que ce qu'aucune ne couvre.
+   *
+   * Le cloisonnement par rôle des routes spécifiques reste intact : elles ne
+   * passent jamais par ici. Cette route sert des référentiels de paramétrage —
+   * exercices, regroupements de charges, types d'exigence — dont la lecture ne
+   * révèle aucune donnée de risque client.
+   */
+  @Get(':key')
+  @Roles(
+    UserRole.DG,
+    UserRole.FINANCE_CFO,
+    UserRole.ACCOUNTANT,
+    UserRole.CCOO,
+    UserRole.LOGISTICS_COORD,
+    UserRole.ASSISTANT_DG,
+    UserRole.IT_ADMIN,
+  )
+  generique(@Param('key') key: string) {
+    return this.service.parReferentiel(key);
   }
 }
