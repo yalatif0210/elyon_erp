@@ -681,6 +681,25 @@ export interface OperationParEtat {
   retard_chargement_jours: number | null;
 }
 
+/**
+ * Devise du référentiel (§ 9.2).
+ *
+ * ⚠️ `isPivot` N'EST PAS UN DÉFAUT, C'EST UNE ÉTIQUETTE.
+ *
+ *    Le pivot sert à COMPARER des engagements pris dans des monnaies
+ *    différentes. Il n'est la monnaie de personne, et aucune saisie ne doit le
+ *    proposer d'office. `isLocal` désigne la monnaie de l'entreprise : c'est
+ *    elle, et elle seule, qui sert de valeur de départ.
+ */
+export interface DeviseOption {
+  code: string;
+  name: string;
+  symbol: string;
+  decimalPlaces: number;
+  isPivot: boolean;
+  isLocal: boolean;
+}
+
 /** Paramètre interrogé par le SQL métier, et sa présence (§ 1.1 bis). */
 export interface ParametreRequis {
   parametre: string;
@@ -1280,6 +1299,13 @@ export class ApiService {
     return this.http.get<OperationParEtat[]>(
       `${this.base}/supervision/tableau-operationnel/${etat}`,
     );
+  }
+
+  /** Devises actives, pour toute saisie monétaire. */
+  devises(): Observable<DeviseOption[]> {
+    return this.http
+      .get<DeviseOption[]>(`${this.base}/referentials/currencies`)
+      .pipe(map((l) => l.filter((d) => (d as unknown as { isActive?: boolean }).isActive !== false)));
   }
 
   couvertureBudgetaire(): Observable<CouvertureBudgetaire[]> {

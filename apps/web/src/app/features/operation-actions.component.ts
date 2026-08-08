@@ -2,6 +2,7 @@ import { Component, computed, EventEmitter, Input, Output, inject, signal } from
 import { FormsModule } from '@angular/forms';
 import {
   ApiService,
+  DeviseOption,
   ComplianceSubject,
   CostPostRow,
   HseGate,
@@ -363,6 +364,11 @@ const NEXT_STEPS: { to: string; label: string }[] = [
 })
 export class OperationActionsComponent {
   private readonly api = inject(ApiService);
+  protected readonly devises = signal<DeviseOption[]>([]);
+
+  constructor() {
+    this.api.devises().subscribe((l) => this.devises.set(l));
+  }
   private readonly auth = inject(AuthService);
 
   /**
@@ -498,7 +504,7 @@ export class OperationActionsComponent {
         costPostId: this.costPostId,
         estimatedAmount: Number(this.costAmount ?? 0),
         actualAmount: Number(this.costAmount ?? 0),
-        currencyCode: 'XOF',
+        currencyCode: this.deviseLocale(),
       })
       .subscribe({
         next: () => {
@@ -533,7 +539,7 @@ export class OperationActionsComponent {
         vehicleId: this.vehicleId || undefined,
         driverId: this.driverId || undefined,
         freightCost: Number(this.freightCost ?? 0),
-        currencyCode: 'XOF',
+        currencyCode: this.deviseLocale(),
         ...(this.freightVarianceReason.trim()
           ? { freightVarianceReason: this.freightVarianceReason.trim() }
           : {}),
@@ -580,4 +586,17 @@ export class OperationActionsComponent {
         error: (e: HttpFailure) => this.state.fail(e),
       });
   }
+
+  /**
+   * La devise LOCALE de l'entreprise, lue au référentiel.
+   *
+   * ⚠️ `'XOF'` était écrit en dur ici. Une devise codée dans un écran survit à
+   *    tout changement de paramétrage : le jour où l'entreprise travaille en
+   *    euros, il faut retrouver l'écran. Et ce n'est jamais le PIVOT qu'on
+   *    prend — il sert à comparer, il n'est la monnaie de personne.
+   */
+  protected deviseLocale(): string {
+    return this.devises().find((d) => d.isLocal)?.code ?? this.devises()[0]?.code ?? '';
+  }
+
 }

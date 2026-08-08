@@ -88,8 +88,15 @@ def remettre_a_zero(racine: Path) -> bool:
         return True
 
     r = subprocess.run(
+        # ⚠️ `-v ON_ERROR_STOP=1` N'EST PAS UN DÉTAIL.
+        #
+        #    Sans lui, psql poursuit apres une erreur ET REND 0. La remise a
+        #    zero echouait donc en silence tout en se declarant reussie — une
+        #    instruction fautive au milieu du script laissait la moitie des
+        #    artefacts en place, et l'echec se manifestait plus tard, ailleurs,
+        #    sous une forme incomprehensible.
         ["docker", "compose", "exec", "-T", "postgres",
-         "psql", "-U", "erp_migrator", "-d", "erp", "-q"],
+         "psql", "-U", "erp_migrator", "-d", "erp", "-q", "-v", "ON_ERROR_STOP=1"],
         input=script.read_text(encoding="utf-8"),
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         cwd=str(racine.parent.parent),

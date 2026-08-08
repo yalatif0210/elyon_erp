@@ -43,9 +43,10 @@ UPDATE users
    SET failed_login_attempts = 0, locked_until = NULL
  WHERE failed_login_attempts > 0 OR locked_until IS NOT NULL;
 
+-- `field_users` ne porte pas de compteur d'échecs : seul `locked_until` existe.
 UPDATE field_users
-   SET failed_login_attempts = 0, locked_until = NULL
- WHERE failed_login_attempts > 0 OR locked_until IS NOT NULL;
+   SET locked_until = NULL
+ WHERE locked_until IS NOT NULL;
 
 -- --- Mot de passe du compte servant au test de changement -------------------
 --

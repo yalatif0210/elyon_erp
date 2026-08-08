@@ -1,6 +1,6 @@
 import { Component, EventEmitter, Input, Output, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ApiService, DealRow, InvoiceRow } from '../core/api.service';
+import { ApiService, DealRow, DeviseOption, InvoiceRow } from '../core/api.service';
 import {
   ActionFeedbackComponent,
   ActionState,
@@ -62,8 +62,18 @@ import { IconComponent } from '../shared/icon.component';
             <input id="pu" class="field text-right font-mono" [(ngModel)]="unitPrice" />
           </div>
           <div>
-            <label class="label" for="dev">Devise</label>
-            <input id="dev" class="field font-mono" maxlength="3" [(ngModel)]="currencyCode" />
+            <label class="label" for="dev">Devise d’émission</label>
+            <select id="dev" class="field" [(ngModel)]="currencyCode">
+              @for (d of devises(); track d.code) {
+                <option [ngValue]="d.code">
+                  {{ d.code }} — {{ d.name }}@if (d.isPivot) { · pivot }
+                </option>
+              }
+            </select>
+            <p class="mt-1 text-[11px] text-ink-faint">
+              La monnaie dans laquelle la créance est due. Le pivot sert à comparer des
+              engagements pris dans des monnaies différentes — il ne s’impose pas.
+            </p>
           </div>
         </div>
 
@@ -112,7 +122,11 @@ import { IconComponent } from '../shared/icon.component';
           </div>
           <div>
             <label class="label" for="docdev">Devise d’impression</label>
-            <input id="docdev" class="field font-mono" maxlength="3" [(ngModel)]="documentCurrencyCode" />
+            <select id="docdev" class="field" [(ngModel)]="documentCurrencyCode">
+              @for (d of devises(); track d.code) {
+                <option [ngValue]="d.code">{{ d.code }} — {{ d.name }}</option>
+              }
+            </select>
             <p class="mt-1 text-[11px] text-ink-faint">
               Le taux employé est daté et conservé : la pièce reste reconstituable.
             </p>
@@ -148,8 +162,20 @@ export class InvoiceActionsComponent {
   protected type = 'PROFORMA';
   protected billedVolume: number | null = null;
   protected unitPrice: number | null = null;
-  protected currencyCode = 'XOF';
-  protected documentCurrencyCode = 'XOF';
+  /**
+   * ⚠️ AUCUNE DEVISE N'EST ÉCRITE ICI.
+   *
+   *    `XOF` y était en dur, et `USD` l'était ailleurs. Une devise codée dans
+   *    un écran survit à tout changement de paramétrage : le jour où
+   *    l'entreprise facture en euros, il faut retrouver l'écran.
+   *
+   *    La valeur de départ est la devise déclarée LOCALE dans le référentiel.
+   *    Ce n'est pas le pivot : le pivot sert à comparer des engagements pris
+   *    dans des monnaies différentes, il n'est la monnaie de personne.
+   */
+  protected currencyCode = '';
+  protected documentCurrencyCode = '';
+  protected readonly devises = signal<DeviseOption[]>([]);
   protected isVatApplicable = false;
   protected vatRatePct = 18;
   protected printedTaxRegime = 'TTC';
@@ -157,6 +183,16 @@ export class InvoiceActionsComponent {
 
   constructor() {
     this.api.deals(1, {}).subscribe((p) => this.deals.set(p.items));
+    this.api.devises().subscribe((liste) => {
+      this.devises.set(liste);
+      // La locale d'abord ; à défaut la première active. Jamais le pivot par
+      // défaut — il s'affiche dans la liste, il ne se choisit pas tout seul.
+      const defaut = liste.find((d) => d.isLocal) ?? liste[0];
+      if (defaut && !this.currencyCode) {
+        this.currencyCode = defaut.code;
+        this.documentCurrencyCode = defaut.code;
+      }
+    });
   }
 
   protected total(): number {

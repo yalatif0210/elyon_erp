@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import {
   ApiService,
+  DeviseOption,
   CostReconciliationRow,
   DealRow,
   Partner,
@@ -369,6 +370,20 @@ const FILTERS: { label: string; status?: string }[] = [
 })
 export class SupplierInvoicesComponent implements OnInit {
   private readonly api = inject(ApiService);
+  protected readonly devises = signal<DeviseOption[]>([]);
+
+  /**
+   * La devise LOCALE de l'entreprise, lue au référentiel.
+   *
+   * ⚠️ `'XOF'` était écrit en dur ici. Une devise codée dans un écran survit à
+   *    tout changement de paramétrage : le jour où l'entreprise travaillera en
+   *    euros, il faudra retrouver l'écran. Et ce n'est jamais le PIVOT qu'on
+   *    retient — il sert à comparer des engagements pris dans des monnaies
+   *    différentes, il n'est la monnaie de personne.
+   */
+  protected deviseLocale(): string {
+    return this.devises().find((d) => d.isLocal)?.code ?? this.devises()[0]?.code ?? '';
+  }
 
   protected readonly rows = signal<SupplierInvoiceRow[]>([]);
   protected readonly reconciliation = signal<CostReconciliationRow[]>([]);
@@ -429,6 +444,7 @@ export class SupplierInvoicesComponent implements OnInit {
   private debounce?: ReturnType<typeof setTimeout>;
 
   ngOnInit(): void {
+    this.api.devises().subscribe((l) => this.devises.set(l));
     this.load();
     this.api.costReconciliation().subscribe((r) => this.reconciliation.set(r));
     this.api.partners(1).subscribe((p) => this.suppliers.set(p.items));
@@ -466,7 +482,7 @@ export class SupplierInvoicesComponent implements OnInit {
         supplierId: this.newSupplierId,
         dealId: this.newDealId || undefined,
         amount: Number(this.newAmount ?? 0),
-        currencyCode: 'XOF',
+        currencyCode: this.deviseLocale(),
         vatRatePct: Number(this.newVatRate),
         invoiceDate: this.newInvoiceDate,
       })

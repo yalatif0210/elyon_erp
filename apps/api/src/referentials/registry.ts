@@ -496,7 +496,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         type: 'number',
         help: 'OPPOSÉ à l’approbation. À 0, le client n’est pas encadré — ce n’est pas au verrou d’en décider.',
       },
-      { name: 'creditLimitCurrencyCode', label: 'Devise du plafond', type: 'reference', refTable: 'currencies', refKey: 'code' },
+      { name: 'creditLimitCurrencyCode', label: 'Devise du plafond', type: 'reference', refTable: 'currencies', refKey: 'code', required: true, help: 'Se choisit — le pivot sert à comparer, il n’est la monnaie de personne' },
       {
         name: 'creditStatus',
         label: 'Statut de crédit',

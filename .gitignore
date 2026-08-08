@@ -28,3 +28,6 @@ Thumbs.db
 
 # Couverture de tests
 coverage/
+
+# Sauvegardes de base — volumineuses et datées, jamais versionnées
+sauvegardes/

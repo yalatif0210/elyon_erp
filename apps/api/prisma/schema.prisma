@@ -821,7 +821,19 @@ model Partner {
   // --- Risque crédit et trésorerie (§ 5.4, § 14.6) ---
   /// Exprimée en devise pivot. Le contrôle crédit ne compare jamais deux devises.
   creditLimit             Decimal      @default(0) @map("credit_limit") @db.Decimal(18, 4)
-  creditLimitCurrencyCode String       @default("USD") @map("credit_limit_currency_code") @db.Char(3)
+  /// ⚠️ AUCUN DÉFAUT, ET SURTOUT PAS LE PIVOT.
+  ///
+  ///    Ce champ valait `USD` par défaut. Conséquence : les quatre clients du
+  ///    jeu de démonstration portaient un plafond de crédit libellé en dollars
+  ///    sans que personne ne l'ait choisi — « 2 500 000 » pour un client
+  ///    ivoirien, ce qui ne veut rien dire tant qu'on ne sait pas dans quelle
+  ///    monnaie.
+  ///
+  ///    Le pivot sert à COMPARER des engagements pris dans des monnaies
+  ///    différentes ; il n'est la monnaie de personne. Une donnée financière
+  ///    ne s'exprime en dollars que si quelqu'un l'a décidé. La devise du
+  ///    plafond se saisit donc, comme le plafond lui-même.
+  creditLimitCurrencyCode String       @map("credit_limit_currency_code") @db.Char(3)
   creditLimitCurrency     Currency     @relation("PartnerCreditLimitCurrency", fields: [creditLimitCurrencyCode], references: [code], onDelete: Restrict)
   creditStatus            CreditStatus @default(ACTIVE) @map("credit_status")
 
