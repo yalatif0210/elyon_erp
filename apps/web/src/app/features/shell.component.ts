@@ -1,5 +1,7 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { filter } from 'rxjs';
 import { ApiService, CompteurTaches } from '../core/api.service';
 import { AuthService, ROLE_LABELS, UserRole } from '../core/auth.service';
 import { IconComponent, IconName } from '../shared/icon.component';
@@ -121,16 +123,37 @@ const NAV: NavGroup[] = [
         </div>
 
         <div class="flex items-center gap-4">
+          <!--
+            ⚠️ LA PASTILLE COMPTE CE QUE SON LIBELLÉ ANNONCE.
+
+               Elle affichait le nombre de tâches BLOQUANTES sous le libellé
+               « à traiter ». Deux conséquences, constatées toutes les deux :
+
+                 · avec 4 tâches à venir et aucune bloquante, la pastille
+                   DISPARAISSAIT — quatre choses à faire, et rien ne le disait ;
+                 · le chiffre affiché ne correspondait pas au nombre de lignes
+                   de la file, ce qui donne raison de ne plus croire ni l'un ni
+                   l'autre.
+
+               Elle affiche donc le TOTAL, et se teinte en rouge dès qu'une
+               tâche bloque quelqu'un. Le détail est dans l'infobulle : c'est
+               là qu'on va chercher la nuance, pas dans un chiffre.
+          -->
           @if (compteur(); as c) {
-            @if (c.bloquantes > 0) {
+            @if (c.total > 0) {
               <a
                 routerLink="/mes-taches"
-                class="mr-3 inline-flex items-center gap-1.5 rounded-[3px] border border-crit/40
-                       bg-crit-wash px-2.5 py-1 text-[12px] font-semibold text-crit"
-                [title]="c.bloquantes + ' tâche(s) bloquante(s) — quelqu’un est arrêté'"
+                class="mr-3 inline-flex items-center gap-1.5 rounded-[3px] px-2.5 py-1
+                       text-[12px] font-semibold"
+                [class]="
+                  c.bloquantes > 0
+                    ? 'border border-crit/40 bg-crit-wash text-crit'
+                    : 'border border-rule bg-gray-50 text-ink-soft'
+                "
+                [title]="infobulleTaches(c)"
               >
-                <erp-icon name="lock" [size]="13" />
-                {{ c.bloquantes }}
+                <erp-icon [name]="c.bloquantes > 0 ? 'lock' : 'clipboard-check'" [size]="13" />
+                {{ c.total }}
                 <span class="hidden sm:inline">à traiter</span>
               </a>
             }
@@ -220,12 +243,56 @@ export class ShellComponent implements OnInit {
    * anciennes noierait les trois qui arrêtent quelqu'un aujourd'hui, et la
    * pastille cesserait d'être lue.
    */
+  private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
   protected readonly compteur = signal<CompteurTaches | null>(null);
 
   ngOnInit(): void {
-    // Lu une fois au montage du cadre. Pas de rafraîchissement périodique :
-    // une pastille qui bouge toute seule attire l'œil sans rien apprendre, et
-    // la file se relit à chaque navigation vers l'écran.
+    this.relireCompteur();
+
+    // ⚠️ LA PASTILLE ÉTAIT LUE UNE SEULE FOIS, AU MONTAGE DU CADRE.
+    //
+    //    Le cadre ne se remonte pas : il survit à toutes les navigations. La
+    //    pastille gardait donc, pendant toute la session, le chiffre du moment
+    //    où l'application avait été ouverte — tandis que la liste, elle, se
+    //    relisait à chaque visite de l'écran.
+    //
+    //    Constaté : « 46 à traiter » au bandeau, UNE seule ligne dans la file.
+    //    Les deux venaient de la même vue ; seule la fraîcheur différait.
+    //
+    //    C'est exactement la dérive que la file de tâches a été conçue pour
+    //    éviter. J'ai fait dériver les tâches de l'état précisément pour qu'aucun
+    //    compteur ne puisse mentir — puis j'ai laissé le seul chiffre visible en
+    //    permanence se figer. Une file qu'on ne croit plus est pire que pas de
+    //    file du tout, et c'est le bandeau qu'on regarde en premier.
+    //
+    //    On relit donc à chaque navigation ACHEVÉE. Ce n'est pas un
+    //    rafraîchissement périodique — une pastille qui bouge toute seule
+    //    attire l'œil sans rien apprendre. C'est une relecture APRÈS un geste :
+    //    l'utilisateur vient de faire quelque chose, le compte a pu changer.
+    this.router.events
+      .pipe(
+        filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(() => this.relireCompteur());
+  }
+
+  /**
+   * Le détail derrière le chiffre.
+   *
+   * Un total seul ne dit pas si quelqu'un est arrêté ou si tout est simplement
+   * à venir. L'infobulle porte la nuance ; la pastille porte le nombre.
+   */
+  protected infobulleTaches(c: CompteurTaches): string {
+    const morceaux: string[] = [];
+    if (c.bloquantes > 0) morceaux.push(`${c.bloquantes} bloquante(s) — quelqu’un est arrêté`);
+    if (c.anomalies > 0) morceaux.push(`${c.anomalies} anomalie(s) — déjà passé`);
+    if (c.aVenir > 0) morceaux.push(`${c.aVenir} à venir`);
+    return morceaux.join(' · ') || 'Rien ne vous attend';
+  }
+
+  private relireCompteur(): void {
     this.api.compteurTaches().subscribe({
       next: (c) => this.compteur.set(c),
       // Un rôle sans file, ou une lecture qui échoue, ne doit pas casser le
