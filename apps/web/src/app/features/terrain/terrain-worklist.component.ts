@@ -27,7 +27,7 @@ import { MOTIF_PRESENCE, jour } from './terrain-libelles';
     <div class="t-screen">
       <h1 class="t-title">Mes opérations</h1>
       <p class="t-sub">
-        {{ operations().length }} opération(s) — telles que le planning vous les attribue.
+        {{ operations().length }} opération(s), telles que le planning vous les attribue.
       </p>
 
       @if (erreur()) {

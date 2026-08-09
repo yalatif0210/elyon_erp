@@ -9,7 +9,7 @@ import {
   PerformanceCommerciale,
 } from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
-import { dateOnly } from '../shared/format';
+import { dateOnly, grouper } from '../shared/format';
 
 /**
  * CRM — PIPELINE COMMERCIAL (§ 15).
@@ -35,7 +35,7 @@ import { dateOnly } from '../shared/format';
     <header class="mb-6">
       <h1 class="page-title">Pipeline commercial</h1>
       <p class="page-sub">
-        De la prospection à l'affaire signée. La valeur pondérée alimente la prévision de vente —
+        De la prospection à l'affaire signée. La valeur pondérée alimente la prévision de vente,
         elle n'est donc pas qu'un indicateur d'équipe.
       </p>
     </header>
@@ -67,7 +67,7 @@ import { dateOnly } from '../shared/format';
         </div>
         @if (alertes().length > 12) {
           <p class="mt-2 text-[11px] text-ink-faint">
-            et {{ alertes().length - 12 }} autres — la file de tâches les porte toutes.
+            et {{ alertes().length - 12 }} autres, la file de tâches les porte toutes.
           </p>
         }
       </section>
@@ -83,7 +83,7 @@ import { dateOnly } from '../shared/format';
       @if (sansProbabilite() > 0) {
         <p class="mb-2 text-[12px] leading-relaxed text-warn-ink">
           {{ sansProbabilite() }} opportunité(s) n'entrent pas dans la valeur pondérée : la
-          probabilité de leur étape n'a pas été décidée. Elle se saisit dans le paramétrage —
+          probabilité de leur étape n'a pas été décidée. Elle se saisit dans le paramétrage ;
           laissée vide, le total serait partiel sans le dire.
         </p>
       }
@@ -118,7 +118,7 @@ import { dateOnly } from '../shared/format';
                 <td class="num tabular text-ink">{{ e.opportunites }}</td>
                 <td class="num tabular text-ink-soft">{{ nombre(e.ca_previsionnel) }}</td>
                 <td class="num tabular font-medium text-ink">
-                  {{ e.valeur_ponderee === null ? '—' : nombre(e.valeur_ponderee) }}
+                  {{ e.valeur_ponderee === null ? '-' : nombre(e.valeur_ponderee) }}
                   @if (nombreBrut(e.sans_probabilite) > 0) {
                     <span class="ml-1 text-[11px] font-normal text-warn-ink">
                       ({{ e.sans_probabilite }} hors total)
@@ -147,7 +147,7 @@ import { dateOnly } from '../shared/format';
         </div>
         <p class="mb-2 text-[12px] leading-relaxed text-ink-faint">
           Le seul moyen de savoir si les probabilités sont honnêtes. Une étape qui annonce 70 % et
-          convertit à 30 % ne se corrige pas d'elle-même — et son optimisme se propage jusqu'au
+          convertit à 30 % ne se corrige pas d'elle-même, et son optimisme se propage jusqu'au
           coût de revient. Calculé sur les seules affaires tranchées.
         </p>
         <div class="card overflow-x-auto">
@@ -168,7 +168,7 @@ import { dateOnly } from '../shared/format';
                 <tr>
                   <td class="text-ink">{{ c.etape }}</td>
                   <td class="num tabular text-ink-faint">
-                    {{ c.probabilite_affichee === null ? '—' : c.probabilite_affichee + ' %' }}
+                    {{ c.probabilite_affichee === null ? '-' : c.probabilite_affichee + ' %' }}
                   </td>
                   <td class="num tabular font-medium"
                       [class]="teinteEcart(c)">
@@ -210,7 +210,7 @@ import { dateOnly } from '../shared/format';
               class="field h-7 w-[150px] py-0 text-[12px]"
               [(ngModel)]="ancre"
               (change)="relire()"
-              title="Un jour DANS la période voulue — le trimestre du 15 mai, par exemple"
+              title="Un jour DANS la période voulue, le trimestre du 15 mai, par exemple"
             />
           </div>
         </div>
@@ -218,16 +218,17 @@ import { dateOnly } from '../shared/format';
         @if (performances()[0]; as p) {
           <p class="mb-2 text-[12px] text-ink-faint">
             Période retenue : <strong class="text-ink-soft">{{ p.periode_origine }}</strong>
-            — du {{ jour(p.periode_debut) }} au {{ jour(p.periode_fin) }}.
+, du {{ jour(p.periode_debut) }} au {{ jour(p.periode_fin) }}.
             @if (enCours(p)) {
               <span class="text-warn-ink">Période non close : les chiffres sont partiels.</span>
             }
           </p>
         }
         <p class="mb-2 text-[12px] leading-relaxed text-ink-faint">
-          Trois familles de chiffres, et on ne les confond pas : ce qui est <strong>espéré</strong>
-          — le pipeline, qui repose sur des probabilités déclarées —, ce qui est
-          <strong>signé</strong>, qui ne repose sur aucune hypothèse, et <strong>à quel prix</strong>
+          Trois familles de chiffres, et on ne les confond pas : ce qui est
+          <strong>espéré</strong>, c'est-à-dire le pipeline, qui repose sur des probabilités
+          déclarées ; ce qui est
+          <strong>signé</strong>, qui ne repose sur aucune hypothèse ; et <strong>à quel prix</strong>
           c'est signé. Un commercial qui remplit son pipeline sans rien signer et un autre qui
           signe tout au ras du seuil ont tous deux un problème ; un chiffre unique les
           confondrait.
@@ -261,7 +262,7 @@ import { dateOnly } from '../shared/format';
                   <td class="num tabular text-ink-soft">{{ p.opportunites_ouvertes }}</td>
                   <td class="num tabular text-ink-faint">{{ nombre(p.ca_previsionnel) }}</td>
                   <td class="num tabular text-ink">
-                    {{ p.valeur_ponderee === null ? '—' : nombre(p.valeur_ponderee) }}
+                    {{ p.valeur_ponderee === null ? '-' : nombre(p.valeur_ponderee) }}
                     @if (nombreBrut(p.sans_probabilite) > 0) {
                       <span class="ml-1 text-[11px] font-normal text-warn-ink">
                         ({{ p.sans_probabilite }} hors total)
@@ -277,14 +278,14 @@ import { dateOnly } from '../shared/format';
                   <td class="num tabular text-ink">{{ p.affaires }}</td>
                   <td class="num tabular text-ink">{{ nombre(p.chiffre_affaires) }}</td>
                   <td class="num tabular text-ink-soft">
-                    {{ p.marge_unitaire_moyenne === null ? '—' : nombre(p.marge_unitaire_moyenne) }}
+                    {{ p.marge_unitaire_moyenne === null ? '-' : nombre(p.marge_unitaire_moyenne) }}
                   </td>
                   <!-- La part dans la bande est le signal qui compte : une affaire
                        à 31 est banale, un vendeur dont tout atterrit à 31 ne l'est
                        pas. -->
                   <td class="num tabular font-medium" [class]="teinteBande(p.part_dans_la_bande_pct)">
                     {{ p.part_dans_la_bande_pct === null
-                       ? '—'
+                       ? '-'
                        : p.affaires_dans_la_bande + ' (' + p.part_dans_la_bande_pct + ' %)' }}
                     @if (nombreBrut(p.affaires_sur_derogation) > 0) {
                       <span class="block text-[11px] font-normal text-warn-ink">
@@ -312,7 +313,7 @@ import { dateOnly } from '../shared/format';
         <div class="card px-[15px] py-4">
           <p class="text-[13px] leading-relaxed text-ink-soft">
             Aucune opportunité ouverte. Le pipeline se remplit depuis les prospects du
-            référentiel Tiers — chaque opportunité porte une prochaine action et sa date, sans
+            référentiel Tiers : chaque opportunité porte une prochaine action et sa date, sans
             quoi elle dort jusqu'à ce qu'on la retrouve par hasard.
           </p>
         </div>
@@ -339,7 +340,7 @@ import { dateOnly } from '../shared/format';
                   <td class="text-[12px] text-ink-soft">{{ o.etape }}</td>
                   <td class="num tabular text-ink-soft">{{ nombre(o.ca_previsionnel) }}</td>
                   <td class="num tabular text-ink">
-                    {{ o.valeur_ponderee === null ? '—' : nombre(o.valeur_ponderee) }}
+                    {{ o.valeur_ponderee === null ? '-' : nombre(o.valeur_ponderee) }}
                   </td>
                   <td>
                     <span class="block truncate text-[12px] text-ink">{{ o.next_action }}</span>
@@ -407,9 +408,9 @@ export class CrmComponent implements OnInit {
   }
 
   protected nombre(v: string | null): string {
-    if (v === null || v === '') return '—';
+    if (v === null || v === '') return '-';
     const n = Number(v);
-    return Number.isNaN(n) ? v : n.toLocaleString('fr-FR', { maximumFractionDigits: 0 });
+    return Number.isNaN(n) ? v : grouper(n, { maximumFractionDigits: 0 });
   }
 
   protected nombreBrut(v: string | null): number {
@@ -417,7 +418,7 @@ export class CrmComponent implements OnInit {
   }
 
   protected jour(iso: string | null): string {
-    return iso ? dateOnly(iso) : '—';
+    return iso ? dateOnly(iso) : '-';
   }
 
   protected echeance(a: CrmAlerte): string {

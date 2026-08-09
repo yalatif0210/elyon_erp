@@ -7,6 +7,8 @@ import {
   HttpFailure,
 } from '../shared/action-panel.component';
 import { IconComponent } from '../shared/icon.component';
+import { grouper } from '../shared/format';
+import { MontantDirective } from '../shared/montant.directive';
 
 /**
  * Édition et cycle de vie d'une pièce de facturation (§ 9).
@@ -23,7 +25,7 @@ import { IconComponent } from '../shared/icon.component';
 @Component({
   selector: 'erp-invoice-actions',
   standalone: true,
-  imports: [FormsModule, IconComponent, ActionFeedbackComponent],
+  imports: [FormsModule, IconComponent, ActionFeedbackComponent, MontantDirective],
   template: `
     <section class="card overflow-hidden">
       <div class="card-header">
@@ -36,7 +38,7 @@ import { IconComponent } from '../shared/icon.component';
           <div class="md:col-span-2">
             <label class="label" for="deal">Affaire</label>
             <select id="deal" class="field" [(ngModel)]="dealId">
-              <option [ngValue]="''">— choisir une affaire —</option>
+              <option [ngValue]="''">Choisir une affaire</option>
               @for (d of deals(); track d.id) {
                 <option [ngValue]="d.id">
                   {{ d.reference }} · {{ d.client.legalName }}
@@ -55,7 +57,7 @@ import { IconComponent } from '../shared/icon.component';
 
           <div>
             <label class="label" for="vol">Volume facturé</label>
-            <input id="vol" class="field text-right font-mono" [(ngModel)]="billedVolume" />
+            <input id="vol" class="field text-right font-mono" erpMontant [(ngModel)]="billedVolume" />
           </div>
           <div>
             <label class="label" for="pu">Prix unitaire TTC</label>
@@ -66,13 +68,13 @@ import { IconComponent } from '../shared/icon.component';
             <select id="dev" class="field" [(ngModel)]="currencyCode">
               @for (d of devises(); track d.code) {
                 <option [ngValue]="d.code">
-                  {{ d.code }} — {{ d.name }}@if (d.isPivot) { · pivot }
+                  {{ d.code }} · {{ d.name }}@if (d.isPivot) { · pivot }
                 </option>
               }
             </select>
             <p class="mt-1 text-[11px] text-ink-faint">
               La monnaie dans laquelle la créance est due. Le pivot sert à comparer des
-              engagements pris dans des monnaies différentes — il ne s’impose pas.
+              engagements pris dans des monnaies différentes, il ne s’impose pas.
             </p>
           </div>
         </div>
@@ -97,7 +99,7 @@ import { IconComponent } from '../shared/icon.component';
               <p class="pb-2 text-[12px] text-ink-soft">
                 Total {{ money(total()) }} <strong>dont TVA {{ money(vat()) }}</strong>
                 <span class="ml-1 text-ink-faint">
-                  — extraite par Total × {{ vatRatePct }} ÷ ({{ 100 + +vatRatePct }})
+, extraite par Total × {{ vatRatePct }} ÷ ({{ 100 + +vatRatePct }})
                 </span>
               </p>
             </div>
@@ -117,14 +119,14 @@ import { IconComponent } from '../shared/icon.component';
               <option value="HT">HT</option>
             </select>
             <p class="mt-1 text-[11px] text-ink-faint">
-              Purement documentaire — sans effet sur les montants.
+              Purement documentaire : sans effet sur les montants.
             </p>
           </div>
           <div>
             <label class="label" for="docdev">Devise d’impression</label>
             <select id="docdev" class="field" [(ngModel)]="documentCurrencyCode">
               @for (d of devises(); track d.code) {
-                <option [ngValue]="d.code">{{ d.code }} — {{ d.name }}</option>
+                <option [ngValue]="d.code">{{ d.code }} · {{ d.name }}</option>
               }
             </select>
             <p class="mt-1 text-[11px] text-ink-faint">
@@ -138,7 +140,7 @@ import { IconComponent } from '../shared/icon.component';
             <label class="label" for="motif-simple">Motif du recours à la facture simple</label>
             <input id="motif-simple" class="field" [(ngModel)]="simpleInvoiceReason" />
             <p class="mt-1 text-[11px] text-ink-faint">
-              Décision interne : décideur, date et motif sont conservés (§ 9.3).
+              Décision interne : décideur, date et motif sont conservés.
             </p>
           </div>
         }
@@ -207,7 +209,7 @@ export class InvoiceActionsComponent {
   }
 
   protected money(v: number): string {
-    return v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return grouper(v, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   protected create(): void {
@@ -247,7 +249,7 @@ export class InvoiceActionsComponent {
 @Component({
   selector: 'erp-invoice-lifecycle',
   standalone: true,
-  imports: [FormsModule, IconComponent, ActionFeedbackComponent],
+  imports: [FormsModule, IconComponent, ActionFeedbackComponent, MontantDirective],
   template: `
     <section class="card overflow-hidden">
       <div class="card-header">
@@ -265,7 +267,7 @@ export class InvoiceActionsComponent {
           <div>
             <dt class="text-ink-muted">Dont TVA</dt>
             <dd class="font-mono text-ink-soft">
-              {{ invoice.isVatApplicable ? money(+invoice.vatAmount) : '—' }}
+              {{ invoice.isVatApplicable ? money(+invoice.vatAmount) : '-' }}
             </dd>
           </div>
           <div>
@@ -300,7 +302,7 @@ export class InvoiceActionsComponent {
             <div class="flex flex-wrap items-end gap-3">
               <div>
                 <label class="label" for="montant">Montant</label>
-                <input id="montant" class="field w-40 text-right font-mono" [(ngModel)]="amount" />
+                <input id="montant" class="field w-40 text-right font-mono" erpMontant [(ngModel)]="amount" />
               </div>
               <div>
                 <label class="label" for="valeur">Date de valeur</label>
@@ -318,7 +320,7 @@ export class InvoiceActionsComponent {
         } @else if (invoice.type === 'PROFORMA') {
           <p class="mt-4 text-[11px] leading-relaxed text-ink-faint">
             Une proforma ne crée aucune créance : elle ne porte ni échéance, ni encaissement, et
-            ne se transmet pas au dispositif fiscal (§ 9.3).
+            ne se transmet pas au dispositif fiscal.
           </p>
         }
       </div>
@@ -346,7 +348,7 @@ export class InvoiceLifecycleComponent {
   }
 
   protected money(v: number): string {
-    return v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return grouper(v, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   protected issue(): void {

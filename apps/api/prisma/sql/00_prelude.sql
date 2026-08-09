@@ -40,6 +40,10 @@ DROP VIEW IF EXISTS v_crm_conversion CASCADE;
 DROP VIEW IF EXISTS v_crm_alertes CASCADE;
 DROP VIEW IF EXISTS v_crm_pipeline_par_etape CASCADE;
 DROP VIEW IF EXISTS v_crm_pipeline CASCADE;
+DROP VIEW IF EXISTS v_absorption_reelle CASCADE;
+-- Remplacée par `v_absorption_reelle` : l'assiette étant dérivée, l'écart
+-- qu'elle mesurait est nul par construction. Le DROP reste pour les bases qui
+-- la portent encore.
 DROP VIEW IF EXISTS v_assiette_absorption CASCADE;
 DROP VIEW IF EXISTS v_creances_echues CASCADE;
 DROP VIEW IF EXISTS v_rapprochement_encaissements CASCADE;
@@ -49,6 +53,9 @@ DROP VIEW IF EXISTS v_prevision_en_vigueur CASCADE;
 DROP VIEW IF EXISTS v_bfr_exploitation CASCADE;
 DROP VIEW IF EXISTS v_point_mort CASCADE;
 DROP VIEW IF EXISTS v_marge_cout_variable CASCADE;
+-- APRÈS v_point_mort, qui la lit — même si le CASCADE suffirait, l'ordre dit
+-- la dépendance à qui relit ce fichier.
+DROP VIEW IF EXISTS v_charges_fixes_exercice CASCADE;
 DROP VIEW IF EXISTS v_couverture_budgetaire CASCADE;
 DROP VIEW IF EXISTS v_parametres_requis_sonde CASCADE;
 DROP VIEW IF EXISTS v_parametres_requis CASCADE;

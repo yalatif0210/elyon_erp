@@ -216,7 +216,7 @@ const NAV: NavGroup[] = [
                      text-[13px] text-info"
             >
               <erp-icon name="lock" [size]="14" />
-              Mot de passe provisoire — un changement est requis.
+              Mot de passe provisoire, un changement est requis.
               <a routerLink="/mon-compte" class="ml-1 font-medium underline underline-offset-2">
                 Le changer
               </a>
@@ -286,8 +286,8 @@ export class ShellComponent implements OnInit {
    */
   protected infobulleTaches(c: CompteurTaches): string {
     const morceaux: string[] = [];
-    if (c.bloquantes > 0) morceaux.push(`${c.bloquantes} bloquante(s) — quelqu’un est arrêté`);
-    if (c.anomalies > 0) morceaux.push(`${c.anomalies} anomalie(s) — déjà passé`);
+    if (c.bloquantes > 0) morceaux.push(`${c.bloquantes} bloquante(s) : quelqu’un est arrêté`);
+    if (c.anomalies > 0) morceaux.push(`${c.anomalies} anomalie(s) : déjà passé`);
     if (c.aVenir > 0) morceaux.push(`${c.aVenir} à venir`);
     return morceaux.join(' · ') || 'Rien ne vous attend';
   }

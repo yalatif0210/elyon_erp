@@ -223,3 +223,44 @@ CREATE TRIGGER trg_supplier_price_min_volume
   BEFORE INSERT OR UPDATE OF supplier_price_id, contracted_volume, credit_approved_by_id
   ON deals
   FOR EACH ROW EXECUTE FUNCTION enforce_supplier_price_min_volume();
+
+
+-- ===========================================================================
+--  UNE LISTE VIDE EST UNE LISTE VIDE, PAS UN NUL
+--
+--  LE DÉFAUT, ET IL MORDAIT DÉJÀ
+--  -----------------------------
+--  Toutes les colonnes TABLEAU du modèle expriment la même convention :
+--  « vide = tous ». Les vues la lisent partout de la même façon —
+--  `cardinality(colonne) = 0`.
+--
+--  Or `cardinality(NULL)` ne vaut pas zéro : il vaut NULL. La condition entière
+--  devient NULL, donc fausse, et l'objet n'est rattaché à RIEN au moment précis
+--  où il devait l'être à TOUT. C'est l'inverse exact de ce que le libellé
+--  « Vide = tous les segments » promet sous le champ.
+--
+--  L'écran de paramétrage écrivait NULL sur un champ laissé vide. Constaté sur
+--  les quatre pools de charges saisis par la direction : leur assiette révisée
+--  ressortait vide, sans qu'aucun message ne l'explique — le genre de silence
+--  qu'on met des mois à remarquer.
+--
+--  La conversion côté serveur écrit désormais un tableau vide. Cette reprise
+--  traite ce qui a été écrit avant, et se rejoue sans effet.
+--
+--  ⚠️ PAS DE `SET NOT NULL` ICI, ET C'EST DÉLIBÉRÉ.
+--
+--     Prisma modélise les listes comme non nulles côté client mais génère la
+--     colonne sans contrainte. Poser NOT NULL creuserait un écart entre le
+--     schéma déclaré et la base, que le calcul d'écart de la migration suivante
+--     proposerait d'annuler — on gagnerait la contrainte pour la reperdre au
+--     prochain changement de schéma, sans que personne ne le voie passer.
+--     La garantie est donc tenue au point d'écriture, et les lectures sont
+--     rendues insensibles au NUL.
+-- ===========================================================================
+UPDATE cost_pools              SET segments = '{}'                    WHERE segments IS NULL;
+UPDATE operation_types         SET segments = '{}'                    WHERE segments IS NULL;
+UPDATE sites                   SET usages = '{}'                      WHERE usages IS NULL;
+UPDATE vehicles                SET allowed_product_ids = '{}'         WHERE allowed_product_ids IS NULL;
+UPDATE hse_checklist_templates SET applicable_segments = '{}'         WHERE applicable_segments IS NULL;
+UPDATE hse_checklist_templates SET applicable_transport_modes = '{}'  WHERE applicable_transport_modes IS NULL;
+UPDATE hse_checklist_templates SET applicable_risk_levels = '{}'      WHERE applicable_risk_levels IS NULL;

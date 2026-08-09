@@ -56,7 +56,7 @@ import { jour, jourHeure } from './terrain-libelles';
         <!-- ======================= Verrou HSE ======================= -->
         <!--
           Le verrou est en tête parce qu'il commande tout le reste : tant qu'un
-          point bloquant n'est pas levé, la base refusera le chargement, quel
+          point bloquant n'est pas levé, le chargement sera refusé, quel
           que soit le chemin emprunté. L'agent doit le savoir AVANT de se
           demander pourquoi son changement d'état est refusé.
         -->
@@ -159,10 +159,10 @@ import { jour, jourHeure } from './terrain-libelles';
         <p class="t-section">Moyens affectés</p>
         @if (op.means) {
           <div class="rounded-[3px] border border-rule-strong bg-surface px-4">
-            <div class="t-row"><span class="t-key">Transporteur</span><span class="t-val">{{ op.means.carrierName ?? '—' }}</span></div>
-            <div class="t-row"><span class="t-key">Immatriculation</span><span class="t-val font-mono">{{ op.means.vehicleRegistration ?? '—' }}</span></div>
-            <div class="t-row"><span class="t-key">Identifiant véhicule</span><span class="t-val font-mono">{{ op.means.vehicleIdentifier ?? '—' }}</span></div>
-            <div class="t-row"><span class="t-key">Chauffeur</span><span class="t-val">{{ op.means.driverName ?? '—' }}</span></div>
+            <div class="t-row"><span class="t-key">Transporteur</span><span class="t-val">{{ op.means.carrierName ?? '-' }}</span></div>
+            <div class="t-row"><span class="t-key">Immatriculation</span><span class="t-val font-mono">{{ op.means.vehicleRegistration ?? '-' }}</span></div>
+            <div class="t-row"><span class="t-key">Identifiant véhicule</span><span class="t-val font-mono">{{ op.means.vehicleIdentifier ?? '-' }}</span></div>
+            <div class="t-row"><span class="t-key">Chauffeur</span><span class="t-val">{{ op.means.driverName ?? '-' }}</span></div>
             <div class="t-row">
               <span class="t-key">Téléphone</span>
               <span class="t-val">
@@ -170,7 +170,7 @@ import { jour, jourHeure } from './terrain-libelles';
                   <a class="text-primary underline underline-offset-2" [href]="'tel:' + op.means.driverPhone">
                     {{ op.means.driverPhone }}
                   </a>
-                } @else { — }
+                } @else { - }
               </span>
             </div>
           </div>
@@ -195,7 +195,7 @@ import { jour, jourHeure } from './terrain-libelles';
                 <span class="t-code ml-1">{{ m.uom }}</span>
               </p>
               <p class="mt-1 text-[15px] text-ink-soft">
-                Température {{ m.observedTempC ?? '—' }} °C
+                Température {{ m.observedTempC ?? '-' }} °C
               </p>
               @if (m.isOffSpec) {
                 <p class="mt-1 text-[15px] font-semibold text-crit">Hors spécification</p>

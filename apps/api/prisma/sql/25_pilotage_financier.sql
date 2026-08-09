@@ -68,47 +68,84 @@ WITH ex AS (
          (SELECT f.year  FROM fiscal_years f WHERE f.id = exercice_courant())   AS year,
          (SELECT f.label FROM fiscal_years f WHERE f.id = exercice_courant())   AS label
 ),
+-- ⚠️ LES CHARGES FIXES NE SE SAISISSENT PLUS : ELLES SE DÉRIVENT.
+--
+--    Elles venaient de `fixed_cost_budgets`, table supprimée. Elles sont
+--    maintenant la somme des budgets des pools déclarés FIXES sur l'exercice
+--    — la MÊME saisie que celle qui alimente le seuil de marge. Les deux
+--    chiffres ne peuvent donc plus diverger, ce que deux saisies parallèles ne
+--    pouvaient pas garantir.
 fixes AS (
-  SELECT COALESCE(sum(b.annual_amount), 0) AS charges_fixes,
-         count(*)                          AS postes
-    FROM fixed_cost_budgets b
-   WHERE b.is_current
-     AND b.fiscal_year_id = exercice_courant()
+  SELECT COALESCE(c.charges_fixes, 0) AS charges_fixes,
+         COALESCE(c.pools, 0)         AS pools,
+         COALESCE(c.devises, 0)       AS devises,
+         c.devise
+    FROM (SELECT 1) unite
+    LEFT JOIN v_charges_fixes_exercice c ON c.fiscal_year_id = exercice_courant()
 ),
 -- Marge sur coût variable moyenne, tous segments confondus, pondérée par le
 -- volume réalisé. Le § 14.5 retient un point mort GLOBAL : un point mort par
 -- segment supposerait des charges fixes attribuables, ce qui n'est vrai que
 -- pour la barge.
+--
+-- ⚠️ LA DEVISE ET L'UNITÉ SONT COMPTÉES, PAS SEULEMENT AGRÉGÉES.
+--
+--    Cette moyenne sommait des marges libellées dans des devises différentes
+--    et des volumes exprimés dans des unités différentes. Le résultat restait
+--    un nombre, et le point mort en découlait sans que rien ne le signale.
+--    Tant qu'une seule devise et une seule unité sont en jeu — le cas normal —
+--    rien ne change ; sinon la vue refuse de conclure.
 mcv AS (
   SELECT round(sum(m.marge_variable_unitaire * m.volume)
                / NULLIF(sum(m.volume), 0), 4) AS marge_unitaire,
-         sum(m.volume)                        AS volume_realise
+         sum(m.volume)                        AS volume_realise,
+         count(DISTINCT m.currency_code)      AS devises,
+         min(m.currency_code)                 AS devise,
+         count(DISTINCT m.uom)                AS unites,
+         min(m.uom::text)                     AS uom
     FROM v_marge_cout_variable m
 )
 SELECT ex.year                                          AS exercice,
        ex.label,
        f.charges_fixes,
-       f.postes                                         AS postes_de_charges,
+       f.pools                                          AS pools_de_charges_fixes,
+       f.devise                                         AS devise_charges,
        m.marge_unitaire,
        m.volume_realise,
-       (ex.id IS NOT NULL AND f.postes > 0
-        AND m.marge_unitaire IS NOT NULL AND m.marge_unitaire > 0)
+       m.devise                                         AS devise_marge,
+       m.uom,
+       (ex.id IS NOT NULL AND f.pools > 0
+        AND f.devises <= 1 AND m.devises <= 1 AND m.unites <= 1
+        AND m.marge_unitaire IS NOT NULL AND m.marge_unitaire > 0
+        AND (m.devise IS NULL OR f.devise IS NULL OR m.devise = f.devise))
                                                         AS calculable,
        CASE
          WHEN ex.id IS NULL
            THEN 'Aucun exercice comptable n''est déclaré courant. L''exercice se saisit — ses bornes ne sont ni l''année civile ni une constante (§ 14.3).'
-         WHEN f.postes = 0
-           THEN 'Budget de charges fixes non saisi pour cet exercice (§ 14.5) — le point mort serait de zéro litre, donc déjà atteint.'
+         WHEN f.pools = 0
+           THEN 'Aucun pool de charges FIXES n''est budgété sur cet exercice (§ 14.5) — le point mort serait de zéro litre, donc déjà atteint. Les charges fixes sont la somme des budgets des pools déclarés fixes : déclarez-en au moins un.'
+         WHEN f.devises > 1
+           THEN 'Les pools de charges fixes de cet exercice sont libellés dans plusieurs devises. Leur somme n''a pas de sens, et le point mort qui en découlerait non plus.'
          WHEN m.marge_unitaire IS NULL
            THEN 'Aucune affaire close avec marge directe réalisée : la marge sur coût variable ne peut pas être établie.'
+         WHEN m.devises > 1
+           THEN 'Les affaires closes sont libellées dans plusieurs devises : leur marge unitaire moyenne additionnerait des monnaies différentes.'
+         WHEN m.unites > 1
+           THEN 'Les affaires closes mêlent plusieurs unités de volume : la marge unitaire moyenne rapporterait des litres à des tonnes.'
+         WHEN m.devise IS NOT NULL AND f.devise IS NOT NULL AND m.devise <> f.devise
+           THEN 'Les charges fixes sont en ' || f.devise || ' et la marge sur coût variable en ' || m.devise || '. Diviser l''une par l''autre donnerait un volume faux du rapport des deux monnaies.'
          WHEN m.marge_unitaire <= 0
            THEN 'Marge sur coût variable nulle ou négative : aucun volume ne couvre les charges fixes. Ce n''est pas un point mort, c''est une alerte.'
          ELSE NULL
        END                                              AS motif,
-       CASE WHEN f.postes > 0 AND m.marge_unitaire > 0
+       CASE WHEN f.pools > 0 AND f.devises <= 1 AND m.devises <= 1 AND m.unites <= 1
+                 AND m.marge_unitaire > 0
+                 AND (m.devise IS NULL OR f.devise IS NULL OR m.devise = f.devise)
             THEN round(f.charges_fixes / m.marge_unitaire, 0)
        END                                              AS point_mort_volume,
-       CASE WHEN f.postes > 0 AND m.marge_unitaire > 0
+       CASE WHEN f.pools > 0 AND f.devises <= 1 AND m.devises <= 1 AND m.unites <= 1
+                 AND m.marge_unitaire > 0
+                 AND (m.devise IS NULL OR f.devise IS NULL OR m.devise = f.devise)
             THEN round(f.charges_fixes / m.marge_unitaire, 0) - COALESCE(m.volume_realise, 0)
        END                                              AS reste_a_vendre
   FROM ex

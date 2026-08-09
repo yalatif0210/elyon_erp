@@ -67,12 +67,12 @@ export const MOTIF_PRESENCE: Record<FieldListingReason, string> = {
 
 /** Partie date d'un horodatage ISO, sans dépendre d'un pipe. */
 export function jour(iso: string | null | undefined): string {
-  return iso ? iso.slice(0, 10) : '—';
+  return iso ? iso.slice(0, 10) : '-';
 }
 
 /** Date et heure, à la minute — l'heure compte sur un relevé. */
 export function jourHeure(iso: string | null | undefined): string {
-  return iso ? `${iso.slice(0, 10)} ${iso.slice(11, 16)}` : '—';
+  return iso ? `${iso.slice(0, 10)} ${iso.slice(11, 16)}` : '-';
 }
 
 /** Valeur d'horodatage acceptée par `<input type="datetime-local">`. */

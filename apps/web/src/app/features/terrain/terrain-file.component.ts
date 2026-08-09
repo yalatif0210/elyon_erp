@@ -39,7 +39,7 @@ import { jourHeure } from './terrain-libelles';
 
       <h1 class="t-title mt-2">File d’envoi</h1>
       <p class="t-sub">
-        Tout ce que vous saisissez passe par ici avant d’atteindre le serveur.
+        Tout ce que vous saisissez passe par ici avant d’être transmis.
       </p>
 
       <!-- ============ Où sont conservées les saisies ============ -->
@@ -78,7 +78,7 @@ import { jourHeure } from './terrain-libelles';
 
       <!-- ============ À traiter par l'agent ============ -->
       <p class="t-section">
-        Refusés — action requise
+        Refusés : action requise
         @if (refuses().length > 0) { ({{ refuses().length }}) }
       </p>
       @for (e of refuses(); track e.id) {

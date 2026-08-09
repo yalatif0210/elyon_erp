@@ -61,7 +61,26 @@ export type FieldType =
   | 'enumList'
   | 'reference'
   /** Liste de références, par leur code lisible — « ROUTE, SOUTAGE ». */
-  | 'referenceList';
+  | 'referenceList'
+  /**
+   * Numéro de version d'une donnée historisée.
+   *
+   * ⚠️ SA LISTE DE CHOIX DÉPEND DES AUTRES CHAMPS DU FORMULAIRE.
+   *
+   *    Les versions ne sont pas globales : elles se comptent PAR IDENTITÉ —
+   *    par pool ET par exercice pour un budget de pool. Les numéros libres
+   *    dépendent donc de ce qui vient d'être choisi juste au-dessus, ce qu'une
+   *    liste statique ne sait pas exprimer.
+   *
+   *    Le dirigeant, le 9 août : « Si l'on vient à créer un nouveau réglage, la
+   *    liste déroulante exclut la version déjà en base pour proposer celles
+   *    libres. »
+   *
+   *    Un entier libre laissait écraser une version existante par simple faute
+   *    de frappe — et une révision qui écrase ce qu'elle révise fait disparaître
+   *    l'historique qu'on versionne justement pour le garder.
+   */
+  | 'version';
 
 export interface FieldSpec {
   name: string;
@@ -70,6 +89,15 @@ export interface FieldSpec {
   required?: boolean;
   /** Valeurs admises pour un `enum`. */
   values?: readonly string[];
+  /**
+   * Libellé français de chaque valeur admise.
+   *
+   * ⚠️ N'AFFECTE QUE L'AFFICHAGE : la valeur transmise reste le code stocké.
+   *    Traduire la valeur elle-même la rendrait dépendante de la langue de
+   *    l'écran, et un import de fichier rédigé en français ne serait plus
+   *    relisible par le calcul.
+   */
+  valueLabels?: Readonly<Record<string, string>>;
   /** Référentiel visé par une `reference`, et champ servant de clé lisible. */
   refTable?: string;
   refKey?: string;
@@ -131,6 +159,134 @@ const SEGMENTS = values(CommercialSegment);
 const UOMS = values(UnitOfMeasure);
 const TRANSPORT = values(TransportMode);
 
+/**
+ * LIBELLÉS FRANÇAIS DES VALEURS DE LISTE.
+ *
+ * ⚠️ LA VALEUR ENVOYÉE RESTE LE CODE. SEUL L'AFFICHAGE CHANGE.
+ *
+ *    Les listes déroulantes présentaient les valeurs telles qu'elles sont
+ *    stockées : « PER_VOLUME », « TANKER_TRUCK », « BLOCKING ». Un exploitant
+ *    doit alors deviner, et deviner mal se paie : « PER_REVENUE » et
+ *    « PER_VOLUME » se ressemblent, et le second est refusé par le système
+ *    alors que le premier ne l'est pas.
+ *
+ * ⚠️ LES LIBELLÉS SONT RANGÉS PAR ÉNUMÉRATION, ET CE N'EST PAS DU ZÈLE.
+ *
+ *    La même valeur ne veut pas dire la même chose partout. « FIXED » est un
+ *    FORFAIT sur une base de coût et une charge FIXE sur une variabilité ;
+ *    « OPEN » est une opportunité EN COURS au pipeline et un exercice OUVERT
+ *    en comptabilité. Un dictionnaire à plat aurait traduit l'un par l'autre.
+ */
+const FR = {
+  AllocationBasis: {
+    PER_VOLUME: 'Au volume',
+    PER_OPERATION: 'À l’opération',
+    PER_REVENUE: 'Au chiffre d’affaires',
+  },
+  CommercialSegment: {
+    MARITIME: 'Maritime',
+    B2B: 'Entreprises',
+    RETAIL: 'Stations-service',
+  },
+  ContractStatus: {
+    DRAFT: 'Brouillon',
+    ACTIVE: 'Actif',
+    SUSPENDED: 'Suspendu',
+    EXPIRED: 'Échu',
+    TERMINATED: 'Résilié',
+  },
+  CostBasis: {
+    PER_UNIT: 'Au litre, proportionnel au volume',
+    FIXED: 'Forfait pour l’affaire',
+  },
+  CostNature: { DIRECT: 'Directe', INDIRECT: 'Indirecte' },
+  CostVariability: { VARIABLE: 'Variable', FIXED: 'Fixe' },
+  CreditStatus: { ACTIVE: 'Normal', WATCH: 'Sous surveillance', BLOCKED: 'Bloqué' },
+  CrmStageOutcome: {
+    OPEN: 'En cours',
+    WON: 'Gagnée',
+    LOST: 'Perdue',
+    DORMANT: 'En veille',
+  },
+  FiscalYearStatus: { PLANNED: 'En préparation', OPEN: 'Ouvert', CLOSED: 'Clos' },
+  ForecastKind: { BUDGET: 'Budget', REVISION: 'Révision' },
+  FxRateType: {
+    PEG: 'Parité fixe réglementaire',
+    OFFICIAL: 'Officiel',
+    BANK: 'Bancaire',
+    CONTRACTUAL: 'Contractuel',
+    INTERNAL: 'Interne',
+    BUDGET: 'Budgétaire',
+  },
+  GuaranteeStatus: {
+    PENDING: 'En attente',
+    ACTIVE: 'Active',
+    CONSUMED: 'Consommée',
+    EXPIRED: 'Échue',
+    CANCELLED: 'Annulée',
+  },
+  GuaranteeType: {
+    LETTER_OF_CREDIT: 'Lettre de crédit',
+    DOWN_PAYMENT: 'Acompte',
+    BANK_GUARANTEE: 'Garantie bancaire',
+  },
+  HseControlLevel: {
+    RECOMMENDED: 'Recommandé',
+    MANDATORY: 'Obligatoire',
+    CONDITIONAL: 'Conditionnel',
+    BLOCKING: 'Bloquant, arrête l’opération',
+  },
+  HsePhotoPolicy: { FORBIDDEN: 'Interdite', OPTIONAL: 'Facultative', REQUIRED: 'Exigée' },
+  HseRiskLevel: { STANDARD: 'Standard', REINFORCED: 'Renforcé', CRITICAL: 'Critique' },
+  OperationPhase: {
+    PREPARATION: 'Préparation',
+    PRE_DEPARTURE: 'Avant départ',
+    LOADING: 'Chargement',
+    TRANSPORT: 'Transport',
+    DELIVERY: 'Livraison',
+    CLOSING: 'Clôture',
+  },
+  PartnerType: {
+    CLIENT: 'Client',
+    PROSPECT: 'Prospect',
+    SUPPLIER: 'Fournisseur',
+    CARRIER: 'Transporteur',
+    INSPECTOR: 'Inspecteur',
+  },
+  PriceReferenceType: {
+    SIR: 'Publication SIR',
+    PUMP: 'Prix à la pompe',
+    SUPPLIER: 'Prix fournisseur',
+    CONTRACTUAL: 'Prix contractuel',
+  },
+  // ⚠️ « LOADING » se dit APPROVISIONNEMENT, pas « chargement ».
+  //    Un même site sert souvent aux deux : on y prend du produit et on y en
+  //    livre. Nommer l'usage par ce qu'il APPORTE à Elyon lève l'ambiguïté que
+  //    « site de livraison » entretenait.
+  SiteUsage: { LOADING: 'Approvisionnement', DELIVERY: 'Livraison' },
+  TransportMode: {
+    PIPELINE: 'Pipeline',
+    BUNKERING: 'Soutage',
+    BARGE: 'Barge',
+    TRUCK: 'Camion',
+    RAIL: 'Rail',
+  },
+  UnitOfMeasure: { L: 'Litre', M3: 'Mètre cube', MT: 'Tonne', BBL: 'Baril' },
+  VehicleType: {
+    TANKER_TRUCK: 'Camion-citerne',
+    RAIL_WAGON: 'Wagon-citerne',
+    BUNKER_BARGE: 'Barge de soutage',
+    PIPELINE_SECTION: 'Tronçon de pipeline',
+    OTHER: 'Autre',
+  },
+  TypeDeValeur: {
+    string: 'Texte',
+    number: 'Nombre',
+    boolean: 'Oui / non',
+    json: 'Structure JSON',
+  },
+} as const;
+
 export const REFERENTIALS: ReferentialSpec[] = [
   // =========================================================================
   //  Devises — mutable : une faute de frappe se corrige.
@@ -143,11 +299,11 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.FINANCE_CFO],
     identity: ['code'],
     caution:
-      'Une seule devise pivot et une seule devise fonctionnelle sont admises — la base refuse la seconde.',
+      'Une seule devise pivot et une seule devise fonctionnelle sont admises : la seconde est refusée.',
     fields: [
       { name: 'code', label: 'Code ISO', type: 'string', required: true, help: 'Trois lettres : XOF, USD, EUR' },
-      { name: 'name', label: 'Libellé', type: 'string', required: true },
-      { name: 'symbol', label: 'Symbole', type: 'string', required: true },
+      { name: 'name', label: 'Libellé', type: 'string', required: true, help: 'Le nom lu à l’écran, ex. « Gasoil 50 ppm », « Fuel oil 180 CST »' },
+      { name: 'symbol', label: 'Symbole', type: 'string', required: true, help: 'ex. F CFA, $, €' },
       {
         name: 'decimalPlaces',
         label: 'Décimales',
@@ -202,7 +358,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         label: 'Nature',
         type: 'enum',
         required: true,
-        values: values(FxRateType),
+        values: values(FxRateType), valueLabels: FR.FxRateType,
       },
       { name: 'effectiveFrom', label: 'En vigueur depuis', type: 'date', required: true },
       { name: 'effectiveTo', label: 'Jusqu’au', type: 'date' },
@@ -221,10 +377,10 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.CCOO, UserRole.LOGISTICS_COORD],
     identity: ['code'],
     fields: [
-      { name: 'code', label: 'Code', type: 'string', required: true },
-      { name: 'name', label: 'Désignation', type: 'string', required: true },
+      { name: 'code', label: 'Code', type: 'string', required: true, help: 'Sans espace ni accent, ex. GASOIL, SUPER_91, FUEL_180' },
+      { name: 'name', label: 'Désignation', type: 'string', required: true, help: 'Le nom lu à l’écran et imprimé sur les pièces, ex. « Gasoil 50 ppm », « Fuel oil 180 CST »' },
       { name: 'referenceDensity15', label: 'Densité à 15 °C', type: 'number', required: true, decimals: 6 },
-      { name: 'defaultUom', label: 'Unité par défaut', type: 'enum', required: true, values: UOMS },
+      { name: 'defaultUom', label: 'Unité par défaut', type: 'enum', required: true, values: UOMS, valueLabels: FR.UnitOfMeasure },
       { name: 'viscosityCst', label: 'Viscosité (cSt)', type: 'number', decimals: 3 },
       { name: 'flashPointC', label: 'Point éclair (°C)', type: 'number', decimals: 2 },
       { name: 'maxSulphurPct', label: 'Soufre max (%)', type: 'number', decimals: 4 },
@@ -234,7 +390,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         label: 'Teinte d’affichage',
         type: 'string',
         required: true,
-        help: 'Canal visuel distinct des statuts — teinte désaturée, ex. « violet-400 »',
+        help: 'Canal visuel distinct des statuts, teinte désaturée, ex. « violet-400 »',
       },
       { name: 'isActive', label: 'Actif', type: 'boolean' },
     ],
@@ -255,7 +411,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
     caution:
       'Ces valeurs bloquent des affaires. La devise ET l’unité entrent dans la clé : un même segment peut porter un seuil en XOF/L et un autre en USD/MT sans que l’un chasse l’autre.',
     fields: [
-      { name: 'segment', label: 'Segment', type: 'enum', required: true, values: SEGMENTS },
+      { name: 'segment', label: 'Segment', type: 'enum', required: true, values: SEGMENTS, valueLabels: FR.CommercialSegment },
       { name: 'productId', label: 'Produit', type: 'reference', refTable: 'products', refKey: 'code', help: 'Vide = tous les produits du segment' },
       {
         name: 'directFloor',
@@ -272,7 +428,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         help: 'Sur la marge complète. Appelle l’accord du DG, ce n’est pas un refus.',
       },
       { name: 'currencyCode', label: 'Devise', type: 'reference', refTable: 'currencies', refKey: 'code', required: true },
-      { name: 'uom', label: 'Unité', type: 'enum', required: true, values: UOMS },
+      { name: 'uom', label: 'Unité', type: 'enum', required: true, values: UOMS, valueLabels: FR.UnitOfMeasure },
       { name: 'effectiveFrom', label: 'En vigueur depuis', type: 'date', required: true },
       { name: 'effectiveTo', label: 'Jusqu’au', type: 'date' },
     ],
@@ -291,16 +447,16 @@ export const REFERENTIALS: ReferentialSpec[] = [
     effectiveFrom: 'effectiveFrom',
     effectiveTo: 'effectiveTo',
     caution:
-      'La tolérance appliquée est figée au moment du relevé : une grille révisée ne requalifie jamais un écart déjà acquitté. Ces seuils sont CONTRACTUELS, pas physiques — ils viennent de vos contrats de transport et de vos polices d’assurance.',
+      'La tolérance appliquée est figée au moment du relevé : une grille révisée ne requalifie jamais un écart déjà acquitté. Ces seuils sont CONTRACTUELS, pas physiques : ils viennent de vos contrats de transport et de vos polices d’assurance.',
     fields: [
-      { name: 'segment', label: 'Segment', type: 'enum', values: SEGMENTS, help: 'Vide = tous' },
-      { name: 'transportMode', label: 'Mode de transport', type: 'enum', values: TRANSPORT, help: 'Vide = tous' },
+      { name: 'segment', label: 'Segment', type: 'enum', values: SEGMENTS, valueLabels: FR.CommercialSegment, help: 'Vide = tous' },
+      { name: 'transportMode', label: 'Mode de transport', type: 'enum', values: TRANSPORT, valueLabels: FR.TransportMode, help: 'Vide = tous' },
       { name: 'productId', label: 'Produit', type: 'reference', refTable: 'products', refKey: 'code' },
       { name: 'normalThresholdPct', label: 'Seuil normal (%)', type: 'number', required: true, decimals: 6 },
       { name: 'alertThresholdPct', label: 'Seuil d’alerte (%)', type: 'number', required: true, decimals: 6 },
       { name: 'criticalThresholdPct', label: 'Seuil critique (%)', type: 'number', required: true, decimals: 6, help: 'Au-delà : non-conformité HSE ouverte d’office' },
       { name: 'absoluteFranchise', label: 'Franchise absolue', type: 'number', decimals: 6 },
-      { name: 'franchiseUom', label: 'Unité de franchise', type: 'enum', values: UOMS },
+      { name: 'franchiseUom', label: 'Unité de franchise', type: 'enum', values: UOMS, valueLabels: FR.UnitOfMeasure },
       { name: 'effectiveFrom', label: 'En vigueur depuis', type: 'date', required: true },
       { name: 'effectiveTo', label: 'Jusqu’au', type: 'date' },
     ],
@@ -319,19 +475,19 @@ export const REFERENTIALS: ReferentialSpec[] = [
     effectiveFrom: 'effectiveFrom',
     effectiveTo: 'effectiveTo',
     caution:
-      'Ces prix sont une RÉFÉRENCE que le commercial consulte, jamais un moteur : le système ne dérive aucun prix de vente ni aucun coût d’achat à partir d’eux (§ 5.3).',
+      'Ces prix sont une RÉFÉRENCE que le commercial consulte, jamais un moteur : le système ne dérive aucun prix de vente ni aucun coût d’achat à partir d’eux.',
     fields: [
-      { name: 'referenceType', label: 'Nature', type: 'enum', required: true, values: values(PriceReferenceType) },
+      { name: 'referenceType', label: 'Nature', type: 'enum', required: true, values: values(PriceReferenceType), valueLabels: FR.PriceReferenceType },
       { name: 'productId', label: 'Produit', type: 'reference', refTable: 'products', refKey: 'code', required: true },
-      { name: 'zone', label: 'Zone', type: 'string' },
+      { name: 'zone', label: 'Zone', type: 'string', help: 'Ressort géographique du prix publié, ex. « Abidjan », « intérieur du pays ». Vide = tout le pays' },
       { name: 'price', label: 'Prix', type: 'number', required: true, decimals: 4 },
       { name: 'currencyCode', label: 'Devise', type: 'reference', refTable: 'currencies', refKey: 'code', required: true },
-      { name: 'uom', label: 'Unité', type: 'enum', required: true, values: UOMS },
+      { name: 'uom', label: 'Unité', type: 'enum', required: true, values: UOMS, valueLabels: FR.UnitOfMeasure },
       { name: 'publishedBy', label: 'Publié par', type: 'string', required: true, help: 'DGH, SIR…' },
-      { name: 'publicationReference', label: 'Référence de publication', type: 'string' },
+      { name: 'publicationReference', label: 'Référence de publication', type: 'string', help: 'Ce qui permet de retrouver la source, ex. « Arrêté DGH n° 2026-014 du 1er août »' },
       { name: 'effectiveFrom', label: 'En vigueur depuis', type: 'date', required: true },
       { name: 'effectiveTo', label: 'Jusqu’au', type: 'date' },
-      { name: 'notes', label: 'Décomposition indicative', type: 'text', help: 'Champ libre — aucune contrainte ne le vérifie ni ne s’en sert' },
+      { name: 'notes', label: 'Décomposition indicative', type: 'text', help: 'Champ libre, aucune contrainte ne le vérifie ni ne s’en sert' },
     ],
   },
 
@@ -348,13 +504,13 @@ export const REFERENTIALS: ReferentialSpec[] = [
     caution:
       'La nature détermine le traitement : un poste DIRECT s’impute à une opération, un poste INDIRECT s’absorbe par un taux et exige un regroupement.',
     fields: [
-      { name: 'code', label: 'Code', type: 'string', required: true },
-      { name: 'label', label: 'Libellé', type: 'string', required: true },
-      { name: 'category', label: 'Catégorie', type: 'string', required: true },
-      { name: 'nature', label: 'Nature', type: 'enum', required: true, values: values(CostNature) },
-      { name: 'variability', label: 'Variabilité', type: 'enum', required: true, values: values(CostVariability) },
-      { name: 'allocationBasis', label: 'Assiette d’absorption', type: 'enum', values: values(AllocationBasis), help: 'Exigée pour un poste INDIRECT' },
-      { name: 'displayOrder', label: 'Ordre d’affichage', type: 'integer' },
+      { name: 'code', label: 'Code', type: 'string', required: true, help: 'Sans espace ni accent, ex. TRANSPORT, DOUANE, FRAIS_ROUTE' },
+      { name: 'label', label: 'Libellé', type: 'string', required: true, help: 'Le nom lu à l’écran, ex. « Transport routier », « Droits de douane »' },
+      { name: 'category', label: 'Catégorie', type: 'string', required: true, help: 'Regroupement libre pour la lecture, ex. « Logistique », « Douane », « Financier »' },
+      { name: 'nature', label: 'Nature', type: 'enum', required: true, values: values(CostNature), valueLabels: FR.CostNature },
+      { name: 'variability', label: 'Variabilité', type: 'enum', required: true, values: values(CostVariability), valueLabels: FR.CostVariability },
+      { name: 'allocationBasis', label: 'Assiette d’absorption', type: 'enum', values: values(AllocationBasis), valueLabels: FR.AllocationBasis, help: 'Exigée pour un poste INDIRECT' },
+      { name: 'displayOrder', label: 'Ordre d’affichage', type: 'integer', help: 'Rang dans les listes et les écrans : 10 apparaît avant 20. Numérotez de dix en dix pour pouvoir intercaler plus tard sans tout renuméroter. N’a aucun effet sur les calculs.' },
       { name: 'isActive', label: 'Actif', type: 'boolean' },
     ],
   },
@@ -374,7 +530,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.FINANCE_CFO, UserRole.LOGISTICS_COORD],
     identity: ['carrierId', 'transportMode', 'productId', 'originSiteId', 'destinationSiteId'],
     caution:
-      'Le tarif est OPPOSÉ à l’affectation des moyens : tout écart au-delà de la tolérance exige un motif écrit, refusé par la base à défaut. Laisser la tolérance à 0 est la règle stricte retenue par la direction — un franc d’écart porté sur dix millions de litres crée un préjudice.',
+      'Le tarif est OPPOSÉ à l’affectation des moyens : tout écart au-delà de la tolérance exige un motif écrit, sans quoi la saisie est refusée. Laisser la tolérance à 0 est la règle stricte retenue par la direction : un franc d’écart porté sur dix millions de litres crée un préjudice.',
     fields: [
       {
         name: 'carrierId',
@@ -389,7 +545,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         name: 'transportMode',
         label: 'Mode de transport',
         type: 'enum',
-        values: TRANSPORT,
+        values: TRANSPORT, valueLabels: FR.TransportMode,
         help: 'Vide = tous les modes de ce transporteur',
       },
       {
@@ -414,14 +570,14 @@ export const REFERENTIALS: ReferentialSpec[] = [
         type: 'reference',
         refTable: 'sites',
         refKey: 'code',
-        help: 'Vide = toutes destinations. Un tarif se négocie pour un TRAJET — « Abidjan → Man » et « San Pédro → Man » n’ont pas le même prix.',
+        help: 'Vide = toutes destinations. Un tarif se négocie pour un TRAJET : « Abidjan → Man » et « San Pédro → Man » n’ont pas le même prix.',
       },
       {
         name: 'basis',
         label: 'Base',
         type: 'enum',
         required: true,
-        values: values(CostBasis),
+        values: values(CostBasis), valueLabels: FR.CostBasis,
         help: 'PER_UNIT = au litre transporté · FIXED = forfait par rotation',
       },
       { name: 'amount', label: 'Montant', type: 'number', required: true },
@@ -429,7 +585,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         name: 'uom',
         label: 'Unité',
         type: 'enum',
-        values: values(UnitOfMeasure),
+        values: values(UnitOfMeasure), valueLabels: FR.UnitOfMeasure,
         help: 'Obligatoire si la base est au litre : « 12 » ne dit pas s’il s’agit de 12 par litre ou par m³',
       },
       { name: 'currencyCode', label: 'Devise', type: 'reference', refTable: 'currencies', refKey: 'code', required: true },
@@ -460,24 +616,24 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.CCOO, UserRole.FINANCE_CFO, UserRole.ASSISTANT_DG],
     identity: ['code'],
     caution:
-      'Le PLAFOND DE CRÉDIT est opposé à l’approbation des affaires : le relever ouvre l’engagement, le baisser peut bloquer des affaires en cours. Les DÉLAIS de paiement et de règlement fournisseur commandent le coût de portage — les allonger dégrade la marge de toutes les affaires du tiers.',
+      'Le PLAFOND DE CRÉDIT est opposé à l’approbation des affaires : le relever ouvre l’engagement, le baisser peut bloquer des affaires en cours. Les DÉLAIS de paiement et de règlement fournisseur commandent le coût de portage : les allonger dégrade la marge de toutes les affaires du tiers.',
     fields: [
-      { name: 'code', label: 'Code', type: 'string', required: true },
+      { name: 'code', label: 'Code', type: 'string', required: true, help: 'Votre référence interne du tiers, ex. CLI_TOTAL_CI, FRN_SIR, TRP_SOTRA' },
       { name: 'legalName', label: 'Raison sociale', type: 'string', required: true },
       {
         name: 'type',
         label: 'Nature',
         type: 'enum',
         required: true,
-        values: values(PartnerType),
-        help: 'Un fret ne se rattache qu’à un TRANSPORTEUR, un prix d’achat qu’à un FOURNISSEUR : la base le vérifie',
+        values: values(PartnerType), valueLabels: FR.PartnerType,
+        help: 'Un fret ne se rattache qu’à un TRANSPORTEUR, un prix d’achat qu’à un FOURNISSEUR, et c’est vérifié',
       },
-      { name: 'countryCode', label: 'Pays (ISO 2)', type: 'string', required: true },
+      { name: 'countryCode', label: 'Pays', type: 'string', required: true, help: 'Code à deux lettres, ex. CI pour la Côte d’Ivoire, BF, ML, SN' },
       {
         name: 'segment',
         label: 'Segment',
         type: 'enum',
-        values: SEGMENTS,
+        values: SEGMENTS, valueLabels: FR.CommercialSegment,
         help: 'Vide = le segment se décide affaire par affaire',
       },
       { name: 'taxpayerAccountNumber', label: 'Compte contribuable', type: 'string' },
@@ -494,14 +650,14 @@ export const REFERENTIALS: ReferentialSpec[] = [
         name: 'creditLimit',
         label: 'Plafond de crédit',
         type: 'number',
-        help: 'OPPOSÉ à l’approbation. À 0, le client n’est pas encadré — ce n’est pas au verrou d’en décider.',
+        help: 'OPPOSÉ à l’approbation. À 0, le client n’est pas encadré, ce n’est pas au verrou d’en décider.',
       },
-      { name: 'creditLimitCurrencyCode', label: 'Devise du plafond', type: 'reference', refTable: 'currencies', refKey: 'code', required: true, help: 'Se choisit — le pivot sert à comparer, il n’est la monnaie de personne' },
+      { name: 'creditLimitCurrencyCode', label: 'Devise du plafond', type: 'reference', refTable: 'currencies', refKey: 'code', required: true, help: 'Se choisit. Le pivot sert à comparer, il n’est la monnaie de personne' },
       {
         name: 'creditStatus',
         label: 'Statut de crédit',
         type: 'enum',
-        values: values(CreditStatus),
+        values: values(CreditStatus), valueLabels: FR.CreditStatus,
       },
       {
         name: 'paymentTermsDays',
@@ -533,7 +689,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.CCOO, UserRole.FINANCE_CFO],
     identity: ['reference'],
     caution:
-      'Les conditions saisies ici sont HÉRITÉES PAR DÉFAUT par les affaires rattachées : le délai de paiement entre dans le coût de portage de chacune. Les modifier ne change PAS les affaires déjà chiffrées — leur marge a été calculée sur les conditions du moment, et la réécrire après coup effacerait ce sur quoi l’approbation a porté.',
+      'Les conditions saisies ici sont HÉRITÉES PAR DÉFAUT par les affaires rattachées : le délai de paiement entre dans le coût de portage de chacune. Les modifier ne change PAS les affaires déjà chiffrées, leur marge a été calculée sur les conditions du moment, et la réécrire après coup effacerait ce sur quoi l’approbation a porté.',
     fields: [
       { name: 'reference', label: 'Référence', type: 'string', required: true },
       {
@@ -545,13 +701,13 @@ export const REFERENTIALS: ReferentialSpec[] = [
         required: true,
       },
       { name: 'title', label: 'Intitulé', type: 'string', required: true },
-      { name: 'status', label: 'Statut', type: 'enum', values: values(ContractStatus) },
+      { name: 'status', label: 'Statut', type: 'enum', values: values(ContractStatus), valueLabels: FR.ContractStatus },
       {
         name: 'segment',
         label: 'Segment',
         type: 'enum',
         required: true,
-        values: SEGMENTS,
+        values: SEGMENTS, valueLabels: FR.CommercialSegment,
       },
       {
         name: 'paymentTermsDays',
@@ -566,7 +722,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         type: 'number',
         help: 'Indicatif : il n’est opposé à rien aujourd’hui',
       },
-      { name: 'volumeUom', label: 'Unité du volume', type: 'enum', values: values(UnitOfMeasure) },
+      { name: 'volumeUom', label: 'Unité du volume', type: 'enum', values: values(UnitOfMeasure), valueLabels: FR.UnitOfMeasure },
       { name: 'startDate', label: 'Début', type: 'date', required: true },
       { name: 'endDate', label: 'Fin', type: 'date' },
       { name: 'notes', label: 'Notes', type: 'text' },
@@ -586,7 +742,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.CCOO, UserRole.FINANCE_CFO],
     identity: ['supplierId', 'productId', 'currencyCode', 'uom'],
     caution:
-      'Un prix saisi ici n’est PAS opposable tant que le DG ne l’a pas validé — la validation est un acte distinct, réservé au DG et vérifié en base. Un prix validé devient IMMUABLE : il a servi à chiffrer des affaires, et le réécrire changerait leur marge après coup. Pour corriger, publiez une nouvelle ligne à une autre date.',
+      'Un prix saisi ici n’est PAS opposable tant que le DG ne l’a pas validé : la validation est un acte distinct, réservé au DG et vérifié automatiquement. Un prix validé devient IMMUABLE : il a servi à chiffrer des affaires, et le réécrire changerait leur marge après coup. Pour corriger, publiez une nouvelle ligne à une autre date.',
     fields: [
       {
         name: 'supplierId',
@@ -606,7 +762,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
       },
       { name: 'unitPrice', label: 'Prix unitaire', type: 'number', required: true },
       { name: 'currencyCode', label: 'Devise', type: 'reference', refTable: 'currencies', refKey: 'code', required: true },
-      { name: 'uom', label: 'Unité', type: 'enum', required: true, values: values(UnitOfMeasure) },
+      { name: 'uom', label: 'Unité', type: 'enum', required: true, values: values(UnitOfMeasure), valueLabels: FR.UnitOfMeasure },
       {
         name: 'pricingMethod',
         label: 'Méthode de prix',
@@ -638,7 +794,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.CCOO, UserRole.LOGISTICS_COORD],
     identity: ['registration'],
     caution:
-      'La CAPACITÉ et les PRODUITS AUTORISÉS sont opposés à l’affectation : une opération dépassant la capacité, ou portant un produit non autorisé, est refusée. Le statut de conformité, lui, ne se saisit pas — il se déduit des pièces à échéance.',
+      'La CAPACITÉ et les PRODUITS AUTORISÉS sont opposés à l’affectation : une opération dépassant la capacité, ou portant un produit non autorisé, est refusée. Le statut de conformité, lui, ne se saisit pas : il se déduit des pièces à échéance.',
     fields: [
       { name: 'registration', label: 'Immatriculation', type: 'string', required: true },
       {
@@ -649,7 +805,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         refKey: 'code',
         help: 'Vide = véhicule en propre',
       },
-      { name: 'type', label: 'Type', type: 'enum', required: true, values: values(VehicleType) },
+      { name: 'type', label: 'Type', type: 'enum', required: true, values: values(VehicleType), valueLabels: FR.VehicleType },
       { name: 'brandModel', label: 'Marque et modèle', type: 'string' },
       { name: 'year', label: 'Année', type: 'integer' },
       {
@@ -664,8 +820,8 @@ export const REFERENTIALS: ReferentialSpec[] = [
         label: 'Unité de la capacité',
         type: 'enum',
         required: true,
-        values: values(UnitOfMeasure),
-        help: 'La comparaison ne se fait que si l’opération est dans la même unité — comparer des litres à des tonnes serait pire que ne rien comparer',
+        values: values(UnitOfMeasure), valueLabels: FR.UnitOfMeasure,
+        help: 'La comparaison ne se fait que si l’opération est dans la même unité : comparer des litres à des tonnes serait pire que ne rien comparer',
       },
       { name: 'compartmentCount', label: 'Nombre de compartiments', type: 'integer' },
       {
@@ -721,23 +877,31 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.FINANCE_CFO],
     identity: ['code'],
     caution:
-      'L’assiette d’absorption est un VOLUME budgété (§ 14.2) : « au prorata du chiffre d’affaires » est REFUSÉ sur un pool actif, en base comme au calcul. Le volume est ce que l’entreprise pilote ; le prix suit les publications DGH et le change — une assiette en valeur ferait bouger la charge fixe unitaire à chaque publication, sans qu’aucune charge n’ait changé. Employer PER_VOLUME, ou PER_OPERATION pour un montant par rotation.',
+      'L’assiette d’absorption est un VOLUME budgété : « au prorata du chiffre d’affaires » est REFUSÉ sur un pool actif, à la saisie comme au calcul. Le volume est ce que l’entreprise pilote ; le prix suit les publications DGH et le change : une assiette en valeur ferait bouger la charge fixe unitaire à chaque publication, sans qu’aucune charge n’ait changé. Seule l’imputation au volume reste ouverte : l’assiette vient de la prévision de vente, qui prévoit des volumes et non des rotations.',
     fields: [
-      { name: 'code', label: 'Code', type: 'string', required: true },
-      { name: 'label', label: 'Libellé', type: 'string', required: true },
+      { name: 'code', label: 'Code', type: 'string', required: true, help: 'Sans espace ni accent, ex. ADM, FIN, HSE, INFO' },
+      { name: 'label', label: 'Libellé', type: 'string', required: true, help: 'Le nom lu à l’écran, ex. « Administration », « Structure HSE »' },
       {
         name: 'allocationBasis',
         label: 'Base d’imputation',
         type: 'enum',
         required: true,
-        values: values(AllocationBasis),
+        values: values(AllocationBasis), valueLabels: FR.AllocationBasis,
       },
       {
         name: 'segments',
         label: 'Segments concernés',
         type: 'enumList',
-        values: SEGMENTS,
+        values: SEGMENTS, valueLabels: FR.CommercialSegment,
         help: 'Vide = tous les segments',
+      },
+      {
+        name: 'variability',
+        label: 'Nature des charges',
+        type: 'enum',
+        required: true,
+        values: values(CostVariability), valueLabels: FR.CostVariability,
+        help: 'FIXED : le budget de ce pool entre dans les charges fixes du point mort. VARIABLE : il s’absorbe au litre mais reste hors du point mort',
       },
       { name: 'currencyCode', label: 'Devise', type: 'reference', refTable: 'currencies', refKey: 'code', required: true },
       { name: 'isActive', label: 'Actif', type: 'boolean' },
@@ -749,13 +913,13 @@ export const REFERENTIALS: ReferentialSpec[] = [
   // =========================================================================
   {
     key: 'absorption-rates',
-    label: 'Taux d’absorption',
+    label: 'Budget des pools de charges',
     model: 'absorptionRate',
     nature: 'mutable',
     writeRoles: [UserRole.DG, UserRole.FINANCE_CFO],
-    identity: ['costPoolId', 'fiscalYear'],
+    identity: ['costPoolId', 'fiscalYearId'],
     caution:
-      'Le TAUX est CALCULÉ — budget ÷ assiette — et non saisi : le faire saisir reviendrait à demander une division à la main, puis à la refuser sur une décimale. L’assiette est BUDGÉTÉE, jamais réalisée : une assiette réalisée ferait monter le taux quand l’activité baisse, et l’absorption s’emballerait.',
+      'UNE SEULE VALEUR SE SAISIT ICI : le budget annuel du pool. Tout le reste en découle. L’assiette est la somme de vos PRÉVISIONS DE VENTE BUDGÉTÉES sur les segments que le pool couvre. La saisir une seconde fois garantissait qu’un jour les deux divergeraient. Le taux est la division des deux. Et si le pool est de nature FIXE, ce même budget forme les charges fixes du point mort : une saisie, deux usages, aucun écart possible. Conséquence : la prévision de vente se saisit AVANT le budget du pool, et l’ordre inverse est refusé.',
     fields: [
       {
         name: 'costPoolId',
@@ -765,27 +929,32 @@ export const REFERENTIALS: ReferentialSpec[] = [
         refKey: 'code',
         required: true,
       },
-      { name: 'fiscalYear', label: 'Exercice', type: 'integer', required: true },
+      {
+        name: 'fiscalYearId',
+        label: 'Exercice',
+        type: 'reference',
+        refTable: 'fiscal-years',
+        refKey: 'year',
+        required: true,
+      },
       {
         name: 'budgetedAmount',
         label: 'Budget de l’exercice',
         type: 'number',
         required: true,
+        help: 'Ce que ce regroupement de charges coûtera sur l’exercice, dans la devise du pool',
       },
+      // ⚠️ `budgetedBase` et `baseUom` NE FIGURENT PLUS ICI.
+      //    Elles sont calculées par la base à partir de la prévision de vente.
+      //    Les rouvrir à la saisie recréerait la double écriture qu’on vient de
+      //    supprimer — et le jour où les deux divergeraient, la charge au litre
+      //    resterait calée sur un volume que plus personne n’attend.
       {
-        name: 'budgetedBase',
-        label: 'Assiette budgétée',
-        type: 'number',
-        required: true,
-        help: 'Volume, nombre d’opérations ou chiffre d’affaires PRÉVU, selon la base du pool',
+        name: 'version',
+        label: 'Version',
+        type: 'version',
+        help: 'Une révision crée une nouvelle ligne, jamais un écrasement',
       },
-      {
-        name: 'baseUom',
-        label: 'Unité de l’assiette',
-        type: 'enum',
-        values: values(UnitOfMeasure),
-      },
-      { name: 'version', label: 'Version', type: 'integer' },
       { name: 'isCurrent', label: 'Version courante', type: 'boolean' },
       { name: 'notes', label: 'Notes', type: 'text' },
     ],
@@ -802,7 +971,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.FINANCE_CFO],
     identity: ['reference'],
     caution:
-      'Une garantie ACTIVE et non échue DÉDUIT l’exposition crédit du client, donc ouvre son plafond. Son montant en devise pivot est CALCULÉ au cours du jour — le laisser saisir permettrait d’ouvrir un plafond en écrivant un nombre, sans qu’aucune banque n’ait rien garanti.',
+      'Une garantie ACTIVE et non échue DÉDUIT l’exposition crédit du client, donc ouvre son plafond. Son montant en devise pivot est CALCULÉ au cours du jour : le laisser saisir permettrait d’ouvrir un plafond en écrivant un nombre, sans qu’aucune banque n’ait rien garanti.',
     fields: [
       { name: 'reference', label: 'Référence', type: 'string', required: true },
       {
@@ -813,12 +982,12 @@ export const REFERENTIALS: ReferentialSpec[] = [
         refKey: 'code',
         required: true,
       },
-      { name: 'type', label: 'Type', type: 'enum', required: true, values: values(GuaranteeType) },
+      { name: 'type', label: 'Type', type: 'enum', required: true, values: values(GuaranteeType), valueLabels: FR.GuaranteeType },
       {
         name: 'status',
         label: 'Statut',
         type: 'enum',
-        values: values(GuaranteeStatus),
+        values: values(GuaranteeStatus), valueLabels: FR.GuaranteeStatus,
         help: 'Seule une garantie ACTIVE déduit l’exposition',
       },
       { name: 'amount', label: 'Montant', type: 'number', required: true },
@@ -829,7 +998,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         name: 'expiryDate',
         label: 'Échéance',
         type: 'date',
-        help: 'Une garantie échue cesse de déduire l’exposition — sans qu’aucune tâche n’ait à tourner',
+        help: 'Une garantie échue cesse de déduire l’exposition, sans qu’aucune tâche n’ait à tourner',
       },
     ],
   },
@@ -848,30 +1017,30 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.CCOO, UserRole.LOGISTICS_COORD],
     identity: ['code'],
     caution:
-      'Les consignes d’accès et de sécurité saisies ici sont celles que l’agent lira sur sa tablette avant d’entrer. Un même site servant plusieurs clients, les corriger ici les corrige pour tous — c’est précisément l’intérêt.',
+      'Les consignes d’accès et de sécurité saisies ici sont celles que l’agent lira sur sa tablette avant d’entrer. Un même site servant plusieurs clients, les corriger ici les corrige pour tous, c’est précisément l’intérêt.',
     fields: [
-      { name: 'code', label: 'Code', type: 'string', required: true },
-      { name: 'name', label: 'Nom du site', type: 'string', required: true },
+      { name: 'code', label: 'Code', type: 'string', required: true, help: 'Sans espace ni accent, ex. DEPOT_VRIDI, STATION_YOPOUGON, SIR_ABIDJAN' },
+      { name: 'name', label: 'Nom du site', type: 'string', required: true, help: 'Le nom lu à l’écran, ex. « Dépôt de Vridi », « Station Yopougon Ananeraie »' },
       {
         name: 'usages',
         label: 'Usages',
         type: 'enumList',
         required: true,
-        values: values(SiteUsage),
-        help: 'CHARGEMENT et/ou LIVRAISON — vous en décidez, site par site. Rien n’est déduit de la nature du lieu : une station-service est un lieu de chargement dès lors qu’on y prend du produit. Un lieu qui fait les deux porte les DEUX ; le créer deux fois périmerait l’une des copies.',
+        values: values(SiteUsage), valueLabels: FR.SiteUsage,
+        help: 'Approvisionnement, livraison, ou les deux : vous en décidez site par site. Rien n’est déduit de la nature du lieu, une station-service est un lieu d’approvisionnement dès lors qu’on y prend du produit. Un lieu qui fait les deux porte les DEUX ; le créer deux fois périmerait l’une des copies.',
       },
-      { name: 'addressLine', label: 'Adresse', type: 'string' },
-      { name: 'city', label: 'Ville', type: 'string' },
-      { name: 'countryCode', label: 'Pays (ISO 2)', type: 'string', required: true },
-      { name: 'latitude', label: 'Latitude', type: 'number' },
-      { name: 'longitude', label: 'Longitude', type: 'number' },
+      { name: 'addressLine', label: 'Adresse', type: 'string', help: 'ex. « Zone portuaire de Vridi, boulevard de Petit Bassam »' },
+      { name: 'city', label: 'Ville', type: 'string', help: 'ex. Abidjan, San Pédro, Bouaké' },
+      { name: 'countryCode', label: 'Pays', type: 'string', required: true, help: 'Code à deux lettres, ex. CI pour la Côte d’Ivoire, BF, ML, SN' },
+      { name: 'latitude', label: 'Latitude', type: 'number', help: 'En degrés décimaux, ex. 5,2540 pour Abidjan' },
+      { name: 'longitude', label: 'Longitude', type: 'number', help: 'En degrés décimaux, ex. -3,9860 pour Abidjan' },
       {
         name: 'accessInstructions',
         label: 'Consignes d’accès',
         type: 'text',
         help: 'Comment entrer : poste de garde, itinéraire, restrictions de gabarit',
       },
-      { name: 'openingHours', label: 'Horaires d’ouverture', type: 'string' },
+      { name: 'openingHours', label: 'Horaires d’ouverture', type: 'string', help: 'ex. « lundi au samedi 6 h à 18 h, fermé les jours fériés »' },
       {
         name: 'safetyInstructions',
         label: 'Consignes de sécurité',
@@ -882,7 +1051,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         name: 'defaultHseRiskLevel',
         label: 'Niveau de risque par défaut',
         type: 'enum',
-        values: values(HseRiskLevel),
+        values: values(HseRiskLevel), valueLabels: FR.HseRiskLevel,
         help: 'Sert à sélectionner la checklist HSE applicable aux opérations sur ce site',
       },
       { name: 'isActive', label: 'Actif', type: 'boolean' },
@@ -900,10 +1069,10 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.CCOO, UserRole.LOGISTICS_COORD],
     identity: ['code'],
     caution:
-      'Une nature marquée bloquante par défaut le sera sur chaque site qui l’adopte — le caractère bloquant reste réglable site par site : un badge d’accès est indispensable ici, une simple recommandation ailleurs.',
+      'Une nature marquée bloquante par défaut le sera sur chaque site qui l’adopte. Le caractère bloquant reste réglable site par site : un badge d’accès est indispensable ici, une simple recommandation ailleurs.',
     fields: [
-      { name: 'code', label: 'Code', type: 'string', required: true },
-      { name: 'label', label: 'Libellé', type: 'string', required: true },
+      { name: 'code', label: 'Code', type: 'string', required: true, help: 'Sans espace ni accent, ex. BADGE_ACCES, EPI_COMPLET, RENDEZ_VOUS' },
+      { name: 'label', label: 'Libellé', type: 'string', required: true, help: 'Ce que l’agent lira sur sa tablette, ex. « Badge d’accès du dépôt »' },
       { name: 'description', label: 'Précision', type: 'text' },
       {
         name: 'defaultBlocking',
@@ -911,7 +1080,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         type: 'boolean',
         help: 'Se présenter sans y satisfaire, c’est repartir à vide',
       },
-      { name: 'displayOrder', label: 'Ordre d’affichage', type: 'integer' },
+      { name: 'displayOrder', label: 'Ordre d’affichage', type: 'integer', help: 'Rang dans les listes et les écrans : 10 apparaît avant 20. Numérotez de dix en dix pour pouvoir intercaler plus tard sans tout renuméroter. N’a aucun effet sur les calculs.' },
       { name: 'isActive', label: 'Actif', type: 'boolean' },
     ],
   },
@@ -921,17 +1090,17 @@ export const REFERENTIALS: ReferentialSpec[] = [
   // =========================================================================
   {
     key: 'site-requirements',
-    label: 'Exigences des sites de livraison',
+    label: 'Exigences des sites',
     model: 'siteRequirement',
     nature: 'mutable',
     writeRoles: [UserRole.DG, UserRole.CCOO, UserRole.LOGISTICS_COORD],
     identity: ['siteId', 'typeId'],
     caution:
-      'C’est ce que le coordinateur lit en préparant l’opération, et l’agent avant d’entrer. Une exigence bloquante non satisfaite se solde par un camion qui repart à vide — le produit est déjà payé.',
+      'C’est ce que le coordinateur lit en préparant l’opération, et l’agent avant d’entrer. Une exigence bloquante non satisfaite se solde par un camion qui repart à vide : le produit est déjà payé.',
     fields: [
       {
         name: 'siteId',
-        label: 'Site de livraison',
+        label: 'Site',
         type: 'reference',
         refTable: 'sites',
         refKey: 'code',
@@ -973,24 +1142,24 @@ export const REFERENTIALS: ReferentialSpec[] = [
     caution:
       'Une opération sans type ne reçoit AUCUN contrôle HSE : le verrou serait vide de contenu et laisserait tout passer. La base refuse de faire avancer une opération non typée.',
     fields: [
-      { name: 'code', label: 'Code', type: 'string', required: true },
-      { name: 'label', label: 'Libellé', type: 'string', required: true },
+      { name: 'code', label: 'Code', type: 'string', required: true, help: 'Sans espace ni accent, ex. CHARGEMENT_DEPOT, TRANSPORT_ROUTE, SOUTAGE' },
+      { name: 'label', label: 'Libellé', type: 'string', required: true, help: 'Le nom lu à l’écran, ex. « Chargement au dépôt », « Transport routier »' },
       { name: 'description', label: 'Précision opérationnelle', type: 'text' },
       {
         name: 'segments',
         label: 'Segments concernés',
         type: 'enumList',
-        values: SEGMENTS,
+        values: SEGMENTS, valueLabels: FR.CommercialSegment,
         help: 'Vide = tous les segments',
       },
       {
         name: 'defaultRiskLevel',
         label: 'Niveau de risque par défaut',
         type: 'enum',
-        values: values(HseRiskLevel),
-        help: 'Proposé à la création, et modifiable — une aide à la saisie, pas une contrainte',
+        values: values(HseRiskLevel), valueLabels: FR.HseRiskLevel,
+        help: 'Proposé à la création et modifiable. Une aide à la saisie, pas une contrainte',
       },
-      { name: 'displayOrder', label: 'Ordre d’affichage', type: 'integer' },
+      { name: 'displayOrder', label: 'Ordre d’affichage', type: 'integer', help: 'Rang dans les listes et les écrans : 10 apparaît avant 20. Numérotez de dix en dix pour pouvoir intercaler plus tard sans tout renuméroter. N’a aucun effet sur les calculs.' },
       { name: 'isActive', label: 'Actif', type: 'boolean' },
     ],
   },
@@ -1008,8 +1177,8 @@ export const REFERENTIALS: ReferentialSpec[] = [
     caution:
       'La version du modèle est FIGÉE sur chaque opération au moment du contrôle : une checklist révisée ensuite ne réécrit jamais ce qui a été effectivement vérifié sur le terrain.',
     fields: [
-      { name: 'code', label: 'Code', type: 'string', required: true },
-      { name: 'label', label: 'Libellé', type: 'string', required: true },
+      { name: 'code', label: 'Code', type: 'string', required: true, help: 'Sans espace ni accent, ex. HSE_CHARGEMENT, HSE_ROUTE, HSE_SOUTAGE' },
+      { name: 'label', label: 'Libellé', type: 'string', required: true, help: 'Le nom lu à l’écran, ex. « Contrôles avant chargement »' },
       {
         name: 'operationTypes',
         label: 'Types d’opération couverts',
@@ -1023,24 +1192,24 @@ export const REFERENTIALS: ReferentialSpec[] = [
         name: 'applicableSegments',
         label: 'Segments',
         type: 'enumList',
-        values: SEGMENTS,
+        values: SEGMENTS, valueLabels: FR.CommercialSegment,
         help: 'Affinage. Vide = tous',
       },
       {
         name: 'applicableTransportModes',
         label: 'Modes de transport',
         type: 'enumList',
-        values: TRANSPORT,
+        values: TRANSPORT, valueLabels: FR.TransportMode,
         help: 'Affinage. Vide = tous',
       },
       {
         name: 'applicableRiskLevels',
         label: 'Niveaux de risque',
         type: 'enumList',
-        values: values(HseRiskLevel),
+        values: values(HseRiskLevel), valueLabels: FR.HseRiskLevel,
         help: 'Affinage. Vide = tous',
       },
-      { name: 'version', label: 'Version', type: 'integer' },
+      { name: 'version', label: 'Version', type: 'version' },
       { name: 'isCurrent', label: 'Version courante', type: 'boolean' },
       { name: 'isActive', label: 'Actif', type: 'boolean' },
     ],
@@ -1070,15 +1239,15 @@ export const REFERENTIALS: ReferentialSpec[] = [
         refKey: 'code',
         required: true,
       },
-      { name: 'code', label: 'Code', type: 'string', required: true },
-      { name: 'label', label: 'Intitulé du contrôle', type: 'string', required: true },
+      { name: 'code', label: 'Code', type: 'string', required: true, help: 'Sans espace ni accent, ex. EXTINCTEUR_PRESENT, MISE_A_LA_TERRE, EPI_PORTES' },
+      { name: 'label', label: 'Intitulé du contrôle', type: 'string', required: true, help: 'La question posée à l’agent, ex. « L’extincteur est-il présent et plombé ? »' },
       { name: 'guidance', label: 'Précision affichée sur la tablette', type: 'text' },
       {
         name: 'phase',
         label: 'Étape',
         type: 'enum',
         required: true,
-        values: values(OperationPhase),
+        values: values(OperationPhase), valueLabels: FR.OperationPhase,
         help: 'Étape de l’opération à laquelle ce contrôle se fait',
       },
       {
@@ -1086,20 +1255,20 @@ export const REFERENTIALS: ReferentialSpec[] = [
         label: 'Niveau',
         type: 'enum',
         required: true,
-        values: values(HseControlLevel),
+        values: values(HseControlLevel), valueLabels: FR.HseControlLevel,
         help: 'BLOCKING empêche le chargement tant qu’il n’est pas satisfait',
       },
       {
         name: 'photoPolicy',
         label: 'Régime photographique',
         type: 'enum',
-        values: values(HsePhotoPolicy),
+        values: values(HsePhotoPolicy), valueLabels: FR.HsePhotoPolicy,
         help: 'INTERDITE en zone ATEX ou chez un client qui la proscrit · FACULTATIVE la propose · EXIGÉE empêche l’enregistrement du point sans photo',
       },
       { name: 'requiresValue', label: 'Valeur exigée', type: 'boolean' },
       { name: 'valueLabel', label: 'Libellé de la valeur', type: 'string' },
       { name: 'requiresSignature', label: 'Signature exigée', type: 'boolean' },
-      { name: 'displayOrder', label: 'Ordre d’affichage', type: 'integer' },
+      { name: 'displayOrder', label: 'Ordre d’affichage', type: 'integer', help: 'Rang dans les listes et les écrans : 10 apparaît avant 20. Numérotez de dix en dix pour pouvoir intercaler plus tard sans tout renuméroter. N’a aucun effet sur les calculs.' },
       { name: 'isActive', label: 'Actif', type: 'boolean' },
     ],
   },
@@ -1121,7 +1290,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
     effectiveFrom: 'effectiveFrom',
     effectiveTo: 'effectiveTo',
     caution:
-      'La valeur peut être exprimée AU LITRE (proportionnelle au volume) ou en FORFAIT (montant fixe pour l’affaire) : le système ramène l’une et l’autre au litre. Le barème appliqué est figé au moment du chiffrage — une grille révisée ne requalifie jamais un écart déjà justifié.',
+      'La valeur peut être exprimée AU LITRE (proportionnelle au volume) ou en FORFAIT (montant fixe pour l’affaire) : le système ramène l’une et l’autre au litre. Le barème appliqué est figé au moment du chiffrage : une grille révisée ne requalifie jamais un écart déjà justifié.',
     fields: [
       {
         name: 'costPostId',
@@ -1136,7 +1305,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         label: 'Base',
         type: 'enum',
         required: true,
-        values: values(CostBasis),
+        values: values(CostBasis), valueLabels: FR.CostBasis,
         help: 'PER_UNIT = au litre, proportionnel au volume · FIXED = forfait pour l’affaire',
       },
       { name: 'amount', label: 'Valeur', type: 'number', required: true, decimals: 4 },
@@ -1144,8 +1313,8 @@ export const REFERENTIALS: ReferentialSpec[] = [
         name: 'uom',
         label: 'Unité de référence',
         type: 'enum',
-        values: UOMS,
-        help: 'Obligatoire si la base est PER_UNIT — une valeur au litre sans unité n’est pas interprétable',
+        values: UOMS, valueLabels: FR.UnitOfMeasure,
+        help: 'Obligatoire si la base est au litre : une valeur au litre sans unité n’est pas interprétable',
       },
       {
         name: 'currencyCode',
@@ -1155,12 +1324,12 @@ export const REFERENTIALS: ReferentialSpec[] = [
         refKey: 'code',
         required: true,
       },
-      { name: 'segment', label: 'Segment', type: 'enum', values: SEGMENTS, help: 'Vide = tous' },
+      { name: 'segment', label: 'Segment', type: 'enum', values: SEGMENTS, valueLabels: FR.CommercialSegment, help: 'Vide = tous' },
       {
         name: 'transportMode',
         label: 'Mode de transport',
         type: 'enum',
-        values: TRANSPORT,
+        values: TRANSPORT, valueLabels: FR.TransportMode,
         help: 'Vide = tous',
       },
       { name: 'productId', label: 'Produit', type: 'reference', refTable: 'products', refKey: 'code' },
@@ -1191,12 +1360,41 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.IT_ADMIN, UserRole.FINANCE_CFO],
     identity: ['key'],
     caution:
-      'Ces valeurs gouvernent des calculs et des règles de sécurité : taux de financement du portage, base annuelle du portage, délai d’alerte sur les pièces à échéance, exercice courant, verrouillage après échecs de connexion, rôles soumis au second facteur. Elles s’appliquent dans les trente secondes — SAUF les deux plafonds de débit (LOGIN_RATE_PER_MINUTE, API_RATE_PER_MINUTE), qui exigent un redémarrage de l’API. Lisez la description avant de modifier.',
+      'LA LISTE EST FERMÉE : ces réglages sont ceux que le système sait lire. En ajouter un n’a aucun effet, et l’onglet « Ce qui est enregistré » montre les vingt et un qui existent, avec leur valeur et ce à quoi chacun sert. Partez de là, bouton « Modifier », plutôt que de saisir une clé de mémoire. Ils gouvernent des calculs et des règles de sécurité, et s’appliquent dans les trente secondes, SAUF les deux plafonds de débit, qui exigent un redémarrage.',
     fields: [
-      { name: 'key', label: 'Clé', type: 'string', required: true },
-      { name: 'value', label: 'Valeur', type: 'string', required: true },
-      { name: 'valueType', label: 'Type', type: 'enum', required: true, values: ['string', 'number', 'boolean', 'json'] },
-      { name: 'description', label: 'Description', type: 'text', required: true },
+      // ⚠️ UNE LISTE, ET NON UNE SAISIE LIBRE.
+      //
+      //    La clé se tapait de mémoire. Une faute de frappe créait un réglage
+      //    que rien ne lit : il s'affichait comme les autres, se modifiait
+      //    comme les autres, et n'avait aucun effet. Le seul symptôme était
+      //    que la valeur « ne servait à rien », ce qui ne mène à rien.
+      //
+      //    La liste vise le référentiel lui-même : elle propose donc les clés
+      //    RÉELLEMENT en place, celles que le code interroge.
+      {
+        name: 'key',
+        label: 'Réglage',
+        type: 'reference',
+        refTable: 'settings',
+        refKey: 'key',
+        required: true,
+        help: 'Les réglages que le système sait lire. En créer un autre resterait sans effet',
+      },
+      {
+        name: 'value',
+        label: 'Valeur',
+        type: 'string',
+        required: true,
+        help: 'Selon le type : un nombre (18), un texte (XOF), oui/non (true ou false), une liste séparée par des virgules (DG,FINANCE_CFO)',
+      },
+      { name: 'valueType', label: 'Type', type: 'enum', required: true, values: ['string', 'number', 'boolean', 'json'], valueLabels: FR.TypeDeValeur },
+      {
+        name: 'description',
+        label: 'Description',
+        type: 'text',
+        required: true,
+        help: 'À quoi sert ce réglage et ce que sa modification entraîne. C’est ce texte qui sera lu par la personne suivante',
+      },
     ],
   },
 
@@ -1214,10 +1412,10 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.FINANCE_CFO],
     identity: ['year'],
     caution:
-      'UN SEUL exercice peut être courant : la base refuse le second au lieu de le corriger en silence. Clore un exercice FIGE ses valeurs budgétaires — c’est ce qui garantit qu’une affaire de 2026 reste évaluée aux conditions de 2026, et non à celles renégociées depuis.',
+      'UN SEUL exercice peut être courant : le second est refusé au lieu d’être corrigé en silence. Clore un exercice FIGE ses valeurs budgétaires, c’est ce qui garantit qu’une affaire de 2026 reste évaluée aux conditions de 2026, et non à celles renégociées depuis.',
     fields: [
       { name: 'year', label: 'Millésime', type: 'integer', required: true },
-      { name: 'label', label: 'Libellé', type: 'string', required: true },
+      { name: 'label', label: 'Libellé', type: 'string', required: true, help: 'Le nom lu à l’écran, ex. « Exercice 2026 » ou « Exercice août-décembre 2026 »' },
       { name: 'startsOn', label: 'Début', type: 'date', required: true },
       { name: 'endsOn', label: 'Fin', type: 'date', required: true },
       {
@@ -1225,7 +1423,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         label: 'État',
         type: 'enum',
         required: true,
-        values: values(FiscalYearStatus),
+        values: values(FiscalYearStatus), valueLabels: FR.FiscalYearStatus,
         help: 'PLANNED : budget en construction. OPEN : les valeurs s’appliquent. CLOSED : plus modifiable.',
       },
       { name: 'isCurrent', label: 'Exercice courant', type: 'boolean' },
@@ -1244,7 +1442,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.FINANCE_CFO],
     identity: ['fiscalYearId', 'version'],
     caution:
-      'Le coût de portage des affaires en dépend (§ 5.4). Tant qu’il n’est pas saisi pour l’exercice, le système emploie l’ancien paramètre global à titre PROVISOIRE et le signale — il ne devine pas vos conditions bancaires. La base de jours n’est pas neutre : 360 ou 365 déplacent le coût de portage de 1,4 %.',
+      'Le coût de portage des affaires en dépend. Tant qu’il n’est pas saisi pour l’exercice, le système emploie l’ancien paramètre global à titre PROVISOIRE et le signale : il ne devine pas vos conditions bancaires. La base de jours n’est pas neutre : 360 ou 365 déplacent le coût de portage de 1,4 %.',
     fields: [
       {
         name: 'fiscalYearId',
@@ -1271,62 +1469,30 @@ export const REFERENTIALS: ReferentialSpec[] = [
         name: 'source',
         label: 'Origine du taux',
         type: 'string',
-        help: 'Convention de découvert, lettre de crédit, moyenne pondérée — sans cette trace, le taux n’est ni contestable ni reproductible',
+        help: 'Convention de découvert, lettre de crédit, moyenne pondérée. Sans cette trace, le taux n’est ni contestable ni reproductible',
       },
-      { name: 'version', label: 'Version', type: 'integer' },
+      { name: 'version', label: 'Version', type: 'version' },
       { name: 'isCurrent', label: 'Version courante', type: 'boolean' },
     ],
   },
 
   // =========================================================================
-  //  CHARGES FIXES — historisé, par exercice. Dénominateur du point mort.
+  //  ⚠️ « BUDGET DE CHARGES FIXES » A ÉTÉ RETIRÉ DU PARAMÉTRAGE.
+  //
+  //     Il décrivait le MÊME ARGENT que les pools de charges indirectes : le
+  //     budget administration se tapait une fois dans un pool, une seconde fois
+  //     ici, et rien ne rapprochait les deux totaux. Le jour où ils
+  //     divergeaient, le seuil de marge et le point mort racontaient deux
+  //     histoires différentes, et ni l'un ni l'autre ne le disait.
+  //
+  //     Les charges fixes de l'exercice sont désormais DÉRIVÉES : somme des
+  //     budgets des pools déclarés FIXES (voir `absorption-rates` et le champ
+  //     « Nature des charges » de `cost-pools`). Une saisie, deux usages.
+  //
+  //     Conséquence pour l'exploitant : une charge fixe se déclare en créant un
+  //     pool qui la porte. Il n'y a plus d'autre chemin — et c'est ce qui rend
+  //     l'écart impossible.
   // =========================================================================
-  {
-    key: 'fixed-cost-budgets',
-    label: 'Budget de charges fixes',
-    model: 'fixedCostBudget',
-    nature: 'historised',
-    writeRoles: [UserRole.DG, UserRole.FINANCE_CFO],
-    identity: ['fiscalYearId', 'label', 'version'],
-    caution:
-      'Le point mort en découle directement (§ 14.5). Le segment reste VIDE dans le cas normal : le § 14.5 retient un seul bloc au niveau entreprise, et ne l’attribue à un segment que lorsque la charge lui est réellement imputable — la barge au maritime. Un segment renseigné à tort fait porter à un segment des frais que toute l’entreprise supporte.',
-    fields: [
-      {
-        name: 'fiscalYearId',
-        label: 'Exercice',
-        type: 'reference',
-        refTable: 'fiscal-years',
-        refKey: 'year',
-        required: true,
-      },
-      {
-        name: 'label',
-        label: 'Poste de charge',
-        type: 'string',
-        required: true,
-        help: 'Loyers, salaires de structure, assurances, amortissements',
-      },
-      {
-        name: 'segment',
-        label: 'Segment',
-        type: 'enum',
-        values: values(CommercialSegment),
-        help: 'À laisser VIDE sauf charge réellement attribuable au segment',
-      },
-      { name: 'annualAmount', label: 'Montant annuel', type: 'number', required: true },
-      {
-        name: 'currencyCode',
-        label: 'Devise',
-        type: 'reference',
-        refTable: 'currencies',
-        refKey: 'code',
-        required: true,
-      },
-      { name: 'version', label: 'Version', type: 'integer' },
-      { name: 'isCurrent', label: 'Version courante', type: 'boolean' },
-      { name: 'notes', label: 'Notes', type: 'text' },
-    ],
-  },
 
   // =========================================================================
   //  PRÉVISION DE VENTE — historisé. Maille segment × produit × mois.
@@ -1339,7 +1505,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO],
     identity: ['fiscalYearId', 'segment', 'productId', 'monthIndex', 'kind', 'version'],
     caution:
-      'On prévoit un VOLUME et on en dérive le chiffre d’affaires : une prévision saisie en CA laisserait une hausse de prix DGH masquer une perte de volume. Le budget validé ne se modifie JAMAIS — une évolution se saisit comme RÉVISION, à côté, sinon l’écart au budget devient invisible et c’est lui qu’on pilote. Le mois est le rang dans l’exercice, pas le mois civil : un exercice ouvert en juillet a son mois 1 en juillet.',
+      'On prévoit un VOLUME et on en dérive le chiffre d’affaires : une prévision saisie en CA laisserait une hausse de prix DGH masquer une perte de volume. Le budget validé ne se modifie JAMAIS : une évolution se saisit comme RÉVISION, à côté, sinon l’écart au budget devient invisible et c’est lui qu’on pilote. Le mois est le rang dans l’exercice, pas le mois civil : un exercice ouvert en juillet a son mois 1 en juillet.',
     fields: [
       {
         name: 'fiscalYearId',
@@ -1354,7 +1520,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         label: 'Segment',
         type: 'enum',
         required: true,
-        values: values(CommercialSegment),
+        values: values(CommercialSegment), valueLabels: FR.CommercialSegment,
       },
       {
         name: 'productId',
@@ -1369,7 +1535,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         label: 'Mois de l’exercice',
         type: 'integer',
         required: true,
-        help: 'RANG dans l’exercice, pas mois civil : un exercice ouvert en juillet a son mois 1 en juillet. La borne suit la durée réelle de l’exercice — 12 mois pour un exercice de 12 mois.',
+        help: 'RANG dans l’exercice, pas mois civil : un exercice ouvert en juillet a son mois 1 en juillet. La borne suit la durée réelle de l’exercice, 12 mois pour un exercice de 12 mois.',
       },
       { name: 'forecastVolume', label: 'Volume prévu', type: 'number', required: true },
       {
@@ -1377,32 +1543,31 @@ export const REFERENTIALS: ReferentialSpec[] = [
         label: 'Unité',
         type: 'enum',
         required: true,
-        values: values(UnitOfMeasure),
+        values: values(UnitOfMeasure), valueLabels: FR.UnitOfMeasure,
       },
       {
-        name: 'referencePrice',
-        label: 'Prix de référence',
-        type: 'number',
+        name: 'priceReferenceType',
+        label: 'Prix publié suivi',
+        type: 'enum',
         required: true,
-        help: 'Sert à dériver le CA prévisionnel — et à isoler l’écart de prix de l’écart de volume',
+        values: values(PriceReferenceType), valueLabels: FR.PriceReferenceType,
+        help: 'La publication à laquelle ce segment vend. Le prix et la devise en sont tirés : ils ne se saisissent plus',
       },
-      {
-        name: 'currencyCode',
-        label: 'Devise',
-        type: 'reference',
-        refTable: 'currencies',
-        refKey: 'code',
-        required: true,
-      },
+      // ⚠️ « Prix de référence » et « Devise » ONT QUITTÉ CE FORMULAIRE.
+      //    Ils sont publiés au référentiel des prix administrés, et les
+      //    recopier ici garantissait qu'un jour les deux différeraient : la
+      //    DGH publie, personne ne reprend la prévision, et le chiffre
+      //    d'affaires prévisionnel reste calé sur un prix que plus personne
+      //    ne pratique. Seule la publication SUIVIE se déclare.
       {
         name: 'kind',
         label: 'Nature',
         type: 'enum',
         required: true,
-        values: values(ForecastKind),
+        values: values(ForecastKind), valueLabels: FR.ForecastKind,
         help: 'BUDGET : validé par le DG, figé. REVISION : révision trimestrielle, à côté du budget.',
       },
-      { name: 'version', label: 'Version', type: 'integer' },
+      { name: 'version', label: 'Version', type: 'version' },
       { name: 'isCurrent', label: 'Version courante', type: 'boolean' },
       { name: 'notes', label: 'Notes', type: 'text' },
     ],
@@ -1419,10 +1584,10 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.CCOO],
     identity: ['code'],
     caution:
-      'La PROBABILITÉ décide de la valeur pondérée du pipeline (§ 15), qui alimente la prévision de vente (§ 14.3), qui fournit l’assiette du taux d’absorption (§ 14.2). Une probabilité optimiste ne reste donc pas un problème commercial : elle fait BAISSER le coût de revient calculé, et laisse passer des affaires qui ne couvrent pas leurs frais. Laissée vide, la valeur pondérée n’est pas calculée — c’est voulu. « Gagnée » vaut obligatoirement 100 et « Perdue » 0 : ce sont des faits, pas des estimations.',
+      'La PROBABILITÉ décide de la valeur pondérée du pipeline, qui alimente la prévision de vente, qui fournit l’assiette du taux d’absorption. Une probabilité optimiste ne reste donc pas un problème commercial : elle fait BAISSER le coût de revient calculé, et laisse passer des affaires qui ne couvrent pas leurs frais. Laissée vide, la valeur pondérée n’est pas calculée, c’est voulu. « Gagnée » vaut obligatoirement 100 et « Perdue » 0 : ce sont des faits, pas des estimations.',
     fields: [
-      { name: 'code', label: 'Code', type: 'string', required: true },
-      { name: 'label', label: 'Libellé', type: 'string', required: true },
+      { name: 'code', label: 'Code', type: 'string', required: true, help: 'Sans espace ni accent, ex. NOUVEAU, OFFRE_ENVOYEE, NEGOCIATION' },
+      { name: 'label', label: 'Libellé', type: 'string', required: true, help: 'Le nom lu à l’écran, ex. « Offre envoyée », « Négociation »' },
       {
         name: 'rank',
         label: 'Rang',
@@ -1435,7 +1600,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         label: 'Issue',
         type: 'enum',
         required: true,
-        values: values(CrmStageOutcome),
+        values: values(CrmStageOutcome), valueLabels: FR.CrmStageOutcome,
         help: 'OPEN : l’affaire progresse. WON / LOST : elle sort du pipeline. DORMANT : mise en veille.',
       },
       {

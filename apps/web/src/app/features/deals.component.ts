@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService, DealDetail, DealRow } from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
+import { grouper } from '../shared/format';
 import { StatusBadgeComponent, StatusKind } from '../shared/status-badge.component';
 import { DealActionsComponent } from './deal-actions.component';
 import { DealCostingComponent } from './deal-costing.component';
@@ -48,7 +49,7 @@ export function dealStatus(code: string): { label: string; kind: StatusKind } {
     <header class="mb-5 flex items-end justify-between gap-4">
       <div>
         <h1 class="page-title">Affaires</h1>
-        <p class="page-sub">Du chiffrage à la facturation — marge et seuils</p>
+        <p class="page-sub">Du chiffrage à la facturation : marge et seuils</p>
       </div>
     </header>
 
@@ -117,7 +118,7 @@ export function dealStatus(code: string): { label: string; kind: StatusKind } {
               <td class="num font-mono font-semibold" [class]="marginClass(d.estimatedFullMargin)">
                 {{ perUnit(d, d.estimatedFullMargin) }}
               </td>
-              <td class="text-ink-soft">{{ d.owner?.fullName ?? '—' }}</td>
+              <td class="text-ink-soft">{{ d.owner?.fullName ?? '-' }}</td>
               <td>
                 <erp-status-badge [kind]="status(d.status).kind" [label]="status(d.status).label" />
               </td>
@@ -133,7 +134,7 @@ export function dealStatus(code: string): { label: string; kind: StatusKind } {
 
     <p class="mt-3 text-[11px] text-ink-faint">
       Les marges sont exprimées par unité, dans la devise de l’affaire. Elles sont recalculées
-      par le serveur à chaque consultation — jamais reconstituées par la console.
+      à chaque consultation, jamais reconstituées par le navigateur.
     </p>
   `,
 })
@@ -177,7 +178,7 @@ export class DealsComponent implements OnInit {
   /** Les montants stockés sont totaux ; la décision se prend à l'unité. */
   protected perUnit(d: DealRow, total: string): string {
     const volume = Number(d.contractedVolume);
-    if (volume <= 0) return '—';
+    if (volume <= 0) return '-';
     return formatNumber(Number(total) / volume, 2);
   }
 
@@ -332,7 +333,7 @@ export class DealsComponent implements OnInit {
           <p class="border-t border-rule px-[15px] py-2.5 text-[11px] leading-relaxed text-ink-faint">
             Le plancher direct sanctionne une opération qui ne couvre pas ses propres coûts :
             il bloque, et seule une dérogation du DG le lève. Le seuil de marge complète, lui,
-            n’est pas un refus — il appelle l’accord du DG.
+            n’est pas un refus : il appelle l’accord du DG.
           </p>
         </section>
 
@@ -376,7 +377,7 @@ export class DealsComponent implements OnInit {
                 </div>
                 <div class="flex justify-between gap-4 px-4 py-2">
                   <dt class="text-ink-muted">Validé par</dt>
-                  <dd class="text-right text-ink">{{ sp.validatedBy?.fullName ?? '—' }}</dd>
+                  <dd class="text-right text-ink">{{ sp.validatedBy?.fullName ?? '-' }}</dd>
                 </div>
               </dl>
               <p class="border-t border-rule px-4 py-2.5 text-[11px] leading-relaxed text-ink-faint">
@@ -543,8 +544,6 @@ export class DealDetailComponent implements OnInit {
 
 /** Espace fine insécable en séparateur de milliers — usage francophone. */
 function formatNumber(value: number, decimals: number): string {
-  if (!Number.isFinite(value)) return '—';
-  return value
-    .toLocaleString('fr-FR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
-    .replace(/ | /g, ' ');
+  if (!Number.isFinite(value)) return '-';
+  return grouper(value, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }

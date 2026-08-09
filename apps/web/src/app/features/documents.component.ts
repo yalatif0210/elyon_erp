@@ -76,7 +76,7 @@ const KINDS: Record<string, string> = {
           <div class="md:col-span-2">
             <label class="label" for="rattache">Rattachée à l’affaire</label>
             <select id="rattache" class="field" [(ngModel)]="newDealId">
-              <option [ngValue]="''">— choisir —</option>
+              <option [ngValue]="''">Choisir</option>
               @for (d of deals(); track d.id) {
                 <option [ngValue]="d.id">{{ d.reference }} · {{ d.client.legalName }}</option>
               }
@@ -93,7 +93,7 @@ const KINDS: Record<string, string> = {
         </div>
         <p class="mt-2 text-[11px] leading-relaxed text-ink-faint">
           Une pièce non rattachée à une affaire, une opération ou une facture est introuvable le
-          jour où on la cherche — la base la refuse.
+          jour où on la cherche, elle est refusée.
         </p>
         <button class="btn-primary mt-3" (click)="register()" [disabled]="state.busy()">
           Enregistrer la pièce
@@ -120,7 +120,7 @@ const KINDS: Record<string, string> = {
               <td><span class="ref">{{ d.reference }}</span></td>
               <td class="text-ink-soft">{{ kind(d.kind) }}</td>
               <td class="font-mono text-[12px] text-ink-muted">
-                {{ d.operation?.reference ?? d.deal?.reference ?? '—' }}
+                {{ d.operation?.reference ?? d.deal?.reference ?? '-' }}
               </td>
               <td class="num font-mono" [class]="d._count.signatures > 0 ? 'text-ink' : 'text-ink-faint'">
                 {{ d._count.signatures }}
@@ -139,7 +139,7 @@ const KINDS: Record<string, string> = {
                 }
               </td>
               <td class="font-mono text-[12px] text-ink-muted">
-                {{ d.supersedes?.reference ?? '—' }}
+                {{ d.supersedes?.reference ?? '-' }}
               </td>
               <td>
                 @if (!d.isSealed) {
@@ -248,7 +248,7 @@ const KINDS: Record<string, string> = {
     }
 
     <p class="text-[11px] leading-relaxed text-ink-faint">
-      Le binaire n’est jamais conservé en base : seules la clé de stockage et l’empreinte
+      Le binaire n’est jamais conservé ici : seules la clé de stockage et l’empreinte
       SHA-256 le sont. C’est elle qui permet de confronter un papier présenté des années plus
       tard à ce que le système a réellement émis.
     </p>
@@ -349,7 +349,7 @@ export class DocumentsComponent implements OnInit {
     this.state.start();
     this.api.sealDocument(d.id).subscribe({
       next: () => {
-        this.state.succeed(`${d.reference} scellée — elle ne se modifie plus.`);
+        this.state.succeed(`${d.reference} scellée : elle ne se modifie plus.`);
         this.load();
       },
       error: (e: HttpFailure) => this.state.fail(e),

@@ -92,17 +92,17 @@ const TRANSPORT_FIELDS = ['transportMode', 'applicableTransportModes'];
       <div class="card-body">
         <label class="label" for="deal">Affaire <span class="text-crit">*</span></label>
         <select id="deal" class="field" [(ngModel)]="dealId" (ngModelChange)="onDealChange()">
-          <option [ngValue]="''">— choisir une affaire —</option>
+          <option [ngValue]="''">Choisir une affaire</option>
           @for (d of deals(); track d.id) {
             <option [ngValue]="d.id">
-              {{ d.reference }} · {{ d.client.legalName }} · {{ d.product.name }} —
+              {{ d.reference }} · {{ d.client.legalName }} · {{ d.product.name }} ·
               {{ statusLabel(d.status) }}
             </option>
           }
         </select>
         <p class="mt-1 text-[11px] leading-relaxed text-ink-faint">
           L’état de l’affaire est rappelé pour information. L’exigence d’approbation est tenue
-          par la base : une affaire qui n’y satisfait pas est refusée à l’enregistrement, avec
+          automatiquement : une affaire qui n’y satisfait pas est refusée à l’enregistrement, avec
           son motif.
         </p>
       </div>
@@ -113,7 +113,7 @@ const TRANSPORT_FIELDS = ['transportMode', 'applicableTransportModes'];
       <div class="card-header">
         <h2 class="card-title">Déroulé de l’opération</h2>
         <span class="text-[11px] text-ink-faint">
-          {{ sequence().length }} type(s) — {{ totalChecklists() }} checklist(s) au total
+          {{ sequence().length }} type(s) · {{ totalChecklists() }} checklist(s) au total
         </span>
       </div>
       <div class="card-body">
@@ -235,7 +235,7 @@ const TRANSPORT_FIELDS = ['transportMode', 'applicableTransportModes'];
               } @empty {
                 <li class="empty px-3 py-3 text-[13px]">
                   Aucun type retenu. Sans type, aucun contrôle HSE ne s’oppose à l’opération et
-                  la base refusera de la faire avancer.
+                  l'opération ne pourra pas avancer.
                 </li>
               }
             </ol>
@@ -308,7 +308,7 @@ const TRANSPORT_FIELDS = ['transportMode', 'applicableTransportModes'];
           <div>
             <label class="label" for="site">Site de livraison</label>
             <select id="site" class="field" [(ngModel)]="destinationSiteId">
-              <option [ngValue]="''">—</option>
+              <option [ngValue]="''">Choisir</option>
               @for (s of sites(); track s.id) {
                 <option [ngValue]="s.id">{{ s.label }}</option>
               }
@@ -361,7 +361,7 @@ const TRANSPORT_FIELDS = ['transportMode', 'applicableTransportModes'];
           <div>
             <label class="label" for="owner">Propriétaire du produit</label>
             <select id="owner" class="field" [(ngModel)]="productOwnerId">
-              <option [ngValue]="''">—</option>
+              <option [ngValue]="''">Choisir</option>
               @for (p of partners(); track p.id) {
                 <option [ngValue]="p.id">{{ p.code }} · {{ p.legalName }}</option>
               }

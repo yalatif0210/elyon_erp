@@ -38,7 +38,7 @@ export async function deposer(
       return {
         acquis: false,
         info: null,
-        erreur: courant.motif ?? 'Refusé par le serveur, sans motif exploitable.',
+        erreur: courant.motif ?? 'Refusé, sans motif exploitable.',
       };
     case 'SUSPENDU':
       return {

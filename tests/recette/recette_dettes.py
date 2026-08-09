@@ -20,7 +20,9 @@ AN = 2030 + (int(RUN, 16) % 40)
 # donnée historisée ne se réécrit pas, et deux campagnes tombant sur la même
 # date verraient la seconde refusée — un échec qui n'apprend rien sur le code,
 # seulement sur le résidu laissé par la précédente. Ces lignes lointaines sont
-# balayées par la purge de prisma/sql/10_types_operation.sql.
+# balayées par nettoyage.sql AVANT chaque campagne. Elles l'étaient auparavant
+# par le SQL de migration, donc seulement quand le schéma changeait : huit
+# grilles s'étaient accumulées entre deux migrations.
 JOUR = 1 + (int(RUN, 16) % 28)
 MOIS = 1 + (int(RUN, 16) // 28 % 11)   # 1..11 : MOIS+1 reste dans l'année
 DATE1 = f"{AN}-{MOIS:02d}-{JOUR:02d}"          # ISO, pour les seuils

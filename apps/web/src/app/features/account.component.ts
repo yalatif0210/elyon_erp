@@ -98,7 +98,7 @@ const MIN_LENGTH = 12;
 
             <p class="mb-4 text-[11px] leading-relaxed text-ink-faint">
               Aucune combinaison de majuscules, chiffres ou symboles n’est imposée. Une phrase
-              dont vous vous souvenez — quatre mots sans rapport entre eux — protège mieux
+              dont vous vous souvenez, quatre mots sans rapport entre eux, protège mieux
               qu’un mot court compliqué, et ne finit pas sur un papier collé sous le clavier.
             </p>
 
@@ -151,7 +151,7 @@ const MIN_LENGTH = 12;
             <p class="mb-4 text-[13px] leading-relaxed text-ink-soft">
               Un code à six chiffres, renouvelé toutes les trente secondes, sera demandé en
               plus du mot de passe. Il est produit par une application d’authentification
-              installée sur votre téléphone — Google Authenticator, Microsoft Authenticator
+              installée sur votre téléphone, Google Authenticator, Microsoft Authenticator
               ou équivalent.
             </p>
             @if (auth.totpPending()) {
@@ -179,7 +179,7 @@ const MIN_LENGTH = 12;
                   >{{ s }}</code
                 >
                 <p class="mt-1 text-[11px] text-ink-faint">
-                  Cette clé ne sera plus affichée. Elle est chiffrée au repos et le serveur ne
+                  Cette clé ne sera plus affichée. Elle est chiffrée au repos et l'application ne
                   la restitue jamais.
                 </p>
               </li>

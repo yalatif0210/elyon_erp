@@ -59,7 +59,7 @@ import { VocabulaireChoixComponent } from './vocabulaire-choix.component';
         >
           <p class="flex items-start gap-2 font-semibold">
             <erp-icon name="alert-triangle" [size]="18" class="mt-0.5" />
-            Refusé par le serveur
+            Refusé
           </p>
           <p class="mt-1.5 whitespace-pre-line">{{ erreur() }}</p>
           <p class="mt-2 text-[14px]">
@@ -88,7 +88,7 @@ import { VocabulaireChoixComponent } from './vocabulaire-choix.component';
       @if (!checkId) {
         <h1 class="t-title mt-2">Ouvrir une checklist</h1>
         <p class="t-sub">
-          La checklist est assemblée par le serveur à partir des types portés par l’opération.
+          La checklist est assemblée à partir des types portés par l’opération.
           Vous choisissez la phase, pas les points.
         </p>
 
@@ -194,7 +194,7 @@ import { VocabulaireChoixComponent } from './vocabulaire-choix.component';
               @if (pt.item.requiresValue) {
                 <div class="mt-3">
                   <label class="t-label" [attr.for]="'valeur-' + pt.id">
-                    {{ pt.item.valueLabel ?? 'Valeur relevée' }} — exigée
+                    {{ pt.item.valueLabel ?? 'Valeur relevée' }}, exigée
                   </label>
                   <input
                     [id]="'valeur-' + pt.id"
@@ -241,7 +241,7 @@ import { VocabulaireChoixComponent } from './vocabulaire-choix.component';
                   </p>
                 } @else {
                   @if (pt.item.photoPolicy === 'REQUIRED') {
-                    <p class="t-label">Photo — exigée pour ce point</p>
+                    <p class="t-label">Photo exigée pour ce point</p>
                   }
 
                   <label class="t-btn-ghost cursor-pointer">
@@ -304,12 +304,12 @@ import { VocabulaireChoixComponent } from './vocabulaire-choix.component';
                   @if (photoEnRoute(pt)) {
                     <p class="t-hint">
                       Photo en cours d’envoi. Le point pourra être enregistré dès qu’elle sera
-                      reçue — attendez, ne la reprenez pas.
+                      reçue : attendez, ne la reprenez pas.
                     </p>
                   } @else {
                     <p class="t-hint">
                       Ce point exige une photo : il ne pourra pas être enregistré sans elle.
-                      Le contrôleur HSE valide à distance, sur pièces — sans cliché, il n’a
+                      Le contrôleur HSE valide à distance, sur pièces : sans cliché, il n’a
                       rien à examiner.
                     </p>
                   }
@@ -348,7 +348,7 @@ import { VocabulaireChoixComponent } from './vocabulaire-choix.component';
         } @else if (bloquantsRenseignesParMoi(c) > 0) {
           <p class="rounded-[3px] border border-crit/30 bg-crit-wash p-4 text-[15px] leading-relaxed text-crit">
             Vous avez renseigné vous-même {{ bloquantsRenseignesParMoi(c) }} point(s) bloquant(s)
-            de cette checklist. Le serveur refusera que vous la validiez — un contrôle et sa
+            de cette checklist. La validation sera refusée, un contrôle et sa
             validation ne peuvent pas venir de la même main.
           </p>
         } @else {
@@ -585,7 +585,7 @@ export class TerrainChecklistComponent implements OnInit {
       operationId: this.id,
       reference: this.id,
       type: 'CHECK_ITEM_RECORDED',
-      intitule: `${pt.item.label} — ${s.outcome}`,
+      intitule: `${pt.item.label} : ${s.outcome}`,
       payload: {
         // `checkItemId` est une clé d'ADRESSAGE : sur l'API classique c'est un
         // segment d'URL, un événement n'en a pas, il la transporte donc dans sa

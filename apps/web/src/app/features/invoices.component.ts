@@ -2,6 +2,7 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService, InvoiceRow } from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
+import { grouper } from '../shared/format';
 import { StatusBadgeComponent, StatusKind } from '../shared/status-badge.component';
 import {
   InvoiceActionsComponent,
@@ -79,7 +80,7 @@ const FILTERS: { label: string; type?: string }[] = [
       <div class="stat bg-surface">
         <span class="stat-label">Total facturé</span>
         <span class="stat-value text-[20px]">{{ money(totalBilled()) }}</span>
-        <span class="stat-note">Hors proforma — elles ne créent aucune créance</span>
+        <span class="stat-note">Hors proforma, elles ne créent aucune créance</span>
       </div>
       <div class="stat bg-surface">
         <span class="stat-label">Encaissé</span>
@@ -172,15 +173,15 @@ const FILTERS: { label: string; type?: string }[] = [
                   {{ money(+i.vatAmount) }}
                   <span class="ml-0.5 text-[11px]">({{ rate(i.vatRatePct) }} %)</span>
                 } @else {
-                  <span class="text-ink-faint">—</span>
+                  <span class="text-ink-faint">-</span>
                 }
               </td>
-              <td class="num font-mono text-ink-soft">{{ i.dueDate?.slice(0, 10) ?? '—' }}</td>
+              <td class="num font-mono text-ink-soft">{{ i.dueDate?.slice(0, 10) ?? '-' }}</td>
               <td>
                 <erp-status-badge [kind]="status(i.status).kind" [label]="status(i.status).label" />
               </td>
               <td class="text-[12px] text-ink-muted">
-                {{ i.fneTransmission ? fneLabel(i.fneTransmission.status) : '—' }}
+                {{ i.fneTransmission ? fneLabel(i.fneTransmission.status) : '-' }}
               </td>
             </tr>
           } @empty {
@@ -255,14 +256,12 @@ export class InvoicesComponent implements OnInit {
   }
 
   protected money(value: number): string {
-    if (!Number.isFinite(value)) return '—';
-    return value
-      .toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      .replace(/ | /g, ' ');
+    if (!Number.isFinite(value)) return '-';
+    return grouper(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   protected int(value: string): string {
-    return Number(value).toLocaleString('fr-FR', { maximumFractionDigits: 0 }).replace(/ /g, ' ');
+    return grouper(Number(value), { maximumFractionDigits: 0 }).replace(/ /g, ' ');
   }
 
   protected rate(value: string): string {

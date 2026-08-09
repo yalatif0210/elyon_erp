@@ -1,5 +1,5 @@
 -- ===========================================================================
---  L'ASSIETTE D'ABSORPTION EST UN VOLUME, PAS UN CHIFFRE D'AFFAIRES
+--  L'ASSIETTE D'ABSORPTION EST UN VOLUME BUDGÉTÉ, ET RIEN D'AUTRE
 --  Réf. SPECIFICATIONS.md § 14.2, § 14.3
 --
 --  LA DÉCISION, ET POURQUOI ELLE TIENT
@@ -19,16 +19,21 @@
 --  mouvant, la marge calculée bouge, des affaires passent sous le seuil, et
 --  personne ne sait pourquoi.
 --
---  ⚠️ CE FICHIER FERME UNE PORTE QUE J'AVAIS LAISSÉE OUVERTE.
+--  ⚠️ CE FICHIER NE LAISSE QU'UNE SEULE BASE D'IMPUTATION OUVERTE.
 --
---     L'énumération `allocation_basis` propose PER_REVENUE, et le calcul de
---     marge l'implémentait — en multipliant par le chiffre d'affaires. Aucun
---     pool actif ne l'employait, donc rien ne se voyait ; le premier pool créé
---     depuis l'écran de paramétrage aurait suffi.
+--     PER_REVENUE a été fermée en premier — l'assiette en valeur.
+--     PER_OPERATION l'est à son tour, et c'est un choix du dirigeant, pas une
+--     limite technique : « Pools imputés à l'opération : non ».
 --
---     La valeur reste dans l'énumération : des lignes historiques la portent,
---     et une énumération se réduit mal. Elle devient simplement INUTILISABLE
---     sur un pool actif.
+--     La raison de fond est que l'assiette se DÉRIVE désormais de la prévision
+--     de vente (fichier 34), laquelle prévoit des VOLUMES. Rien n'y prévoit un
+--     nombre de rotations. Un pool imputé à l'opération n'aurait donc aucun
+--     dénominateur à lire, et il faudrait lui en faire saisir un à la main —
+--     c'est-à-dire rouvrir la double saisie qu'on vient de supprimer.
+--
+--     Les deux valeurs restent dans l'énumération : des lignes historiques les
+--     portent, et une énumération se réduit mal. Elles deviennent simplement
+--     INUTILISABLES sur un pool actif.
 --
 --  Injecté dans la migration Prisma — pas de BEGIN/COMMIT.
 -- ===========================================================================
@@ -36,12 +41,24 @@
 CREATE OR REPLACE FUNCTION refuse_assiette_en_valeur()
 RETURNS TRIGGER AS $$
 BEGIN
-  IF NEW.is_active AND NEW.allocation_basis::text = 'PER_REVENUE' THEN
+  IF NOT NEW.is_active THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.allocation_basis::text = 'PER_REVENUE' THEN
     RAISE EXCEPTION
-      'Le pool « % » ne peut pas s''imputer au prorata du chiffre d''affaires. L''assiette d''absorption est un VOLUME budgété (§ 14.2) : le volume est piloté, le prix ne l''est pas — il suit les publications DGH et le change. Une assiette en valeur ferait bouger la charge fixe unitaire à chaque publication, sans qu''aucune charge n''ait changé. Employer PER_VOLUME, ou PER_OPERATION pour un montant par rotation.',
+      'Le pool « % » ne peut pas s''imputer au prorata du chiffre d''affaires. L''assiette d''absorption est un VOLUME budgété (§ 14.2) : le volume est piloté, le prix ne l''est pas — il suit les publications DGH et le change. Une assiette en valeur ferait bouger la charge fixe unitaire à chaque publication, sans qu''aucune charge n''ait changé. Employer PER_VOLUME.',
       NEW.code
       USING ERRCODE = 'check_violation';
   END IF;
+
+  IF NEW.allocation_basis::text = 'PER_OPERATION' THEN
+    RAISE EXCEPTION
+      'Le pool « % » ne peut pas s''imputer au nombre d''opérations. L''assiette se dérive de la prévision de vente, qui prévoit des VOLUMES et non des rotations : ce pool n''aurait aucun dénominateur à lire, et lui en faire saisir un rouvrirait la double saisie qu''on a supprimée. Employer PER_VOLUME.',
+      NEW.code
+      USING ERRCODE = 'check_violation';
+  END IF;
+
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -61,88 +78,19 @@ CREATE TRIGGER trg_assiette_en_valeur
 UPDATE cost_pools
    SET is_active = false
  WHERE is_active
-   AND allocation_basis::text = 'PER_REVENUE';
+   AND allocation_basis::text IN ('PER_REVENUE', 'PER_OPERATION');
 
-
--- ===========================================================================
---  L'ASSIETTE SAISIE CONTRE LA PRÉVISION DE VOLUMES
+-- ---------------------------------------------------------------------------
+--  ⚠️ `v_assiette_absorption` A ÉTÉ SUPPRIMÉE — ELLE N'A PLUS D'OBJET.
 --
---  Le budget de volumes existe désormais comme donnée (§ 14.3) : c'est LUI
---  l'assiette. La saisir une seconde fois dans le taux d'absorption garantit
---  qu'un jour les deux divergeront — on révise la prévision, on oublie le
---  taux, et la charge unitaire reste calée sur un volume que plus personne
---  n'attend.
+--     Elle confrontait l'assiette SAISIE à la prévision budgétée, parce que
+--     les deux se saisissaient séparément et finiraient par diverger. Le
+--     fichier 34 supprime la saisie : l'assiette EST la prévision, et l'écart
+--     est nul par construction. Une vue qui affiche toujours zéro n'informe
+--     personne — elle rassure, ce qui est pire.
 --
---  On ne l'écrase pas pour autant : le CFO peut vouloir figer une assiette
---  différente de la prévision courante — c'est même le principe du § 14.2, où
---  le budget est FIGÉ pendant que la prévision se révise. L'écart est donc
---  RENDU VISIBLE, pas corrigé d'office.
--- ===========================================================================
--- ⚠️ ICI, ET SEULEMENT ICI, ON LIT LE BUDGET — PAS LA PRÉVISION EN VIGUEUR.
---
---    C'est délibéré, et c'est l'inverse de ce que fait la vue de prévision
---    (§ 14.3), où une révision REMPLACE le budget sur son mois.
---
---    La raison est au § 14.2 : le dénominateur de l'absorption doit rester
---    FIGÉ pendant l'exercice. S'il suivait les révisions, une année sous les
---    prévisions ferait monter la charge au litre — mêmes frais fixes sur moins
---    de litres —, la marge calculée baisserait, davantage d'affaires
---    passeraient sous le seuil, le volume baisserait encore. C'est la spirale
---    d'absorption, et elle s'emballe vite sur une marge de 4 %.
---
---    La comparaison ci-dessous confronte donc l'assiette figée à la prévision
---    BUDGÉTÉE, deux chiffres qui devraient coïncider par construction. L'écart
---    à la prévision RÉVISÉE, lui, est une information de pilotage que porte
---    l'écran de prévision, pas un paramètre de calcul.
-CREATE OR REPLACE VIEW v_assiette_absorption AS
-WITH prevu AS (
-  SELECT f.year                    AS fiscal_year,
-         s.segment,
-         s.uom,
-         sum(s.forecast_volume)    AS volume_prevu
-    FROM sales_forecasts s
-    JOIN fiscal_years f ON f.id = s.fiscal_year_id
-   WHERE s.is_current
-     AND s.kind::text = 'BUDGET'
-   GROUP BY f.year, s.segment, s.uom
-)
-SELECT cp.code                                        AS pool,
-       cp.label,
-       cp.allocation_basis::text                      AS base,
-       ar.fiscal_year,
-       ar.budgeted_amount,
-       ar.budgeted_base                               AS assiette_saisie,
-       ar.base_uom::text                              AS assiette_uom,
-       ar.rate_per_unit,
-       -- Somme des volumes prévus sur les segments que le pool couvre. Un pool
-       -- sans segment déclaré les couvre tous — c'est la convention du reste
-       -- du système, on ne l'invente pas ici.
-       (SELECT sum(p.volume_prevu)
-          FROM prevu p
-         WHERE p.fiscal_year = ar.fiscal_year
-           AND (p.uom::text = ar.base_uom::text OR ar.base_uom IS NULL)
-           AND (cardinality(cp.segments) = 0
-                OR p.segment = ANY (cp.segments)))    AS volume_prevu,
-       CASE
-         WHEN cp.allocation_basis::text <> 'PER_VOLUME' THEN NULL
-         WHEN (SELECT sum(p.volume_prevu) FROM prevu p
-                WHERE p.fiscal_year = ar.fiscal_year
-                  AND (p.uom::text = ar.base_uom::text OR ar.base_uom IS NULL)
-                  AND (cardinality(cp.segments) = 0
-                       OR p.segment = ANY (cp.segments))) IS NULL THEN NULL
-         ELSE round(
-           abs(ar.budgeted_base
-               - (SELECT sum(p.volume_prevu) FROM prevu p
-                   WHERE p.fiscal_year = ar.fiscal_year
-                     AND (p.uom::text = ar.base_uom::text OR ar.base_uom IS NULL)
-                     AND (cardinality(cp.segments) = 0
-                          OR p.segment = ANY (cp.segments))))
-           / NULLIF(ar.budgeted_base, 0) * 100, 2)
-       END                                            AS ecart_pct
-  FROM absorption_rates ar
-  JOIN cost_pools cp ON cp.id = ar.cost_pool_id
- WHERE ar.is_current
-   AND cp.is_active;
-
-COMMENT ON VIEW v_assiette_absorption IS
-  'Assiette d''absorption SAISIE comparée à la prévision de volumes du même exercice (§ 14.2, § 14.3). `ecart_pct` nul = pas de prévision saisie, donc rien à comparer — pas un accord.';
+--     Ce qu'on veut voir à la place est ailleurs : `v_absorption_reelle`
+--     compare la charge au litre selon l'assiette budgétée, révisée et
+--     réalisée. C'est l'écart qui reste après qu'on a supprimé celui-ci.
+-- ---------------------------------------------------------------------------
+DROP VIEW IF EXISTS v_assiette_absorption;

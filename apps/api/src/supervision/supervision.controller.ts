@@ -240,8 +240,9 @@ export class SupervisionService {
   /** Point mort en VOLUME. Rend toujours une ligne, même non calculable. */
   pointMort() {
     return this.prisma.$queryRawUnsafe(
-      `SELECT exercice, label, charges_fixes, postes_de_charges, marge_unitaire,
-              volume_realise, calculable, motif, point_mort_volume, reste_a_vendre
+      `SELECT exercice, label, charges_fixes, pools_de_charges_fixes, devise_charges,
+              marge_unitaire, volume_realise, devise_marge, uom,
+              calculable, motif, point_mort_volume, reste_a_vendre
          FROM v_point_mort`,
     );
   }
@@ -265,19 +266,41 @@ export class SupervisionService {
   }
 
   /**
-   * Assiette d'absorption SAISIE contre prévision de volumes (§ 14.2).
+   * Ce que les charges devraient coûter au litre, et ce qu'elles coûtent.
    *
-   * L'assiette est un VOLUME budgété, jamais un chiffre d'affaires : le volume
-   * est piloté, le prix suit les publications DGH. Saisir l'assiette une
-   * seconde fois à côté de la prévision garantit qu'un jour les deux
-   * divergeront — on révise la prévision, on oublie le taux.
+   * Trois assiettes pour un même budget : BUDGÉTÉE — celle qui fait foi et la
+   * seule qui entre dans la marge —, RÉVISÉE, et RÉALISÉE au prorata des mois
+   * écoulés.
+   *
+   * ⚠️ INDICATEUR SEUL. Si le taux révisé alimentait le calcul de marge, une
+   *    année sous les prévisions ferait monter la charge au litre, davantage
+   *    d'affaires passeraient sous le seuil, le volume baisserait encore —
+   *    c'est la spirale d'absorption du § 14.2, et elle s'emballe vite sur une
+   *    marge de l'ordre de 4 %.
+   *
+   * ⚠️ LE NUMÉRATEUR EST TOUJOURS LE BUDGET : aucune comptabilité de charges
+   *    n'existe dans ce système. La vue porte une colonne `perimetre` qui le
+   *    dit, et l'écran l'affiche — c'est le genre de précision qu'on ne peut
+   *    pas laisser au lecteur.
    */
-  assietteAbsorption() {
+  absorptionReelle() {
     return this.prisma.$queryRawUnsafe(
-      `SELECT pool, label, base, fiscal_year, budgeted_amount, assiette_saisie,
-              assiette_uom, rate_per_unit, volume_prevu, ecart_pct
-         FROM v_assiette_absorption
-        ORDER BY ecart_pct DESC NULLS LAST, pool`,
+      `SELECT pool, pool_libelle, nature, devise, exercice, budget, uom,
+              assiette_budget, taux_applique,
+              assiette_revisee, taux_si_revision, ecart_revision, ecart_revision_pct,
+              mois_ecoules, mois_total, volume_realise, taux_a_date,
+              ecart_a_date, ecart_a_date_pct, perimetre
+         FROM v_absorption_reelle
+        ORDER BY exercice DESC, pool`,
+    );
+  }
+
+  /** Charges fixes de l'exercice, DÉRIVÉES de la somme des pools FIXES. */
+  chargesFixes() {
+    return this.prisma.$queryRawUnsafe(
+      `SELECT exercice, label, statut, pools, charges_fixes, devises, devise
+         FROM v_charges_fixes_exercice
+        ORDER BY exercice DESC`,
     );
   }
 
@@ -499,10 +522,24 @@ export class SupervisionController {
     return this.service.bfr();
   }
 
-  @Get('assiette-absorption')
-  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO, UserRole.ACCOUNTANT)
-  assietteAbsorption() {
-    return this.service.assietteAbsorption();
+  /**
+   * ⚠️ NI LE COMPTABLE NI LE COORDINATEUR N'Y ONT ACCÈS.
+   *
+   *    Cette lecture expose le budget de structure pool par pool — ce que
+   *    coûtent l'administration, la finance, le HSE. C'est une donnée de
+   *    direction. Le dirigeant l'a demandée pour lui, le CCOO et, par nature
+   *    de sa fonction, le CFO qui répond des marges.
+   */
+  @Get('absorption-reelle')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO)
+  absorptionReelle() {
+    return this.service.absorptionReelle();
+  }
+
+  @Get('charges-fixes')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO)
+  chargesFixes() {
+    return this.service.chargesFixes();
   }
 
   @Get('tableau-operationnel')

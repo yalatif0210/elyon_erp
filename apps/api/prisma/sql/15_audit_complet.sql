@@ -333,7 +333,48 @@ SELECT
   e.piece,
   'porté ' || round(e.solde_porte, 2) || ' contre ' || round(e.somme_du_journal, 2) || ' au journal'
 FROM v_rapprochement_encaissements e
-WHERE abs(e.ecart) > tolerance_arrondi(e.currency_code);
+WHERE abs(e.ecart) > tolerance_arrondi(e.currency_code)
+
+UNION ALL
+-- 17. Poste de charge rangé dans un pool de l'autre nature.
+--     Les charges fixes du point mort sont la somme des budgets des pools
+--     FIXES. Un poste variable logé dans un pool fixe y fait entrer une charge
+--     proportionnelle que la marge sur coût variable compte déjà — comptée deux
+--     fois, elle gonfle le point mort. Le déclencheur refuse ce cas depuis sa
+--     pose ; cette règle couvre l'antérieur.
+SELECT
+  'Poste de charge rangé dans un pool de nature différente',
+  'cost_posts',
+  p.code || ' · pool ' || cp.code,
+  'poste ' || p.variability::text || ' dans un pool ' || cp.variability::text
+FROM cost_posts p
+JOIN cost_pools cp ON cp.id = p.cost_pool_id
+WHERE p.variability::text <> cp.variability::text
+
+UNION ALL
+-- 18. Assiette d'absorption divergente de la prévision budgétée.
+--     L'assiette est DÉRIVÉE de la prévision depuis 34_budget_indirect_derive :
+--     tout écart signale soit une écriture ayant contourné le déclencheur, soit
+--     un recalcul qui a échoué, soit des prévisions aux unités mêlées — auquel
+--     cas la fonction rend un volume nul plutôt que d'additionner des litres et
+--     des tonnes. Dans les trois cas la charge au litre est calée sur un volume
+--     que plus personne n'attend, et le seuil de marge avec elle.
+SELECT
+  'Assiette d''absorption divergente de la prévision budgétée',
+  'absorption_rates',
+  cp.code || ' · exercice ' || f.year::text,
+  'assiette ' || round(ar.budgeted_base, 2) || ' contre ' ||
+    CASE
+      WHEN a.unites > 1 THEN 'des prévisions en ' || a.uom || ' — unités mêlées'
+      WHEN a.volume IS NULL THEN 'aucune prévision budgétée sur ses segments'
+      ELSE round(a.volume, 2)::text
+    END
+FROM absorption_rates ar
+JOIN cost_pools cp ON cp.id = ar.cost_pool_id
+JOIN fiscal_years f ON f.id = ar.fiscal_year_id
+CROSS JOIN LATERAL assiette_absorption(ar.cost_pool_id, ar.fiscal_year_id) a
+WHERE ar.is_current
+  AND ar.budgeted_base IS DISTINCT FROM a.volume;
 
 COMMENT ON VIEW v_invariant_breaches IS
-  'Enregistrements passés au travers d''un invariant, ou antérieurs à lui (§ 11). Doit rester vide — toute ligne est une anomalie à traiter. COUVRE DIX RÈGLES : tout verrou ajouté sans clause ici ne protège que l''avenir.';
+  'Enregistrements passés au travers d''un invariant, ou antérieurs à lui (§ 11). Doit rester vide — toute ligne est une anomalie à traiter. COUVRE DIX-HUIT RÈGLES : tout verrou ajouté sans clause ici ne protège que l''avenir.';

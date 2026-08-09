@@ -7,6 +7,7 @@ import {
   DealCostLineInput,
 } from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
+import { grouper } from '../shared/format';
 
 /** Une ligne en cours d'édition. */
 interface Draft {
@@ -67,7 +68,7 @@ interface Draft {
               <tr [class]="rowClass(l)">
                 <td>
                   <select class="field" [(ngModel)]="l.costPostId" (ngModelChange)="onPostChange(l)">
-                    <option [ngValue]="''">— choisir un poste —</option>
+                    <option [ngValue]="''">Choisir un poste</option>
                     @for (p of directPosts(); track p.costPostId) {
                       <option [ngValue]="p.costPostId">
                         {{ p.label }}{{ p.amount === null ? ' (non tarifé)' : '' }}
@@ -88,7 +89,7 @@ interface Draft {
                     inputmode="decimal"
                     [(ngModel)]="l.amount"
                     (ngModelChange)="touch()"
-                    [attr.aria-label]="'Valeur — ' + basisLabel(l)"
+                    [attr.aria-label]="'Valeur : ' + basisLabel(l)"
                   />
                 </td>
                 <td class="num font-mono font-semibold text-ink">{{ money(total(l)) }}</td>
@@ -126,7 +127,7 @@ interface Draft {
                     <div class="flex items-center gap-2">
                       <erp-icon name="alert-triangle" [size]="13" class="shrink-0 text-warn-ink" />
                       <span class="shrink-0 text-[12px] text-warn-ink">
-                        Valeur modifiée ({{ variancePct(l) }} d’écart) — motif exigé :
+                        Valeur modifiée ({{ variancePct(l) }} d’écart), motif exigé :
                       </span>
                       <input
                         class="field"
@@ -143,7 +144,7 @@ interface Draft {
               <tr>
                 <td colspan="7" class="empty">
                   Aucun coût chiffré. La marge affichée ignore alors transport, manutention et
-                  inspection — elle est surévaluée d’autant. Ajoutez les postes qui concernent
+                  inspection, elle est surévaluée d’autant. Ajoutez les postes qui concernent
                   cette affaire : les valeurs du barème vous seront proposées.
                 </td>
               </tr>
@@ -189,17 +190,17 @@ interface Draft {
           role="status"
         >
           <erp-icon name="check-circle" [size]="14" />
-          Chiffrage enregistré — la chaîne de marge est recalculée.
+          Chiffrage enregistré : la chaîne de marge est recalculée.
         </p>
       }
 
       <p class="border-t border-rule px-[15px] py-2.5 text-[11px] leading-relaxed text-ink-faint">
         La valeur du barème vous est proposée dès que vous choisissez un poste. Vous pouvez la
-        conserver ou en saisir une autre — dans ce cas un motif est exigé. La
+        conserver ou en saisir une autre, dans ce cas un motif est exigé. La
         <strong>base</strong> vient du paramétrage : une valeur <strong>au litre</strong> est
         multipliée par le volume contracté, un <strong>forfait</strong> vaut pour l’affaire
         entière. Les charges indirectes ne se saisissent pas : elles sont absorbées par un taux
-        sur assiette budgétée (§ 14.2).
+        sur assiette budgétée.
       </p>
     </section>
   `,
@@ -300,7 +301,7 @@ export class DealCostingComponent implements OnChanges {
   }
 
   protected volumeLabel(): string {
-    return `${this.volumeSignal().toLocaleString('fr-FR')} ${this.uom}`;
+    return `${grouper(this.volumeSignal())} ${this.uom}`;
   }
 
   protected touch(): void {
@@ -343,7 +344,7 @@ export class DealCostingComponent implements OnChanges {
 
   protected standardLabel(l: Draft): string {
     const std = this.standard(l);
-    if (std?.standardTotal === null || std?.standardTotal === undefined) return '—';
+    if (std?.standardTotal === null || std?.standardTotal === undefined) return '-';
     return this.money(std.standardTotal);
   }
 
@@ -383,10 +384,8 @@ export class DealCostingComponent implements OnChanges {
   }
 
   protected money(v: number): string {
-    if (!Number.isFinite(v)) return '—';
-    return v
-      .toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      .replace(/ | /g, ' ');
+    if (!Number.isFinite(v)) return '-';
+    return grouper(v, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   protected save(): void {

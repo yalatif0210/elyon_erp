@@ -18,6 +18,7 @@ import {
   HttpFailure,
 } from '../shared/action-panel.component';
 import { IconComponent } from '../shared/icon.component';
+import { MontantDirective } from '../shared/montant.directive';
 
 /** Étapes offertes, dans l'ordre où elles se présentent réellement. */
 const NEXT_STEPS: { to: string; label: string }[] = [
@@ -42,7 +43,7 @@ const NEXT_STEPS: { to: string; label: string }[] = [
 @Component({
   selector: 'erp-operation-actions',
   standalone: true,
-  imports: [FormsModule, IconComponent, ActionFeedbackComponent],
+  imports: [FormsModule, IconComponent, ActionFeedbackComponent, MontantDirective],
   template: `
     <section class="card overflow-hidden">
       <div class="card-header">
@@ -57,17 +58,17 @@ const NEXT_STEPS: { to: string; label: string }[] = [
         <h3 class="mb-2 text-[13px] font-semibold text-ink">Moyens affectés</h3>
         <p class="mb-3 text-[11px] leading-relaxed text-ink-faint">
           Le statut de conformité est dérivé des pièces à échéance : il ne se saisit pas. Un
-          moyen non conforme est refusé par la base, sauf dérogation du DG.
+          moyen non conforme est refusé, sauf dérogation du DG.
         </p>
 
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
             <label class="label" for="carrier">Transporteur</label>
             <select id="carrier" class="field" [(ngModel)]="carrierId">
-              <option [ngValue]="''">—</option>
+              <option [ngValue]="''">Choisir</option>
               @for (c of subjects('CARRIER'); track c.subject_id) {
                 <option [ngValue]="c.subject_id">
-                  {{ c.subject_label }}{{ c.is_compliant ? '' : ' — non conforme' }}
+                  {{ c.subject_label }}{{ c.is_compliant ? '' : ' (non conforme)' }}
                 </option>
               }
             </select>
@@ -75,11 +76,11 @@ const NEXT_STEPS: { to: string; label: string }[] = [
           <div>
             <label class="label" for="vehicle">Véhicule</label>
             <select id="vehicle" class="field" [(ngModel)]="vehicleId">
-              <option [ngValue]="''">—</option>
+              <option [ngValue]="''">Choisir</option>
               @for (v of subjects('VEHICLE'); track v.subject_id) {
                 <option [ngValue]="v.subject_id">
                   {{ v.subject_code }} · {{ v.subject_label
-                  }}{{ v.is_compliant ? '' : ' — non conforme' }}
+                  }}{{ v.is_compliant ? '' : ' (non conforme)' }}
                 </option>
               }
             </select>
@@ -87,10 +88,10 @@ const NEXT_STEPS: { to: string; label: string }[] = [
           <div>
             <label class="label" for="driver">Chauffeur</label>
             <select id="driver" class="field" [(ngModel)]="driverId">
-              <option [ngValue]="''">—</option>
+              <option [ngValue]="''">Choisir</option>
               @for (d of subjects('DRIVER'); track d.subject_id) {
                 <option [ngValue]="d.subject_id">
-                  {{ d.subject_label }}{{ d.is_compliant ? '' : ' — non conforme' }}
+                  {{ d.subject_label }}{{ d.is_compliant ? '' : ' (non conforme)' }}
                 </option>
               }
             </select>
@@ -128,14 +129,14 @@ const NEXT_STEPS: { to: string; label: string }[] = [
               </p>
               @if (ecartPct() !== null && ecartPct()! > t.tolerancePct) {
                 <p class="mt-1 text-[11px] leading-snug text-crit">
-                  Écart de {{ ecartPct() }} % pour une tolérance de {{ t.tolerancePct }} % — un
-                  motif circonstancié est exigé, et la base le refusera à défaut.
+                  Écart de {{ ecartPct() }} % pour une tolérance de {{ t.tolerancePct }} %, un
+                  motif circonstancié est exigé, et son absence bloque la saisie.
                 </p>
               }
             } @else if (carrierId !== '') {
               <p class="mt-1 text-[11px] leading-snug text-warn-ink">
-                Aucun tarif négocié pour ce transporteur. L’affectation reste possible — il faut
-                pouvoir rouler avec un transporteur d’appoint — mais la grille devrait être
+                Aucun tarif négocié pour ce transporteur. L’affectation reste possible, il faut
+                pouvoir rouler avec un transporteur d’appoint, mais la grille devrait être
                 complétée au paramétrage.
               </p>
             }
@@ -174,7 +175,7 @@ const NEXT_STEPS: { to: string; label: string }[] = [
           <h3 class="mb-2 mt-6 text-[13px] font-semibold text-ink">Exigences du site</h3>
           <p class="mb-3 text-[11px] leading-relaxed text-ink-faint">
             Portées par le site de livraison, pas par le client : plusieurs clients s’y font
-            livrer. Elles se saisissent au paramétrage des sites — ici on atteste qu’elles sont
+            livrer. Elles se saisissent au paramétrage des sites ; ici on atteste qu’elles sont
             levées.
           </p>
 
@@ -216,14 +217,14 @@ const NEXT_STEPS: { to: string; label: string }[] = [
               @if (acquittee(e.id); as a) {
                 <p class="mt-1.5 text-[11px] text-ink-muted">
                   {{ a.acknowledgedBy.fullName }} · {{ a.acknowledgedAt.slice(0, 10) }}
-                  @if (a.note) { — {{ a.note }} }
+                  @if (a.note) { · {{ a.note }} }
                 </p>
               } @else {
                 <div class="mt-2 flex gap-2">
                   <input
                     class="field flex-1 text-[12px]"
                     maxlength="500"
-                    placeholder="Ce qui a été fait — « badge n° 4471 retiré le 06/08 »"
+                    placeholder="Ce qui a été fait : « badge n° 4471 retiré le 06/08 »"
                     [(ngModel)]="notesExigence[e.id]"
                   />
                   <button
@@ -273,11 +274,11 @@ const NEXT_STEPS: { to: string; label: string }[] = [
         <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
           <div>
             <label class="label" for="loaded">Volume chargé</label>
-            <input id="loaded" class="field text-right font-mono" [(ngModel)]="loaded" />
+            <input id="loaded" class="field text-right font-mono" erpMontant [(ngModel)]="loaded" />
           </div>
           <div>
             <label class="label" for="discharged">Volume livré</label>
-            <input id="discharged" class="field text-right font-mono" [(ngModel)]="discharged" />
+            <input id="discharged" class="field text-right font-mono" erpMontant [(ngModel)]="discharged" />
           </div>
           <div>
             <label class="label" for="density">Densité 15 °C</label>
@@ -338,13 +339,13 @@ const NEXT_STEPS: { to: string; label: string }[] = [
         <h3 class="mb-2 mt-6 text-[13px] font-semibold text-ink">Coût constaté</h3>
         <p class="mb-3 text-[11px] leading-relaxed text-ink-faint">
           Dès qu’une ligne existe ici, elle prend le pas sur le chiffrage de l’affaire dans le
-          calcul de marge. L’écart entre les deux mesure la fiabilité du devis (§ 14.6).
+          calcul de marge. L’écart entre les deux mesure la fiabilité du devis.
         </p>
         <div class="flex flex-wrap items-end gap-3">
           <div>
             <label class="label" for="poste-op">Poste</label>
             <select id="poste-op" class="field" [(ngModel)]="costPostId">
-              <option [ngValue]="''">—</option>
+              <option [ngValue]="''">Choisir</option>
               @for (c of costPosts(); track c.id) {
                 <option [ngValue]="c.id">{{ c.label }}</option>
               }
@@ -352,7 +353,7 @@ const NEXT_STEPS: { to: string; label: string }[] = [
           </div>
           <div>
             <label class="label" for="mnt-op">Montant constaté</label>
-            <input id="mnt-op" class="field w-40 text-right font-mono" [(ngModel)]="costAmount" />
+            <input id="mnt-op" class="field w-40 text-right font-mono" erpMontant [(ngModel)]="costAmount" />
           </div>
           <button class="btn-ghost" (click)="addCost()" [disabled]="state.busy() || !costPostId">
             Ajouter
@@ -558,7 +559,7 @@ export class OperationActionsComponent {
     this.state.start();
     this.api.moveOperation(this.operation.id, to).subscribe({
       next: () => {
-        this.state.succeed(`${label} — état enregistré.`);
+        this.state.succeed(`${label} : état enregistré.`);
         this.changed.emit();
       },
       error: (e: HttpFailure) => this.state.fail(e),
@@ -580,7 +581,7 @@ export class OperationActionsComponent {
       })
       .subscribe({
         next: () => {
-          this.state.succeed('Relevé enregistré — l’écart a été calculé.');
+          this.state.succeed('Relevé enregistré : l’écart a été calculé.');
           this.changed.emit();
         },
         error: (e: HttpFailure) => this.state.fail(e),

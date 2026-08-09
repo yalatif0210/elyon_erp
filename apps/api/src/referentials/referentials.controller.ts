@@ -8,7 +8,7 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import { CommercialSegment, UserRole } from '@prisma/client';
+import { CommercialSegment, Prisma, UserRole } from '@prisma/client';
 import { IsIn, IsOptional } from 'class-validator';
 import { Realm, RequireRealm, Roles, SkipAudit } from '../common/auth/realm';
 import { Page, PaginationQuery, paginate } from '../common/http/pagination.dto';
@@ -173,10 +173,121 @@ export class ReferentialsService {
   /** Taux d'absorption courants — dénominateur budgété (§ 14.2). */
   absorptionRates(fiscalYear: number) {
     return this.prisma.absorptionRate.findMany({
-      where: { fiscalYear, isCurrent: true },
-      include: { costPool: { select: { code: true, label: true, allocationBasis: true, segments: true } } },
+      // L'exercice est désormais une RÉFÉRENCE, plus un entier libre. On le
+      // désigne toujours par son millésime — c'est ainsi qu'un humain le
+      // nomme — mais la jointure garantit qu'il existe.
+      where: { fiscalYear: { year: fiscalYear }, isCurrent: true },
+      include: {
+        costPool: {
+          select: { code: true, label: true, allocationBasis: true, segments: true, variability: true },
+        },
+        fiscalYear: { select: { year: true, label: true, status: true } },
+      },
       orderBy: { costPool: { code: 'asc' } },
     });
+  }
+
+  /**
+   * Numéros de version encore libres pour une identité donnée.
+   *
+   * ⚠️ LES VERSIONS SE COMPTENT PAR IDENTITÉ, PAS GLOBALEMENT.
+   *
+   *    La version 1 du pool Administration 2026 et la version 1 du pool HSE
+   *    2026 coexistent normalement. Les numéros libres dépendent donc du pool
+   *    ET de l'exercice déjà choisis dans le formulaire — c'est pourquoi cette
+   *    route prend les valeurs d'identité en paramètres plutôt que de rendre
+   *    une liste fixe.
+   *
+   *    `suivant` est le premier numéro libre : c'est celui que l'écran
+   *    présélectionne. Dans la quasi-totalité des cas on enchaîne 1, 2, 3, et
+   *    faire lire cent lignes pour cliquer sur « 4 » serait plus pénible que
+   *    sûr — sans retirer la possibilité d'en choisir un autre.
+   */
+  async versionsLibres(key: string, identite: Record<string, string>) {
+    const spec = findReferential(key);
+    if (!spec) {
+      throw new NotFoundException(`Référentiel « ${key} » inconnu.`);
+    }
+
+    const champ = spec.fields.find((f) => f.type === 'version');
+    if (!champ) {
+      throw new NotFoundException(
+        `Le référentiel « ${key} » ne porte pas de champ de version : il n'est pas historisé.`,
+      );
+    }
+
+    // On ne retient que les champs d'identité RENSEIGNÉS. Tant que le
+    // formulaire est incomplet, la liste porte sur ce qui est déjà choisi —
+    // et non sur rien, ce qui laisserait croire que tout est libre.
+    //
+    // ⚠️ LES RÉFÉRENCES ARRIVENT EN CLÉ LISIBLE, PAS EN IDENTIFIANT.
+    //
+    //    L'écran envoie « ADM » et « 2026 » : c'est ce qu'il affiche, et c'est
+    //    ce que l'utilisateur a choisi. Les colonnes, elles, portent des UUID.
+    //    Sans cette résolution, PostgreSQL reçoit « ADM » pour un uuid et
+    //    rejette la requête entière — la liste de versions retombait alors sur
+    //    son repli 1 à 100, donc proposait des numéros DÉJÀ PRIS. Le défaut se
+    //    serait vu à l'écriture, sur un conflit d'unicité incompréhensible.
+    const where: Record<string, unknown> = {};
+    for (const nom of spec.identity) {
+      if (nom === champ.name) continue;
+      const brut = identite[nom];
+      if (brut === undefined || brut === '') continue;
+
+      const decl = spec.fields.find((f) => f.name === nom);
+
+      if (decl?.type === 'reference' && nom.endsWith('Id')) {
+        const cible = findReferential(decl.refTable ?? '');
+        const refKey = decl.refKey ?? 'code';
+        // Le type de la clé lisible est LU dans le référentiel visé : un
+        // exercice se désigne par son millésime, qui est un entier.
+        const champCle = cible?.fields.find((f) => f.name === refKey);
+        const valeur =
+          champCle?.type === 'integer' || champCle?.type === 'number' ? Number(brut) : brut;
+
+        const delegateCible = (this.prisma as unknown as Record<string, unknown>)[
+          cible?.model ?? ''
+        ] as { findFirst: (a: unknown) => Promise<Record<string, unknown> | null> } | undefined;
+
+        const row = await delegateCible?.findFirst({
+          where: { [refKey]: valeur },
+          select: { id: true },
+        });
+        // Référence inconnue : aucune ligne ne peut exister pour elle, donc
+        // toutes les versions sont libres. On le dit en filtrant sur un
+        // identifiant impossible plutôt qu'en ignorant le critère — l'ignorer
+        // rendrait la liste des versions d'un AUTRE pool.
+        where[nom] = row?.['id'] ?? '00000000-0000-0000-0000-000000000000';
+        continue;
+      }
+
+      where[nom] =
+        decl?.type === 'integer' || decl?.type === 'number' ? Number(brut) : brut;
+    }
+
+    const delegate = (this.prisma as unknown as Record<string, unknown>)[spec.model] as {
+      findMany: (a: unknown) => Promise<Record<string, unknown>[]>;
+    };
+
+    const lignes = await delegate.findMany({
+      where,
+      select: { [champ.name]: true },
+      take: 500,
+    });
+
+    const prises = new Set(lignes.map((l) => Number(l[champ.name])));
+    // Cent numéros : au-delà, ce n'est plus une révision, c'est une saisie qui
+    // part en boucle. La borne est ici, dans une seule expression, plutôt que
+    // répétée dans l'écran et dans l'import.
+    const toutes = Array.from({ length: 100 }, (_, i) => i + 1);
+    const libres = toutes.filter((n) => !prises.has(n));
+
+    return {
+      champ: champ.name,
+      prises: [...prises].sort((a, b) => a - b),
+      libres,
+      suivant: libres[0] ?? null,
+    };
   }
 
   /** Grille des seuils de marge — plancher direct et seuil minimum (§ 5.4). */
@@ -358,10 +469,54 @@ export class ReferentialsService {
       throw new NotFoundException(`Référentiel « ${key} » sans table associée.`);
     }
 
+    // ⚠️ LES RÉFÉRENCES SONT RENDUES LISIBLES, PAS BRUTES.
+    //
+    //    Une ligne rendue telle quelle porte « 6b7c54a9-a952-… » là où
+    //    l'exploitant a choisi « exercice 2026 ». Un écran de consultation
+    //    qui affiche des identifiants techniques ne se consulte pas : il se
+    //    referme.
+    //
+    //    Le nom de la relation n'est pas DEVINÉ en retirant « Id » : il est lu
+    //    dans le modèle lui-même. La convention tient aujourd'hui ; le jour où
+    //    une relation s'en écarte, deviner échouerait à l'exécution, sur cet
+    //    écran-là seulement, et sans rien expliquer.
+    const modele = Prisma.dmmf.datamodel.models.find(
+      (m) => m.name.toLowerCase() === spec.model.toLowerCase(),
+    );
+    const relations: Record<string, { relation: string; cle: string }> = {};
+    const include: Record<string, unknown> = {};
+
+    for (const f of spec.fields) {
+      if (f.type !== 'reference' || !f.name.endsWith('Id')) continue;
+      const rel = modele?.fields.find(
+        (x) => x.kind === 'object' && (x.relationFromFields ?? []).includes(f.name),
+      );
+      if (!rel) continue;
+      const cleLisible = f.refKey ?? 'code';
+      relations[f.name] = { relation: rel.name, cle: cleLisible };
+      include[rel.name] = { select: { [cleLisible]: true } };
+    }
+
     // Tri sur le premier champ d'identité : c'est celui qui désigne la ligne
     // pour un humain, donc celui dans lequel il la cherchera.
     const cle = spec.identity[0];
-    return delegate.findMany({ orderBy: { [cle]: 'asc' }, take: 500 });
+    const lignes = await delegate.findMany({
+      orderBy: { [cle]: 'asc' },
+      take: 500,
+      ...(Object.keys(include).length > 0 ? { include } : {}),
+    });
+
+    // La clé lisible est posée À CÔTÉ de l'identifiant, jamais à sa place :
+    // l'écran de consultation montre l'une, la modification a besoin de
+    // l'autre.
+    return lignes.map((l) => {
+      const lisible: Record<string, unknown> = {};
+      for (const [champ, { relation, cle: k }] of Object.entries(relations)) {
+        const cible = l[relation] as Record<string, unknown> | null | undefined;
+        if (cible) lisible[champ] = cible[k];
+      }
+      return { ...l, _lisible: lisible };
+    });
   }
 }
 
@@ -478,6 +633,22 @@ export class ReferentialsController {
   @Roles(UserRole.DG, UserRole.IT_ADMIN, UserRole.FINANCE_CFO)
   settings() {
     return this.service.settings();
+  }
+
+  /**
+   * Numéros de version libres — DÉCLARÉE AVANT `:key`, sans quoi celle-ci
+   * l'avalerait et rendrait « référentiel versions-libres inconnu ».
+   */
+  @Get(':key/versions-libres')
+  @Roles(
+    UserRole.DG,
+    UserRole.FINANCE_CFO,
+    UserRole.ACCOUNTANT,
+    UserRole.CCOO,
+    UserRole.IT_ADMIN,
+  )
+  versionsLibres(@Param('key') key: string, @Query() query: Record<string, string>) {
+    return this.service.versionsLibres(key, query);
   }
 
   /**

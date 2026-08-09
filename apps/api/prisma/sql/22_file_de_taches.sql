@@ -293,9 +293,9 @@ SELECT 'MODELE_HSE_MANQUANT', 'HSE_CONTROLLER', 'BLOQUANT',
      SELECT 1
        FROM hse_checklist_templates t
       WHERE t.is_active AND t.is_current
-        AND (cardinality(t.applicable_segments) = 0
+        AND (COALESCE(cardinality(t.applicable_segments), 0) = 0
              OR d.segment = ANY (t.applicable_segments))
-        AND (cardinality(t.applicable_transport_modes) = 0
+        AND (COALESCE(cardinality(t.applicable_transport_modes), 0) = 0
              OR o.transport_mode = ANY (t.applicable_transport_modes))
    )
 

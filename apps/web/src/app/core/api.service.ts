@@ -496,9 +496,13 @@ export interface PointMort {
   exercice: number | null;
   label: string | null;
   charges_fixes: string;
-  postes_de_charges: string;
+  /** Nombre de pools FIXES budgétés. Les charges fixes en sont la somme. */
+  pools_de_charges_fixes: string;
+  devise_charges: string | null;
   marge_unitaire: string | null;
   volume_realise: string | null;
+  devise_marge: string | null;
+  uom: string | null;
   calculable: boolean;
   motif: string | null;
   point_mort_volume: string | null;
@@ -534,22 +538,45 @@ export interface CouvertureBudgetaire {
 }
 
 /**
- * Assiette d'absorption saisie, comparée à la prévision de volumes (§ 14.2).
+ * Ce que les charges devraient coûter au litre, et ce qu'elles coûtent.
  *
- * `ecart_pct` nul ne veut PAS dire « d'accord » : il veut dire qu'aucune
- * prévision ne couvre ce pool, donc qu'il n'y a rien à comparer.
+ * Trois assiettes pour un même budget. Une seule fait foi.
+ *
+ * ⚠️ SEUL `taux_applique` ENTRE DANS LE CALCUL DE MARGE.
+ *
+ *    Les deux autres sont un thermomètre. Si le taux révisé alimentait la
+ *    marge, une année sous les prévisions ferait monter la charge au litre,
+ *    davantage d'affaires passeraient sous le seuil, le volume baisserait
+ *    encore — la spirale d'absorption du § 14.2.
+ *
+ * ⚠️ LE NUMÉRATEUR EST TOUJOURS LE BUDGET.
+ *
+ *    Aucune comptabilité de charges n'existe dans ce système. Ce tableau ne
+ *    compare pas « budgété contre dépensé » mais « sur combien de litres
+ *    j'espérais étaler » contre « sur combien je vais réellement les étaler ».
+ *    La colonne `perimetre` le dit, et l'écran l'affiche.
  */
-export interface AssietteAbsorption {
+export interface AbsorptionReelle {
   pool: string;
-  label: string;
-  base: string;
-  fiscal_year: number;
-  budgeted_amount: string;
-  assiette_saisie: string;
-  assiette_uom: string | null;
-  rate_per_unit: string;
-  volume_prevu: string | null;
-  ecart_pct: string | null;
+  pool_libelle: string;
+  nature: string;
+  devise: string;
+  exercice: number;
+  budget: string;
+  uom: string | null;
+  assiette_budget: string;
+  taux_applique: string;
+  assiette_revisee: string | null;
+  taux_si_revision: string | null;
+  ecart_revision: string | null;
+  ecart_revision_pct: string | null;
+  mois_ecoules: number;
+  mois_total: number;
+  volume_realise: string | null;
+  taux_a_date: string | null;
+  ecart_a_date: string | null;
+  ecart_a_date_pct: string | null;
+  perimetre: string;
 }
 
 /**
@@ -784,9 +811,13 @@ export interface FieldSpec {
     | 'enum'
     | 'enumList'
     | 'reference'
-    | 'referenceList';
+    | 'referenceList'
+    /** Numéro de version : liste dont les numéros déjà pris sont retirés. */
+    | 'version';
   required?: boolean;
   values?: string[];
+  /** Libellé français de chaque valeur : l'affichage seul, jamais la valeur. */
+  valueLabels?: Record<string, string>;
   refTable?: string;
   refKey?: string;
   decimals?: number;
@@ -1399,8 +1430,8 @@ export class ApiService {
     return this.http.get<Bfr[]>(`${this.base}/supervision/bfr`);
   }
 
-  assietteAbsorption(): Observable<AssietteAbsorption[]> {
-    return this.http.get<AssietteAbsorption[]>(`${this.base}/supervision/assiette-absorption`);
+  absorptionReelle(): Observable<AbsorptionReelle[]> {
+    return this.http.get<AbsorptionReelle[]>(`${this.base}/supervision/absorption-reelle`);
   }
 
   previsionVente(): Observable<PrevisionVente[]> {
@@ -1432,6 +1463,43 @@ export class ApiService {
           .filter((o) => o.value !== '');
       }),
     );
+  }
+
+  /**
+   * Ce qui est déjà enregistré pour un référentiel.
+   *
+   * Les références y sont doublées d'une clé lisible sous `_lisible` : l'écran
+   * de consultation montre « ADM » là où la ligne porte un identifiant.
+   */
+  lignesReferentiel(key: string): Observable<Record<string, unknown>[]> {
+    return this.http.get<unknown>(`${this.base}/referentials/${key}`).pipe(
+      map((payload) =>
+        (Array.isArray(payload)
+          ? payload
+          : ((payload as { items?: unknown[] })?.items ?? [])) as Record<string, unknown>[],
+      ),
+    );
+  }
+
+  /**
+   * Numéros de version encore libres pour la combinaison d'identité donnée.
+   *
+   * L'identité passe en paramètres d'URL parce que la liste en DÉPEND : la
+   * version 1 du pool Administration 2026 et celle du pool HSE 2026 coexistent
+   * normalement, et les numéros pris ne sont pas les mêmes.
+   */
+  versionsLibres(
+    key: string,
+    identite: Record<string, string>,
+  ): Observable<{ champ: string; prises: number[]; libres: number[]; suivant: number | null }> {
+    let params = new HttpParams();
+    for (const [k, v] of Object.entries(identite)) params = params.set(k, v);
+    return this.http.get<{
+      champ: string;
+      prises: number[];
+      libres: number[];
+      suivant: number | null;
+    }>(`${this.base}/referentials/${key}/versions-libres`, { params });
   }
 
   parameterCatalogue(): Observable<ReferentialSpec[]> {

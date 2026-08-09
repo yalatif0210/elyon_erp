@@ -449,7 +449,6 @@ model Currency {
   @@map("currencies")
   carrierTariffs CarrierTariff[] @relation("CarrierTariffCurrency")
 
-  fixedCostBudgets FixedCostBudget[]
   salesForecastsRef SalesForecast[]
 
   crmOpportunities CrmOpportunity[] @relation("CrmOpportunityCurrency")
@@ -567,7 +566,6 @@ model User {
 
   fiscalYearsAuthored      FiscalYear[]      @relation("FiscalYearAuthor")
   financingRatesAuthored   FinancingRate[]   @relation("FinancingRateAuthor")
-  fixedCostBudgetsAuthored FixedCostBudget[] @relation("FixedCostBudgetAuthor")
   salesForecastsAuthored   SalesForecast[]   @relation("SalesForecastAuthor")
 
   crmOpportunitiesOwned CrmOpportunity[] @relation("CrmOpportunityOwner")
@@ -1345,6 +1343,20 @@ model CostPool {
   /// Segments couverts. Vide = tous.
   segments CommercialSegment[]
 
+  /// Nature des charges regroupées.
+  ///
+  /// ⚠️ C'EST CE CHAMP QUI ALIMENTE LE POINT MORT (§ 14.5).
+  ///    Les charges fixes de l'exercice sont la SOMME des budgets des pools
+  ///    FIXED — elles ne se saisissent plus à part. Un pool VARIABLE (des
+  ///    commissions bancaires proportionnelles, par exemple) entre bien dans
+  ///    l'absorption, mais pas dans le point mort : il est déjà compté dans la
+  ///    marge sur coût variable, et l'y ajouter le compterait deux fois.
+  ///
+  /// Le défaut n'existe que pour la reprise des pools antérieurs à ce champ ;
+  /// il est retiré au niveau de la base juste après, pour qu'aucun pool créé
+  /// ensuite ne prenne une nature par omission.
+  variability CostVariability @default(FIXED)
+
   currencyCode String   @map("currency_code") @db.Char(3)
   currency     Currency @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
 
@@ -1374,13 +1386,29 @@ model AbsorptionRate {
   costPoolId String   @map("cost_pool_id") @db.Uuid
   costPool   CostPool @relation(fields: [costPoolId], references: [id], onDelete: Cascade)
 
-  fiscalYear Int @map("fiscal_year") @db.SmallInt
+  /// L'exercice comptable, par référence.
+  ///
+  /// ⚠️ C'ÉTAIT UN ENTIER LIBRE, SANS CLÉ ÉTRANGÈRE.
+  ///    On pouvait saisir un taux pour un exercice qui n'existe pas — 2027 non
+  ///    déclaré, ou 2062 par faute de frappe. Rien ne bronchait, et le taux
+  ///    disparaissait simplement de tous les calculs. Les trois autres données
+  ///    budgétaires pointaient correctement vers l'exercice ; seule celle-ci
+  ///    était restée en arrière, écrite avant que la table n'existe.
+  fiscalYearId String     @map("fiscal_year_id") @db.Uuid
+  fiscalYear   FiscalYear @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
 
   /// Budget annuel des charges du regroupement, en devise du pool.
+  /// SEULE VALEUR SAISIE de ce modèle — tout le reste en découle.
   budgetedAmount Decimal @map("budgeted_amount") @db.Decimal(18, 4)
-  /// Assiette annuelle budgétée : volume, nombre d'opérations ou CA
-  /// selon l'assiette du pool. Vient de la prévision de vente (§ 14.3).
-  budgetedBase Decimal        @map("budgeted_base") @db.Decimal(18, 6)
+
+  /// Assiette annuelle budgétée.
+  ///
+  /// ⚠️ CALCULÉE, PLUS SAISIE — somme des volumes de PRÉVISION BUDGÉTÉE de
+  ///    l'exercice, sur les segments que le pool couvre (§ 14.2, § 14.3).
+  ///    La saisir une seconde fois garantissait qu'un jour les deux
+  ///    divergeraient. Les défauts n'existent que pour que Prisma ne les
+  ///    exige pas à la création : le déclencheur les écrase aussitôt.
+  budgetedBase Decimal        @default(0) @map("budgeted_base") @db.Decimal(18, 6)
   baseUom      UnitOfMeasure? @map("base_uom")
 
   /// Taux dérivé = budgetedAmount / budgetedBase. Figé, recalculé
@@ -1399,8 +1427,8 @@ model AbsorptionRate {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  @@unique([costPoolId, fiscalYear, version])
-  @@index([costPoolId, fiscalYear, isCurrent])
+  @@unique([costPoolId, fiscalYearId, version])
+  @@index([costPoolId, fiscalYearId, isCurrent])
   @@map("absorption_rates")
 }
 
@@ -3709,8 +3737,8 @@ model FiscalYear {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   financingRates   FinancingRate[]
-  fixedCostBudgets FixedCostBudget[]
   salesForecasts   SalesForecast[]
+  absorptionRates  AbsorptionRate[]
 
   @@index([isCurrent])
   @@map("fiscal_years")
@@ -3751,41 +3779,22 @@ model FinancingRate {
   @@map("financing_rates")
 }
 
-/// Charges fixes annuelles, pour le point mort (§ 14.5).
-///
-/// Le § 14.5 retient UN SEUL BLOC au niveau entreprise, et n'attribue des
-/// charges fixes à un segment que lorsqu'elles lui sont réellement imputables
-/// — la barge au maritime. `segment` nul signifie donc « entreprise entière »,
-/// et c'est le cas normal, pas une valeur manquante.
-model FixedCostBudget {
-  id           String     @id @default(uuid()) @db.Uuid
-  fiscalYearId String     @map("fiscal_year_id") @db.Uuid
-  fiscalYear   FiscalYear @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
-
-  /// Poste de charge fixe : loyers, salaires structure, assurances, amortissements.
-  label String @db.VarChar(160)
-
-  /// Nul = entreprise entière. Renseigné seulement si la charge est
-  /// RÉELLEMENT attribuable au segment (§ 14.5).
-  segment CommercialSegment?
-
-  annualAmount Decimal  @map("annual_amount") @db.Decimal(18, 4)
-  currencyCode String   @map("currency_code") @db.Char(3)
-  currency     Currency @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
-
-  version   Int     @default(1) @db.SmallInt
-  isCurrent Boolean @default(true) @map("is_current")
-
-  notes String? @db.VarChar(500)
-
-  authorId String? @map("author_id") @db.Uuid
-  author   User?   @relation("FixedCostBudgetAuthor", fields: [authorId], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-
-  @@index([fiscalYearId, isCurrent])
-  @@map("fixed_cost_budgets")
-}
+// ⚠️ `FixedCostBudget` A ÉTÉ SUPPRIMÉ — LES CHARGES FIXES SE DÉRIVENT.
+//
+//    Elles se saisissaient à part, et décrivaient le MÊME ARGENT que les pools
+//    de charges indirectes : le budget administration se tapait une fois dans
+//    un pool, une seconde fois ici. Rien ne rapprochait les deux totaux. Le
+//    jour où ils divergeaient, le seuil de marge et le point mort racontaient
+//    deux histoires différentes, et ni l'un ni l'autre ne le disait.
+//
+//    Les charges fixes de l'exercice sont désormais la SOMME DES BUDGETS DES
+//    POOLS DÉCLARÉS FIXED (voir `CostPool.variability`), exposée par la vue
+//    `v_charges_fixes_exercice`. Une seule saisie, deux usages, aucun écart
+//    possible.
+//
+//    Ce qui alimentait le point mort et ce qui alimente le seuil de marge
+//    viennent maintenant du même chiffre — ce qui était l'objectif, et ce que
+//    deux saisies parallèles ne pouvaient pas garantir.
 
 /// Prévision de vente — maille segment × produit × mois (§ 14.3).
 ///
@@ -3816,9 +3825,34 @@ model SalesForecast {
   forecastVolume Decimal       @map("forecast_volume") @db.Decimal(18, 4)
   uom            UnitOfMeasure
 
+  /// Quelle publication de prix cette prévision suit.
+  ///
+  /// ⚠️ SEULE VALEUR À CHOISIR ICI : LE PRIX LUI-MÊME EN DÉCOULE.
+  ///
+  ///    Le prix se saisissait à la main alors qu'il est déjà publié au
+  ///    référentiel des prix administrés. Deux copies d'un même chiffre
+  ///    finissent toujours par différer : la DGH publie, personne ne reprend
+  ///    la prévision, et le chiffre d'affaires prévisionnel reste calé sur un
+  ///    prix que plus personne ne pratique.
+  ///
+  ///    Ce qu'on ne peut pas deviner en revanche, c'est LAQUELLE des
+  ///    publications s'applique : le retail suit le prix à la pompe, le
+  ///    soutage un prix contractuel. Prendre « la plus récente » ferait
+  ///    basculer la base de calcul au premier arrêté publié sur l'autre
+  ///    référence, en silence. On la déclare donc, une fois.
+  ///
+  /// Nul sur les lignes antérieures à cette règle : elles gardent le prix qui
+  /// avait été saisi, et le dire vaut mieux que réécrire leur histoire.
+  priceReferenceType PriceReferenceType? @map("price_reference_type")
+
   /// Prix unitaire de référence servant à dériver le CA prévisionnel.
-  referencePrice Decimal  @map("reference_price") @db.Decimal(18, 4)
-  currencyCode   String   @map("currency_code") @db.Char(3)
+  ///
+  /// CALCULÉS tous deux à l'écriture depuis la publication retenue ci-dessus.
+  /// Les défauts n'existent que pour que Prisma ne les exige pas à la
+  /// création : le déclencheur les remplace avant que la ligne ne soit posée,
+  /// donc avant que la clé étrangère de la devise ne soit vérifiée.
+  referencePrice Decimal  @default(0) @map("reference_price") @db.Decimal(18, 4)
+  currencyCode   String   @default("") @map("currency_code") @db.Char(3)
   currency       Currency @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
 
   /// BUDGET ou RÉVISION. Le budget validé ne s'écrase jamais (§ 14.3, étape 5).

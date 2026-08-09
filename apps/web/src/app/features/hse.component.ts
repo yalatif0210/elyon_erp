@@ -83,7 +83,7 @@ interface HseCheckRow {
           <div class="md:col-span-2">
             <label class="label" for="op-ev">Opération concernée</label>
             <select id="op-ev" class="field" [(ngModel)]="operationId">
-              <option [ngValue]="''">— aucune —</option>
+              <option [ngValue]="''">Aucune</option>
               @for (o of operations(); track o.id) {
                 <option [ngValue]="o.id">{{ o.reference }} · {{ o.deal.client.legalName }}</option>
               }
@@ -95,7 +95,7 @@ interface HseCheckRow {
           </div>
         </div>
         <p class="mt-2 text-[11px] leading-relaxed text-ink-faint">
-          Signaler ne demande aucune habilitation — seul le traitement en demande. Un écart de
+          Signaler ne demande aucune habilitation, seul le traitement en demande. Un écart de
           volume au-delà du seuil critique en ouvre un d’office : le produit est allé quelque
           part.
         </p>
@@ -157,8 +157,8 @@ interface HseCheckRow {
 
       <p class="border-t border-rule px-[15px] py-2.5 text-[11px] leading-relaxed text-ink-faint">
         L’entreprise ne compte qu’un contrôleur HSE. En son absence, le DG valide à sa place, et
-        la suppléance est tracée comme telle (§ 3.4). La séparation des tâches reste appliquée
-        par la base : celui qui a renseigné un contrôle bloquant ne peut pas le valider.
+        la suppléance est tracée comme telle. La séparation des tâches reste appliquée
+        automatiquement : celui qui a renseigné un contrôle bloquant ne peut pas le valider.
       </p>
     </section>
   `,

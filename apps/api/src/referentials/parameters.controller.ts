@@ -58,16 +58,37 @@ export interface RowError {
  *    « 1 234,56 » ferait rejeter la moitié d'un fichier légitime.
  */
 export function coerce(field: FieldSpec, raw: unknown): unknown {
+  // ⚠️ UNE LISTE VIDE EST UNE LISTE VIDE, PAS UNE ABSENCE.
+  //
+  //    Le champ vide rendait `null`, et PostgreSQL écrivait NULL dans la
+  //    colonne tableau. Or les vues lisent « couvre tout » comme
+  //    `cardinality(segments) = 0` — et `cardinality(NULL)` ne vaut pas zéro,
+  //    il vaut NULL. La condition devenait NULL, donc fausse, et le pool
+  //    n'était rattaché à RIEN alors que « vide = tous les segments » est écrit
+  //    sous le champ.
+  //
+  //    Constaté sur les quatre pools de charges saisis à l'écran : leur
+  //    assiette révisée ressortait vide sans qu'aucun message ne l'explique.
+  //
+  //    Les champs ABSENTS du fichier n'arrivent pas ici — l'appelant les écarte
+  //    avant. Un vide reçu ici est donc toujours un vide VOULU.
+  if (field.type === 'enumList' || field.type === 'referenceList') {
+    if (raw === null || raw === undefined || String(raw).trim() === '') return [];
+  }
   if (raw === null || raw === undefined || raw === '') return null;
   const text = String(raw).trim();
   if (text === '') return null;
   switch (field.type) {
     case 'number':
-    case 'integer': {
+    case 'integer':
+    // Une version se convertit comme un entier — c'en est un. Ce qui la
+    // distingue est la LISTE DE CHOIX qu'elle propose à la saisie, calculée
+    // par `/referentials/:key/versions-libres`, pas sa conversion.
+    case 'version': {
       const cleaned = text.replace(/\s| | /g, '').replace(',', '.');
       const n = Number(cleaned);
       if (!Number.isFinite(n)) throw new Error(`« ${text} » n’est pas un nombre`);
-      if (field.type === 'integer' && !Number.isInteger(n)) {
+      if (field.type !== 'number' && !Number.isInteger(n)) {
         throw new Error(`« ${text} » doit être un entier`);
       }
       return n;
@@ -187,9 +208,21 @@ export class ParametersService {
     if (spec.model === 'systemSetting') this.settings.invalidate();
   }
 
-  /** Le registre lui-même : il pilote aussi l'interface de saisie. */
-  catalogue() {
-    return REFERENTIALS.map((r) => ({
+  /**
+   * Le registre lui-même : il pilote aussi l'interface de saisie.
+   *
+   * ⚠️ FILTRÉ SUR CE QUE L'UTILISATEUR PEUT RÉELLEMENT ÉCRIRE.
+   *
+   *    Les vingt-huit réglages étaient présentés à tout le monde. Le directeur
+   *    financier voyait donc « Sites de livraison » dans sa liste, l'ouvrait,
+   *    et se heurtait à un refus — sur une écriture comme sur une lecture,
+   *    puisque ces réglages relèvent de la logistique.
+   *
+   *    Un écran qui propose ce qu'il refusera ensuite fait douter de tout le
+   *    reste : on ne sait plus si le refus vient d'une règle ou d'une panne.
+   */
+  catalogue(role?: UserRole) {
+    return REFERENTIALS.filter((r) => !role || r.writeRoles.includes(role)).map((r) => ({
       key: r.key,
       label: r.label,
       nature: r.nature,
@@ -599,8 +632,8 @@ export class ParametersController {
     UserRole.SALES_REP,
     UserRole.IT_ADMIN,
   )
-  catalogue() {
-    return this.service.catalogue();
+  catalogue(@Req() req: { auth: { role: UserRole } }) {
+    return this.service.catalogue(req.auth.role);
   }
 
   @Get(':key/template')

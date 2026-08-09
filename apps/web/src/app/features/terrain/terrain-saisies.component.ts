@@ -9,6 +9,7 @@ import {
 import { deposer, messageServeur } from './terrain-depot';
 import { maintenantLocal, versIso } from './terrain-libelles';
 import { VocabulaireChoixComponent } from './vocabulaire-choix.component';
+import { MontantDirective } from '../../shared/montant.directive';
 
 /**
  * Socle commun aux écrans de saisie du terrain.
@@ -98,6 +99,7 @@ abstract class EcranDeSaisie implements OnInit {
     TerrainRetourComponent,
     TerrainCompteRenduComponent,
     VocabulaireChoixComponent,
+    MontantDirective,
   ],
   template: `
     <div class="t-screen">
@@ -106,7 +108,7 @@ abstract class EcranDeSaisie implements OnInit {
 
       <h1 class="t-title mt-2">Relever un volume</h1>
       <p class="t-sub">
-        Les volumes sont ceux ramenés à 15 °C. L’écart avec le prévu est calculé par le serveur.
+        Les volumes sont ceux ramenés à 15 °C. L’écart avec le prévu est calculé automatiquement.
       </p>
 
       <div class="mt-5">
@@ -130,10 +132,8 @@ abstract class EcranDeSaisie implements OnInit {
         <label class="t-label" for="charge">Volume relevé à la jauge</label>
         <input
           id="charge"
-          type="number"
-          inputmode="decimal"
-          step="0.001"
           class="t-field tabular"
+          erpMontant
           [(ngModel)]="loadedObservedVolume"
         />
       </div>
@@ -158,10 +158,8 @@ abstract class EcranDeSaisie implements OnInit {
         <label class="t-label" for="livre">Volume relevé à la jauge</label>
         <input
           id="livre"
-          type="number"
-          inputmode="decimal"
-          step="0.001"
           class="t-field tabular"
+          erpMontant
           [(ngModel)]="dischargedObservedVolume"
         />
       </div>
@@ -294,6 +292,7 @@ export class TerrainMeasurementComponent extends EcranDeSaisie {
     TerrainRetourComponent,
     TerrainCompteRenduComponent,
     VocabulaireChoixComponent,
+    MontantDirective,
   ],
   template: `
     <div class="t-screen">
@@ -332,7 +331,7 @@ export class TerrainMeasurementComponent extends EcranDeSaisie {
         <textarea id="desc" class="t-field" maxlength="4000" [(ngModel)]="description"></textarea>
         <p class="t-hint">
           Dix caractères au minimum. Décrivez ce que vous avez constaté, pas ce que vous en
-          déduisez — la qualification se fait ensuite, sur pièces.
+          déduisez, la qualification se fait ensuite, sur pièces.
         </p>
       </div>
 
@@ -363,7 +362,7 @@ export class TerrainIncidentComponent extends EcranDeSaisie {
   }
 
   protected async soumettre(): Promise<void> {
-    const acquis = await this.envoyer('HSE_EVENT_DECLARED', `Incident — ${this.title}`, {
+    const acquis = await this.envoyer('HSE_EVENT_DECLARED', `Incident : ${this.title}`, {
       type: this.type,
       severity: this.severity,
       title: this.title.trim(),
@@ -404,6 +403,7 @@ export class TerrainIncidentComponent extends EcranDeSaisie {
     TerrainRetourComponent,
     TerrainCompteRenduComponent,
     VocabulaireChoixComponent,
+    MontantDirective,
   ],
   template: `
     <div class="t-screen">
@@ -421,7 +421,7 @@ export class TerrainIncidentComponent extends EcranDeSaisie {
                    leading-relaxed text-crit"
           >
             {{ bloquants(op) }} point(s) de contrôle bloquant(s) ne sont pas levés. Le verrou HSE
-            est tenu par la base : tant qu’ils restent en souffrance, l’avancement sera refusé.
+            est tenu automatiquement : tant qu’ils restent en souffrance, l’avancement sera refusé.
           </p>
         }
       }

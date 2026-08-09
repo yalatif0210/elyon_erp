@@ -105,10 +105,10 @@ import { jour, jourHeure } from './terrain-libelles';
 
         <p class="t-section">Adresse et horaires</p>
         <div class="rounded-[3px] border border-rule-strong bg-surface px-4">
-          <div class="t-row"><span class="t-key">Adresse</span><span class="t-val">{{ f.site.addressLine ?? '—' }}</span></div>
-          <div class="t-row"><span class="t-key">Ville</span><span class="t-val">{{ f.site.city ?? '—' }}</span></div>
+          <div class="t-row"><span class="t-key">Adresse</span><span class="t-val">{{ f.site.addressLine ?? '-' }}</span></div>
+          <div class="t-row"><span class="t-key">Ville</span><span class="t-val">{{ f.site.city ?? '-' }}</span></div>
           <div class="t-row"><span class="t-key">Pays</span><span class="t-val font-mono">{{ f.site.countryCode }}</span></div>
-          <div class="t-row"><span class="t-key">Horaires</span><span class="t-val">{{ f.site.openingHours ?? '—' }}</span></div>
+          <div class="t-row"><span class="t-key">Horaires</span><span class="t-val">{{ f.site.openingHours ?? '-' }}</span></div>
           <div class="t-row">
             <span class="t-key">Risque par défaut</span>
             <span class="t-val"><span class="t-code">{{ f.site.defaultHseRiskLevel }}</span></span>
@@ -163,7 +163,7 @@ import { jour, jourHeure } from './terrain-libelles';
               <p class="mt-1 text-[15px] text-ink-soft">
                 Prévu <span class="tabular font-semibold text-ink">{{ h.plannedVolume }}</span> ·
                 Livré
-                <span class="tabular font-semibold text-ink">{{ h.deliveredVolume ?? '—' }}</span>
+                <span class="tabular font-semibold text-ink">{{ h.deliveredVolume ?? '-' }}</span>
                 <span class="t-code ml-1">{{ h.uom }}</span>
               </p>
               @for (i of h.incidents; track i.reference) {

@@ -17,6 +17,7 @@ import json, urllib.request, urllib.error
 B = "http://localhost:4200"
 PWD = "ChangeMe!2026"
 ANNEE_ESSAI = 2099  # 2094 sert aux cas de bornes
+POOL_ESSAI = "RECETTE_STRUCTURE"
 
 ok, ko = 0, 0
 
@@ -65,7 +66,10 @@ print("\n1. Exercice comptable")
 code, rep = ecrire(cfo, "fiscal-years", {
     "year": ANNEE_ESSAI, "label": "Exercice de recette",
     "startsOn": "2099-01-01", "endsOn": "2099-12-31",
-    "status": "OPEN", "isCurrent": False,
+    # PLANNED, et non OPEN : depuis 34_budget_indirect_derive, une ligne de
+    # BUDGET ne s'ajoute plus a un exercice ouvert. Le passage a OPEN est
+    # eprouve plus bas, section 8.
+    "status": "PLANNED", "isCurrent": False,
 })
 cas("le CFO cree un exercice", code in (200, 201), f"{code} {rep}")
 
@@ -108,20 +112,39 @@ code, rep = ecrire(cfo, "financing-rates", {
 })
 cas("base de jours aberrante refusee", code >= 400, f"{code}")
 
-# --- 3. Charges fixes ------------------------------------------------------
-print("\n3. Budget de charges fixes")
+# --- 3. Le budget de charges fixes ne se saisit PLUS ----------------------
+# Il decrivait le meme argent que les pools de charges indirectes, et rien ne
+# rapprochait les deux saisies. Il est desormais DERIVE de la somme des budgets
+# des pools declares FIXES.
+print("\n3. Budget des pools de charges")
 code, rep = ecrire(cfo, "fixed-cost-budgets", {
     "fiscalYearId": ANNEE_ESSAI, "label": "Structure de recette",
     "annualAmount": 120000000, "currencyCode": "XOF",
-    "version": 1, "isCurrent": True,
 })
-cas("poste de charge fixe cree", code in (200, 201), f"{code} {rep}")
+cas("le budget de charges fixes n'est plus saisissable", code == 404, f"{code}")
 
-code, rep = ecrire(cfo, "fixed-cost-budgets", {
-    "fiscalYearId": ANNEE_ESSAI, "label": "Montant negatif",
-    "annualAmount": -5, "currencyCode": "XOF", "version": 1,
+code, rep = ecrire(cfo, "cost-pools", {
+    "code": POOL_ESSAI, "label": "Structure de recette",
+    "allocationBasis": "PER_VOLUME", "variability": "FIXED",
+    "currencyCode": "XOF", "isActive": True,
 })
-cas("montant negatif refuse", code >= 400, f"{code}")
+cas("pool de charges FIXES cree", code in (200, 201), f"{code} {rep}")
+
+code, rep = ecrire(cfo, "cost-pools", {
+    "code": POOL_ESSAI + "_ROT", "label": "Par rotation",
+    "allocationBasis": "PER_OPERATION", "variability": "FIXED",
+    "currencyCode": "XOF", "isActive": True,
+})
+cas("pool impute a l'operation refuse", code >= 400, f"{code}")
+
+# ORDRE IMPOSE : la prevision d'abord, le budget du pool ensuite. Sans
+# prevision, le taux d'absorption n'a pas de denominateur a lire, et la base
+# refuse plutot que d'inventer une assiette.
+code, rep = ecrire(cfo, "absorption-rates", {
+    "costPoolId": POOL_ESSAI, "fiscalYearId": ANNEE_ESSAI,
+    "budgetedAmount": 120000000, "version": 1, "isCurrent": True,
+})
+cas("budget de pool refuse tant qu'aucune prevision n'existe", code >= 400, f"{code}")
 
 # --- 4. Prevision de vente -------------------------------------------------
 print("\n4. Prevision de vente")
@@ -130,11 +153,36 @@ items = produits.get("items", produits) if isinstance(produits, dict) else produ
 produit = items[0]["code"] if items else None
 cas("un produit est disponible pour la prevision", produit is not None, str(produits)[:120])
 
+# ⚠️ LE PRIX DE REFERENCE NE SE SAISIT PLUS : IL VIENT DE LA PUBLICATION.
+#    La prevision declare QUELLE publication elle suit ; le prix et la devise
+#    en sont tires. L'ordre est donc impose : publier d'abord, budgeter ensuite.
+if produit:
+    code, rep = ecrire(cfo, "administered-prices", {
+        "referenceType": "PUMP", "productId": produit, "price": 750,
+        "currencyCode": "XOF", "uom": "L", "publishedBy": "DGH",
+        "effectiveFrom": "2020-01-01",
+    })
+    cas("un prix a la pompe est publie", code in (200, 201), f"{code} {rep}")
+
+    code, rep = ecrire(cfo, "sales-forecasts", {
+        "fiscalYearId": ANNEE_ESSAI, "segment": "B2B", "productId": produit,
+        "monthIndex": 4, "forecastVolume": 1000, "uom": "L", "kind": "BUDGET",
+        "version": 1,
+    })
+    cas("prevision sans publication declaree refusee", code >= 400, f"{code}")
+
+    code, rep = ecrire(cfo, "sales-forecasts", {
+        "fiscalYearId": ANNEE_ESSAI, "segment": "B2B", "productId": produit,
+        "monthIndex": 4, "forecastVolume": 1000, "uom": "MT", "kind": "BUDGET",
+        "version": 1, "priceReferenceType": "PUMP",
+    })
+    cas("unite discordante avec la publication refusee", code >= 400, f"{code}")
+
 if produit:
     code, rep = ecrire(cfo, "sales-forecasts", {
         "fiscalYearId": ANNEE_ESSAI, "segment": "B2B", "productId": produit,
         "monthIndex": 1, "forecastVolume": 500000, "uom": "L",
-        "referencePrice": 750, "currencyCode": "XOF",
+        "priceReferenceType": "PUMP",
         "kind": "BUDGET", "version": 1, "isCurrent": True,
     })
     cas("prevision mensuelle creee", code in (200, 201), f"{code} {rep}")
@@ -142,14 +190,14 @@ if produit:
     code, rep = ecrire(cfo, "sales-forecasts", {
         "fiscalYearId": ANNEE_ESSAI, "segment": "B2B", "productId": produit,
         "monthIndex": 13, "forecastVolume": 1, "uom": "L",
-        "referencePrice": 1, "currencyCode": "XOF", "kind": "BUDGET", "version": 2,
+        "priceReferenceType": "PUMP", "kind": "BUDGET", "version": 2,
     })
     cas("mois 13 refuse", code >= 400, f"{code}")
 
     code, rep = ecrire(cfo, "sales-forecasts", {
         "fiscalYearId": ANNEE_ESSAI, "segment": "B2B", "productId": produit,
         "monthIndex": 2, "forecastVolume": -1, "uom": "L",
-        "referencePrice": 700, "currencyCode": "XOF", "kind": "BUDGET", "version": 1,
+        "priceReferenceType": "PUMP", "kind": "BUDGET", "version": 1,
     })
     cas("volume negatif refuse", code >= 400, f"{code}")
 
@@ -159,13 +207,13 @@ print(chr(10) + "6. Bornes de l'exercice")
 code, rep = ecrire(cfo, "fiscal-years", {
     "year": 2094, "label": "Exercice court de recette",
     "startsOn": "2094-01-01", "endsOn": "2094-06-30",
-    "status": "OPEN", "isCurrent": False,
+    "status": "PLANNED", "isCurrent": False,
 })
 cas("exercice court de 6 mois cree", code in (200, 201), f"{code} {rep}")
 
 if produit:
     court = {"fiscalYearId": 2094, "segment": "B2B", "productId": produit,
-             "uom": "L", "referencePrice": 700, "currencyCode": "XOF", "version": 1}
+             "uom": "L", "priceReferenceType": "PUMP", "version": 1}
 
     code, rep = ecrire(cfo, "sales-forecasts",
                        {**court, "monthIndex": 12, "forecastVolume": 1000, "kind": "BUDGET"})
@@ -187,7 +235,7 @@ if produit:
     code, rep = ecrire(cfo, "fiscal-years", {
         "year": 2094, "label": "Exercice court de recette",
         "startsOn": "2094-01-01", "endsOn": "2094-03-31",
-        "status": "OPEN", "isCurrent": False,
+        "status": "PLANNED", "isCurrent": False,
     })
     cas("raccourcir l'exercice sous ses previsions : refuse", code >= 400, f"{code}")
 
@@ -196,14 +244,14 @@ if produit:
 print(chr(10) + "7. Une revision fait foi sur son mois")
 if produit:
     base7 = {"fiscalYearId": ANNEE_ESSAI, "segment": "RETAIL", "productId": produit,
-             "uom": "L", "currencyCode": "XOF", "version": 1}
+             "uom": "L", "priceReferenceType": "PUMP", "version": 1}
     # Mois 5 budgete a 900 000, puis revise a 750 000. Mois 6 budgete a 800 000, jamais revise.
     ecrire(cfo, "sales-forecasts", {**base7, "monthIndex": 5, "forecastVolume": 900000,
-                                    "referencePrice": 750, "kind": "BUDGET"})
+                                    "kind": "BUDGET"})
     ecrire(cfo, "sales-forecasts", {**base7, "monthIndex": 6, "forecastVolume": 800000,
-                                    "referencePrice": 750, "kind": "BUDGET"})
+                                    "kind": "BUDGET"})
     ecrire(cfo, "sales-forecasts", {**base7, "monthIndex": 5, "forecastVolume": 750000,
-                                    "referencePrice": 780, "kind": "REVISION"})
+                                    "kind": "REVISION"})
 
     code, lignes = call("/api/internal/supervision/prevision-vente", cfo)
     ligne = next((l for l in lignes if l["exercice"] == ANNEE_ESSAI and l["segment"] == "RETAIL"),
@@ -220,8 +268,109 @@ if produit:
             abs(float(ligne["ecart_revision"]) + 150000) < 1, ligne["ecart_revision"])
 
     # L'assiette d'absorption, elle, NE suit PAS la revision (SS 14.2).
-    code, ass = call("/api/internal/supervision/assiette-absorption", cfo)
-    cas("l'assiette d'absorption reste lisible", code == 200, f"{code}")
+    code, ass = call("/api/internal/supervision/absorption-reelle", cfo)
+    cas("la charge indirecte au litre reste lisible", code == 200, f"{code}")
+
+
+# --- 8. L'assiette et les charges fixes se DERIVENT -----------------------
+# Le coeur de la reprise du 9 aout : une seule saisie — le budget du pool —
+# sert au seuil de marge ET au point mort, et le denominateur vient de la
+# prevision. Deux saisies paralleles ne pouvaient pas garantir qu'elles
+# concordent ; une saisie unique le garantit par construction.
+print(chr(10) + "8. Assiette et charges fixes derivees")
+
+# Le budget 2099 pose plus haut : B2B mois 1 = 500 000 L, RETAIL mois 5 =
+# 900 000 L et mois 6 = 800 000 L. Le pool ne declare aucun segment, il les
+# couvre donc tous : 2 200 000 L.
+ASSIETTE_ATTENDUE = 2200000.0
+BUDGET_POOL = 110000000.0
+
+code, rep = ecrire(cfo, "absorption-rates", {
+    "costPoolId": POOL_ESSAI, "fiscalYearId": ANNEE_ESSAI,
+    "budgetedAmount": BUDGET_POOL, "version": 1, "isCurrent": True,
+})
+cas("budget de pool accepte une fois la prevision posee", code in (200, 201), f"{code} {rep}")
+
+code, taux = call(f"/api/internal/referentials/absorption-rates?fiscalYear={ANNEE_ESSAI}", cfo)
+ligne = next((t for t in taux if t["costPool"]["code"] == POOL_ESSAI),
+             None) if isinstance(taux, list) else None
+cas("le budget de pool est relu", ligne is not None, str(taux)[:200])
+if ligne:
+    assiette = float(ligne["budgetedBase"])
+    cas("l'assiette est DERIVEE de la prevision budgetee",
+        abs(assiette - ASSIETTE_ATTENDUE) < 1, f"observe {assiette}")
+    cas("l'unite est derivee elle aussi", ligne["baseUom"] == "L", str(ligne["baseUom"]))
+    cas("le taux vaut budget / assiette",
+        abs(float(ligne["ratePerUnit"]) - BUDGET_POOL / ASSIETTE_ATTENDUE) < 0.000002,
+        str(ligne["ratePerUnit"]))
+
+# Les charges fixes du point mort SONT ce budget : plus aucune saisie a part.
+code, cf = call("/api/internal/supervision/charges-fixes", cfo)
+lcf = next((c for c in cf if c["exercice"] == ANNEE_ESSAI), None) if isinstance(cf, list) else None
+cas("les charges fixes de l'exercice sont lisibles", lcf is not None, str(cf)[:200])
+if lcf:
+    cas("elles valent la somme des budgets des pools FIXES",
+        abs(float(lcf["charges_fixes"]) - BUDGET_POOL) < 1, str(lcf["charges_fixes"]))
+
+# Un pool VARIABLE s'absorbe au litre mais reste HORS du point mort : la marge
+# sur cout variable le compte deja, l'y ajouter le compterait deux fois.
+code, rep = ecrire(cfo, "cost-pools", {
+    "code": POOL_ESSAI + "_VAR", "label": "Commissions de recette",
+    "allocationBasis": "PER_VOLUME", "variability": "VARIABLE",
+    "currencyCode": "XOF", "isActive": True,
+})
+cas("pool de charges VARIABLES cree", code in (200, 201), f"{code} {rep}")
+code, rep = ecrire(cfo, "absorption-rates", {
+    "costPoolId": POOL_ESSAI + "_VAR", "fiscalYearId": ANNEE_ESSAI,
+    "budgetedAmount": 7000000, "version": 1, "isCurrent": True,
+})
+cas("budget du pool variable accepte", code in (200, 201), f"{code} {rep}")
+
+code, cf = call("/api/internal/supervision/charges-fixes", cfo)
+lcf = next((c for c in cf if c["exercice"] == ANNEE_ESSAI), None) if isinstance(cf, list) else None
+if lcf:
+    cas("le pool VARIABLE n'entre pas dans les charges fixes",
+        abs(float(lcf["charges_fixes"]) - BUDGET_POOL) < 1, str(lcf["charges_fixes"]))
+
+# La comparaison budget / revision / a date.
+code, abs_reelle = call("/api/internal/supervision/absorption-reelle", cfo)
+lab = next((a for a in abs_reelle if a["pool"] == POOL_ESSAI),
+           None) if isinstance(abs_reelle, list) else None
+cas("la charge au litre est comparable sur trois assiettes", lab is not None,
+    str(abs_reelle)[:200])
+if lab:
+    cas("le taux applique reste celui du BUDGET",
+        abs(float(lab["taux_applique"]) - BUDGET_POOL / ASSIETTE_ATTENDUE) < 0.000002,
+        str(lab["taux_applique"]))
+    # RETAIL mois 5 revise de 900 000 a 750 000 : l'assiette EN VIGUEUR perd
+    # 150 000 L. Le taux applique, lui, ne bouge pas — c'est toute la regle.
+    cas("l'assiette revisee, elle, suit la revision",
+        abs(float(lab["assiette_revisee"]) - (ASSIETTE_ATTENDUE - 150000)) < 1,
+        str(lab["assiette_revisee"]))
+    cas("le taux si revision est plus eleve que le taux applique",
+        float(lab["taux_si_revision"]) > float(lab["taux_applique"]),
+        f"{lab['taux_si_revision']} vs {lab['taux_applique']}")
+
+# --- 9. Le budget se boucle a l'ouverture de l'exercice -------------------
+print(chr(10) + "9. Le budget se boucle a l'ouverture")
+code, rep = ecrire(cfo, "fiscal-years", {
+    "year": ANNEE_ESSAI, "label": "Exercice de recette",
+    "startsOn": "2099-01-01", "endsOn": "2099-12-31",
+    "status": "OPEN", "isCurrent": False,
+})
+cas("l'exercice passe en OPEN", code in (200, 201), f"{code} {rep}")
+
+if produit:
+    apres = {"fiscalYearId": ANNEE_ESSAI, "segment": "B2B", "productId": produit,
+             "uom": "L", "priceReferenceType": "PUMP", "version": 1}
+    code, rep = ecrire(cfo, "sales-forecasts",
+                       {**apres, "monthIndex": 9, "forecastVolume": 300000, "kind": "BUDGET"})
+    cas("ligne de BUDGET refusee sur un exercice ouvert", code >= 400, f"{code}")
+
+    code, rep = ecrire(cfo, "sales-forecasts",
+                       {**apres, "monthIndex": 9, "forecastVolume": 300000, "kind": "REVISION"})
+    cas("ligne de REVISION acceptee sur un exercice ouvert",
+        code in (200, 201), f"{code} {rep}")
 
 # --- 5. Couverture et pilotage --------------------------------------------
 print("\n5. Couverture budgetaire et pilotage")

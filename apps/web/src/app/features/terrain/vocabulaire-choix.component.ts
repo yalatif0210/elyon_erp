@@ -34,7 +34,7 @@ import { FieldVocabularyService } from '../../core/field-vocabulary.service';
         [ngModel]="value"
         (ngModelChange)="valueChange.emit($event)"
       >
-        <option value="">— à choisir —</option>
+        <option value="">À choisir</option>
         @for (o of options(); track o) {
           <option [value]="o">{{ o }}</option>
         }
@@ -53,7 +53,7 @@ import { FieldVocabularyService } from '../../core/field-vocabulary.service';
       />
       <p class="t-hint">
         @if (options().length === 0) {
-          Aucune valeur n’a encore été publiée par le serveur pour ce champ. Saisissez le code
+          Aucune valeur n’a encore été publiée pour ce champ. Saisissez le code
           attendu : s’il ne convient pas, le refus du serveur en donnera la liste, et elle sera
           proposée ensuite.
         } @else {

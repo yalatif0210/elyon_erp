@@ -177,9 +177,12 @@ ALTER TABLE absorption_rates
   ADD  CONSTRAINT chk_absorption_positive
        CHECK (budgeted_amount >= 0 AND budgeted_base > 0 AND rate_per_unit >= 0),
 
-  DROP CONSTRAINT IF EXISTS chk_absorption_year_range,
-  ADD  CONSTRAINT chk_absorption_year_range
-       CHECK (fiscal_year BETWEEN 2000 AND 2200),
+  -- ⚠️ `chk_absorption_year_range` A DISPARU AVEC LA COLONNE QU'ELLE BORNAIT.
+  --
+  --    L'exercice était un entier libre : il fallait bien interdire l'an 2062.
+  --    Il est désormais une CLÉ ÉTRANGÈRE vers les exercices comptables — un
+  --    millésime qui n'existe pas ne peut plus s'écrire du tout, ce qu'aucune
+  --    borne numérique ne savait garantir.
 
   -- Le taux DOIT être le quotient du budget par l'assiette budgétée.
   -- Une saisie libre du taux ouvrirait la porte à un coût complet arbitraire.
@@ -187,13 +190,13 @@ ALTER TABLE absorption_rates
   ADD  CONSTRAINT chk_absorption_rate_derived
        CHECK (abs(rate_per_unit - round(budgeted_amount / budgeted_base, 6)) <= 0.000001);
 
--- Un seul taux courant par regroupement et par exercice.
+-- L'unicité « un taux courant par pool et par exercice » est reposée dans
+-- 24_exercice_et_budget.sql, sur `fiscal_year_id`. Celle-ci portait sur la
+-- colonne supprimée.
 DROP INDEX IF EXISTS uq_absorption_current_per_pool_year;
-CREATE UNIQUE INDEX uq_absorption_current_per_pool_year
-  ON absorption_rates (cost_pool_id, fiscal_year) WHERE is_current;
 
 COMMENT ON COLUMN absorption_rates.budgeted_base IS
-  'Assiette BUDGÉTÉE, jamais réalisée glissante (§ 14.2) : un dénominateur réalisé déclencherait la spirale d''absorption — moins de volume, charge unitaire plus élevée, davantage d''affaires bloquées, moins de volume encore.';
+  'Assiette BUDGÉTÉE, jamais réalisée glissante (§ 14.2) : un dénominateur réalisé déclencherait la spirale d''absorption — moins de volume, charge unitaire plus élevée, davantage d''affaires bloquées, moins de volume encore. CALCULÉE depuis la prévision de vente, plus saisie.';
 
 ALTER TABLE margin_thresholds
   DROP CONSTRAINT IF EXISTS chk_margin_thresholds_non_negative,

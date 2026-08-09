@@ -2,7 +2,7 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
   ApiService,
-  AssietteAbsorption,
+  AbsorptionReelle,
   Bfr,
   CouvertureBudgetaire,
   MargeCoutVariable,
@@ -10,6 +10,7 @@ import {
   PrevisionVente,
 } from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
+import { grouper } from '../shared/format';
 
 /**
  * PILOTAGE FINANCIER (§ 14.3, § 14.5, § 14.6).
@@ -38,7 +39,7 @@ import { IconComponent } from '../shared/icon.component';
       <h1 class="page-title">Pilotage financier</h1>
       <p class="page-sub">
         Point mort, besoin en fonds de roulement et écart à la prévision. Les valeurs
-        budgétaires se saisissent par exercice — rien n'est calculé sur une valeur devinée.
+        budgétaires se saisissent par exercice, rien n'est calculé sur une valeur devinée.
       </p>
     </header>
 
@@ -61,7 +62,7 @@ import { IconComponent } from '../shared/icon.component';
             <li class="flex items-baseline gap-2 text-[12px]">
               <span class="font-mono text-ink-faint">{{ m.exercice }}</span>
               <span class="font-medium text-ink">{{ m.donnee }}</span>
-              <span class="text-ink-faint">— sert à {{ m.sert_a }}</span>
+              <span class="text-ink-faint">sert à {{ m.sert_a }}</span>
             </li>
           }
         </ul>
@@ -91,9 +92,14 @@ import { IconComponent } from '../shared/icon.component';
             <div class="card px-[15px] py-3">
               <p class="text-[11px] uppercase tracking-wide text-ink-muted">Charges fixes</p>
               <p class="mt-0.5 text-[20px] font-semibold leading-none tabular text-ink">
-                {{ nombre(p.charges_fixes) }}
+                {{ nombre(p.charges_fixes) }} {{ p.devise_charges }}
               </p>
-              <p class="mt-1 text-[11px] text-ink-faint">{{ p.postes_de_charges }} poste(s)</p>
+              <!-- Somme des budgets des pools FIXES : elles ne se saisissent
+                   plus à part, donc elles ne peuvent plus diverger du seuil
+                   de marge, qui vient de la même saisie. -->
+              <p class="mt-1 text-[11px] text-ink-faint">
+                somme de {{ p.pools_de_charges_fixes }} pool(s) fixe(s)
+              </p>
             </div>
             <div class="card px-[15px] py-3">
               <p class="text-[11px] uppercase tracking-wide text-ink-muted">
@@ -210,25 +216,24 @@ import { IconComponent } from '../shared/icon.component';
         <p class="mt-2 text-[11px] leading-relaxed text-ink-faint">
           {{ b.perimetre }}
           @if (!b.stocks_suivis) {
-            Le poste stocks vaut zéro parce qu'aucun module de stock n'existe — c'est une absence,
+            Le poste stocks vaut zéro parce qu'aucun module de stock n'existe : c'est une absence,
             pas un stock constaté nul.
           }
         </p>
       </section>
     }
 
-    <!-- ============ Assiette d'absorption (§ 14.2) ============ -->
-    @if (assiettes().length > 0) {
+    <!-- ====== Ce que les charges coûtent au litre (§ 14.2) ====== -->
+    @if (absorption().length > 0) {
       <section class="mb-5">
         <div class="mb-2 flex items-center gap-2">
           <erp-icon name="receipt" [size]="15" class="text-ink-muted" />
-          <h2 class="text-[13px] font-semibold text-ink">Assiette d'absorption</h2>
+          <h2 class="text-[13px] font-semibold text-ink">Charge indirecte au litre</h2>
         </div>
         <p class="mb-2 text-[12px] leading-relaxed text-ink-faint">
-          La charge fixe unitaire se calcule sur le <strong>volume</strong> prévisionnel, jamais
-          sur le chiffre d'affaires : le volume est ce que l'entreprise pilote, le prix suit les
-          publications DGH et le change. Une assiette en valeur ferait bouger la charge unitaire à
-          chaque publication, sans qu'aucune charge n'ait changé.
+          Un même budget, trois assiettes. <strong>Une seule fait foi</strong> : celle du budget de
+          vente, figée pour l'exercice. Les deux autres disent ce que ces charges coûteraient si la
+          révision se confirme, et ce qu'elles coûtent à date.
         </p>
         <div class="card overflow-x-auto">
           <table class="table">
@@ -236,40 +241,69 @@ import { IconComponent } from '../shared/icon.component';
               <tr>
                 <th>Pool</th>
                 <th class="num">Budget</th>
-                <th class="num">Assiette saisie</th>
-                <th class="num">Volume prévu</th>
-                <th class="num">Écart</th>
-                <th class="num">Taux</th>
+                <th class="num">Taux appliqué</th>
+                <th class="num">Si révision</th>
+                <th class="num">À date</th>
+                <th class="num">Écart à date</th>
               </tr>
             </thead>
             <tbody>
-              @for (a of assiettes(); track a.pool) {
+              @for (a of absorption(); track a.pool) {
                 <tr>
                   <td>
-                    <span class="block text-[13px] text-ink">{{ a.label }}</span>
-                    <span class="block font-mono text-[11px] text-ink-faint">{{ a.pool }}</span>
+                    <span class="block text-[13px] text-ink">{{ a.pool_libelle }}</span>
+                    <span class="block font-mono text-[11px] text-ink-faint">
+                      {{ a.pool }} · {{ a.nature === 'FIXED' ? 'charges fixes' : 'charges variables' }}
+                    </span>
                   </td>
-                  <td class="num tabular text-ink-faint">{{ nombre(a.budgeted_amount) }}</td>
-                  <td class="num tabular text-ink">
-                    {{ nombre(a.assiette_saisie) }} {{ a.assiette_uom }}
+                  <td class="num tabular text-ink-faint">
+                    {{ nombre(a.budget) }} {{ a.devise }}
                   </td>
-                  <td class="num tabular text-ink-soft">
-                    {{ a.volume_prevu ? nombre(a.volume_prevu) : 'aucune prévision' }}
+                  <!-- Le seul chiffre qui entre dans le calcul de marge. -->
+                  <td class="num tabular font-semibold text-ink">
+                    {{ nombre(a.taux_applique) }}
+                    <span class="block text-[10px] font-normal text-ink-faint">
+                      sur {{ nombre(a.assiette_budget) }} {{ a.uom }}
+                    </span>
+                  </td>
+                  <td class="num tabular"
+                      [class]="ecartFort(a.ecart_revision_pct) ? 'text-warn-ink' : 'text-ink-soft'">
+                    @if (a.taux_si_revision) {
+                      {{ nombre(a.taux_si_revision) }}
+                      <span class="block text-[10px] text-ink-faint">
+                        sur {{ nombre(a.assiette_revisee) }} {{ a.uom }}
+                      </span>
+                    } @else {
+                      <span class="text-ink-faint">aucune révision</span>
+                    }
+                  </td>
+                  <td class="num tabular"
+                      [class]="ecartFort(a.ecart_a_date_pct) ? 'text-warn-ink' : 'text-ink-soft'">
+                    @if (a.taux_a_date) {
+                      {{ nombre(a.taux_a_date) }}
+                      <span class="block text-[10px] text-ink-faint">
+                        {{ a.mois_ecoules }}/{{ a.mois_total }} mois ·
+                        {{ nombre(a.volume_realise) }} {{ a.uom }}
+                      </span>
+                    } @else {
+                      <span class="text-ink-faint">rien de vendu</span>
+                    }
                   </td>
                   <td class="num tabular font-medium"
-                      [class]="ecartFort(a.ecart_pct) ? 'text-warn-ink' : 'text-ink-faint'">
-                    {{ a.ecart_pct === null ? '—' : a.ecart_pct + ' %' }}
+                      [class]="ecartFort(a.ecart_a_date_pct) ? 'text-warn-ink' : 'text-ink-faint'">
+                    {{ a.ecart_a_date_pct === null ? '-' : a.ecart_a_date_pct + ' %' }}
                   </td>
-                  <td class="num tabular text-ink">{{ nombre(a.rate_per_unit) }}</td>
                 </tr>
               }
             </tbody>
           </table>
         </div>
         <p class="mt-2 text-[11px] leading-relaxed text-ink-faint">
-          Un écart n'est pas forcément une erreur : le § 14.2 veut le budget FIGÉ pendant que la
-          prévision se révise, sinon la charge unitaire monterait quand l'activité baisse. Un tiret
-          signifie qu'aucune prévision ne couvre ce pool — pas que les deux concordent.
+          <strong>Seul le taux appliqué entre dans le calcul de marge.</strong> Brancher le taux
+          révisé rouvrirait la spirale d'absorption : une année sous les prévisions ferait monter la
+          charge au litre, davantage d'affaires passeraient sous le seuil, le volume baisserait
+          encore. Par ailleurs, le numérateur est <em>toujours</em> le budget, aucune comptabilité
+          de charges n'alimente ce système. Ce tableau compare des assiettes, pas des dépenses.
         </p>
       </section>
     }
@@ -283,7 +317,7 @@ import { IconComponent } from '../shared/icon.component';
       @if (previsions().length === 0) {
         <div class="card px-[15px] py-3">
           <p class="text-[13px] leading-relaxed text-ink-soft">
-            Aucune prévision saisie. Elle se construit par segment, produit et mois — et sert
+            Aucune prévision saisie. Elle se construit par segment, produit et mois, et sert
             d'assiette au taux d'absorption autant que de plan d'approvisionnement.
           </p>
         </div>
@@ -291,7 +325,7 @@ import { IconComponent } from '../shared/icon.component';
         <p class="mb-2 text-[12px] leading-snug text-ink-faint">
           Une révision REMPLACE le budget sur son mois, elle ne s'y ajoute pas. La colonne
           « Prévu » est donc ce qui fait foi aujourd'hui ; « Budget initial » reste affiché à
-          côté, parce que l'écart entre les deux dit de combien l'ambition a été revue — et
+          côté, parce que l'écart entre les deux dit de combien l'ambition a été revue, et
           qu'une ambition revue à la baisse ne doit pas se lire comme un objectif atteint.
           L'écart de PRIX, lui, est isolé de l'écart de VOLUME : un chiffre d'affaires conforme
           peut cacher du volume perdu, compensé par une hausse que l'entreprise n'a pas décidée.
@@ -320,7 +354,7 @@ import { IconComponent } from '../shared/icon.component';
                   <td class="num tabular"
                       [class]="signe(p.ecart_revision) < 0 ? 'text-warn-ink' : 'text-ink-faint'">
                     {{ signe(p.ecart_revision) === 0
-                       ? '—'
+                       ? '-'
                        : (signe(p.ecart_revision) > 0 ? '+' : '') + nombre(p.ecart_revision) }}
                   </td>
                   <td class="num tabular text-ink">{{ nombre(p.volume_realise) }}</td>
@@ -349,7 +383,7 @@ export class PilotageComponent implements OnInit {
   protected readonly marges = signal<MargeCoutVariable[]>([]);
   protected readonly bfr = signal<Bfr | null>(null);
   protected readonly previsions = signal<PrevisionVente[]>([]);
-  protected readonly assiettes = signal<AssietteAbsorption[]>([]);
+  protected readonly absorption = signal<AbsorptionReelle[]>([]);
 
   /** Ce qui manque, en tête d'écran : c'est l'action, le reste est la lecture. */
   protected readonly manquantes = computed(() =>
@@ -361,7 +395,7 @@ export class PilotageComponent implements OnInit {
     this.api.couvertureBudgetaire().subscribe({ next: (r) => this.couverture.set(r), error: vide });
     this.api.margeCoutVariable().subscribe({ next: (r) => this.marges.set(r), error: vide });
     this.api.previsionVente().subscribe({ next: (r) => this.previsions.set(r), error: vide });
-    this.api.assietteAbsorption().subscribe({ next: (r) => this.assiettes.set(r), error: vide });
+    this.api.absorptionReelle().subscribe({ next: (r) => this.absorption.set(r), error: vide });
     // Ces deux vues rendent toujours une ligne : on prend la première, et son
     // absence signalerait un défaut de lecture, pas une absence de donnée.
     this.api.pointMort().subscribe({ next: (r) => this.pointMort.set(r[0] ?? null), error: vide });
@@ -370,10 +404,10 @@ export class PilotageComponent implements OnInit {
 
   /** Affichage seulement — la valeur exacte reste celle rendue par la base. */
   protected nombre(v: string | null): string {
-    if (v === null || v === '') return '—';
+    if (v === null || v === '') return '-';
     const n = Number(v);
     if (Number.isNaN(n)) return v;
-    return n.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+    return grouper(n, { maximumFractionDigits: 2 });
   }
 
   protected signe(v: string | null): number {
@@ -383,12 +417,17 @@ export class PilotageComponent implements OnInit {
   /**
    * Le seuil au-delà duquel l'écart mérite un regard.
    *
-   * Dix pour cent : au-delà, l'assiette figée et la prévision courante ne
-   * racontent plus la même année. En deçà, c'est le jeu normal des révisions
-   * que le § 14.2 assume — le budget reste figé pendant que la prévision bouge.
+   * Dix pour cent : au-delà, l'assiette figée et la réalité ne racontent plus
+   * la même année. En deçà, c'est le jeu normal des révisions que le § 14.2
+   * assume — le budget reste figé pendant que la prévision bouge.
+   *
+   * L'écart se lit en VALEUR ABSOLUE : une charge au litre deux fois plus
+   * basse que prévue mérite le même regard qu'une charge deux fois plus haute.
+   * La première signale un volume dépassé, la seconde un volume manqué — deux
+   * nouvelles, et aucune des deux n'est neutre.
    */
   protected ecartFort(pct: string | null): boolean {
-    return pct !== null && Number(pct) >= 10;
+    return pct !== null && Math.abs(Number(pct)) >= 10;
   }
 
   protected reste(p: PointMort): number {

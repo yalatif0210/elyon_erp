@@ -61,8 +61,11 @@ Ce qu'il est le **seul** à pouvoir faire :
 **Fait** — 38 lectures, 19 référentiels en écriture.
 
 - Approbation crédit des affaires, plafonds, garanties, statut de crédit des clients.
-- **Exercice comptable et données budgétaires** : taux de financement, budget de charges
-  fixes, prévision de vente, taux d'absorption. C'est lui qui débloque tout le pilotage.
+- **Exercice comptable et données budgétaires** : taux de financement, prévision de vente,
+  budget des pools de charges. C'est lui qui débloque tout le pilotage.
+  Le **budget de charges fixes ne se saisit plus** : il est la somme des budgets des pools
+  déclarés FIXES. Une seule saisie sert au seuil de marge et au point mort, ce que deux
+  saisies parallèles ne pouvaient pas garantir.
 - Seuils de marge, barèmes de coûts, tolérances d'ullage, prix administrés et fournisseurs.
 - Tout le pilotage financier : point mort, BFR, écart à la prévision, rapprochement des
   coûts, en-cours crédit, avances non apurées.
@@ -75,8 +78,10 @@ Ce qu'il est le **seul** à pouvoir faire :
 - Lire les **modèles de checklist HSE**, les **types d'opération**, les **sites**.
 - Lire les **alertes du CRM** — il voit le pipeline et la conversion, pas les relances.
 
-*À tester :* c'est par lui que tout commence. Exercice comptable → taux de financement →
-budget de charges fixes. La file de tâches vous guide.
+*À tester :* c'est par lui que tout commence, **et l'ordre est imposé par la base** :
+exercice comptable → taux de financement → **prévision de vente** → **budget des pools**.
+La prévision avant le budget des pools : c'est elle qui forme l'assiette d'absorption, et
+sans elle le taux n'a pas de dénominateur à lire. La file de tâches vous guide.
 
 ---
 
@@ -311,7 +316,7 @@ nommés, et je ne décide pas à votre place :
 | **Barèmes de coût** | 2 | Montants de référence par poste — ce sont vos coûts standards |
 | **Tolérances d'ullage** | 1 | Seuil de perte admissible, illustré à 0,2 % par le § 19 |
 | **Regroupements de charges** | 5 | Dont **2 sont des essais de recette** (`BANQUE-900`, `TEST-CA`), désactivés et renommés |
-| **Taux d'absorption** | 5 | Budget ÷ assiette — ce sont vos charges de structure |
+| **Budget des pools de charges** | 5 | Le budget seul se saisit ; l'assiette vient de la prévision |
 
 Dites-moi si je les vide aussi. Mon avis : oui pour les quatre, et il faudra en profiter
 pour supprimer les deux regroupements d'essai plutôt que de les laisser désactivés.
@@ -383,8 +388,9 @@ L'application est vide : elle vous dira ce qui lui manque au fur et à mesure. L
 
 1. **Exercice comptable** — `/parametrage` → Exercices comptables. Rien ne se calcule
    sans lui : le point mort le dit déjà.
-2. **Taux de financement, budget de charges fixes** — les valeurs que j'ai refusé
-   d'inventer.
+2. **Taux de financement**, puis **prévision de vente**, puis **budget des pools de
+   charges** — les valeurs que j'ai refusé d'inventer. L'ordre compte : le budget d'un
+   pool se divise par le volume prévu, et la base refuse l'ordre inverse.
 3. **Probabilités du pipeline** — `/parametrage` → Étapes du pipeline. Les treize étapes
    existent, leurs probabilités sont vides.
 4. **Un client**, avec son plafond de crédit **et sa devise**.

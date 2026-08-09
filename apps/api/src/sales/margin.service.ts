@@ -3,7 +3,6 @@ import {
   AllocationBasis,
   CommercialSegment,
   CostNature,
-  OperationStatus,
   Prisma,
 } from '@prisma/client';
 import { SettingsService } from '../common/config/settings.service';
@@ -125,14 +124,28 @@ export class MarginService {
    *
    * ⚠️ Le taux repose sur une assiette BUDGÉTÉE, jamais réalisée (§ 14.2).
    *    Un dénominateur réalisé déclencherait la spirale d'absorption.
+   *
+   * ⚠️ L'ASSIETTE DE L'AFFAIRE A DISPARU DE LA SIGNATURE, ET C'EST NORMAL.
+   *
+   *    Elle ne servait qu'aux bases « par opération » et « au prorata du
+   *    chiffre d'affaires », toutes deux refusées désormais : l'assiette se
+   *    dérive de la prévision de vente, qui prévoit des VOLUMES. Un taux au
+   *    litre est déjà par unité vendue — il n'y a rien à ramener.
+   *
+   *    La garder « au cas où » aurait laissé croire au lecteur suivant qu'elle
+   *    influence le résultat.
    */
   async indirectChargesPerUnit(
     segment: CommercialSegment,
     fiscalYear: number,
-    assiette: { volume: number; chiffreAffaires: number; nbOperations: number },
   ): Promise<number> {
+    // L'exercice est une RÉFÉRENCE, plus un entier libre : on le désigne par
+    // son millésime — c'est ainsi qu'un humain le nomme — mais la jointure
+    // garantit qu'il existe. Un taux saisi pour un exercice inexistant ne
+    // pouvait auparavant être ni trouvé ni signalé : il disparaissait des
+    // calculs sans rien dire.
     const rates = await this.prisma.absorptionRate.findMany({
-      where: { fiscalYear, isCurrent: true },
+      where: { fiscalYear: { year: fiscalYear }, isCurrent: true },
       include: { costPool: { select: { code: true, segments: true, allocationBasis: true } } },
     });
 
@@ -177,12 +190,22 @@ export class MarginService {
       const taux = Number(r.ratePerUnit);
       switch (r.costPool.allocationBasis) {
         case AllocationBasis.PER_VOLUME:
+          // Le taux EST déjà par unité vendue : budget ÷ volume budgété.
           return taux;
+        // ⚠️ PER_OPERATION EST REFUSÉ À SON TOUR, ET C'EST UN CHOIX DE GESTION.
+        //
+        //    Le dirigeant, le 9 août : « Pools imputés à l'opération : non ».
+        //    La raison de fond est que l'assiette se DÉRIVE désormais de la
+        //    prévision de vente, qui prévoit des volumes et non des rotations.
+        //    Un pool imputé à l'opération n'aurait aucun dénominateur à lire,
+        //    et lui en faire saisir un rouvrirait la double saisie supprimée.
         case AllocationBasis.PER_OPERATION:
-          return assiette.volume > 0 ? (taux * assiette.nbOperations) / assiette.volume : 0;
+          throw new BadRequestException(
+            `Le pool ${r.costPool.code} s'impute au nombre d'opérations, ce que l'assiette d'absorption n'admet plus : elle est la somme des volumes de prévision budgétée (§ 14.2, § 14.3). Aucune prévision ne porte un nombre de rotations. Basculer ce pool en PER_VOLUME.`,
+          );
         case AllocationBasis.PER_REVENUE:
           throw new BadRequestException(
-            `Le pool ${r.costPool.code} s'impute au prorata du chiffre d'affaires, ce que l'assiette d'absorption n'admet pas : elle est un VOLUME budgété (§ 14.2). Le volume est piloté, le prix ne l'est pas — une assiette en valeur ferait dériver la charge fixe unitaire à chaque publication DGH. Basculer ce pool en PER_VOLUME, ou en PER_OPERATION s'il s'agit d'un montant par rotation.`,
+            `Le pool ${r.costPool.code} s'impute au prorata du chiffre d'affaires, ce que l'assiette d'absorption n'admet pas : elle est un VOLUME budgété (§ 14.2). Le volume est piloté, le prix ne l'est pas — une assiette en valeur ferait dériver la charge fixe unitaire à chaque publication DGH. Basculer ce pool en PER_VOLUME.`,
           );
         default:
           // Base inconnue — une valeur ajoutée à l'énumération sans que ce
@@ -400,19 +423,10 @@ export class MarginService {
     const chargesSource: 'operations' | 'devis' | 'agrege' =
       actual !== null ? 'operations' : quoted !== null ? 'devis' : 'agrege';
     const directPerUnit = volume > 0 ? round4(directTotal / volume) : 0;
-    // L'assiette de CETTE affaire : les bases « par opération » et « au prorata
-    // du chiffre d'affaires » ne peuvent pas se ramener au litre sans elle.
-    const nbOperations = await this.prisma.operation.count({
-      where: { dealId, status: { notIn: [OperationStatus.DRAFT, OperationStatus.CANCELLED] } },
-    });
-    const indirectPerUnit = await this.indirectChargesPerUnit(deal.segment, fiscalYear, {
-      volume,
-      chiffreAffaires: round4(volume * unitSalePrice - Number(deal.discountAmount)),
-      // Une affaire sans opération engagée en compte UNE : c'est ce qu'elle
-      // coûtera. Compter zéro ferait disparaître le pool au moment précis où
-      // l'on approuve.
-      nbOperations: Math.max(1, nbOperations),
-    });
+    // La charge indirecte ne dépend plus de l'assiette de CETTE affaire : les
+    // pools s'imputent tous au litre, et un taux au litre est déjà par unité
+    // vendue. Le décompte des opérations n'entre donc plus dans le calcul.
+    const indirectPerUnit = await this.indirectChargesPerUnit(deal.segment, fiscalYear);
 
     // Une remise consentie diminue le produit : elle entre dans la marge.
     const discountPerUnit = volume > 0 ? round4(Number(deal.discountAmount) / volume) : 0;

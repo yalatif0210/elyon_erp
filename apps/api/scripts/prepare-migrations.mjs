@@ -85,6 +85,9 @@ const SQL_FILES = [
   // Issus de l'audit : la facturation est bornée, l'encaissement est dérivé.
   '30_facturation_bornee.sql',
   '31_encaissement_fiable.sql',
+  // L'assiette et les charges fixes se dérivent : APRÈS 25 (prévision en
+  // vigueur) et 29 (durée réelle de l'exercice), qu'il lit tous deux.
+  '34_budget_indirect_derive.sql',
   // La file de tâches lit TOUTES les vues précédentes : elle vient en dernier.
   '22_file_de_taches.sql',
   // Paramètres requis : AVANT 15, dont deux règles d'invariant les lisent.
@@ -188,7 +191,31 @@ if (destructive.length > 0) {
 const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
 let after = join(MIGRATIONS_DIR, `${stamp}_${migrationName}`);
 mkdirSync(after, { recursive: true });
-writeFileSync(join(after, 'migration.sql'), isEmpty ? '' : diffSql, 'utf8');
+
+// ---------------------------------------------------------------------------
+//  Le préambule est joué DEUX FOIS : avant le DDL, et à sa place habituelle.
+//
+//  ⚠️ SANS LA PREMIÈRE PASSE, TOUTE SUPPRESSION DE TABLE OU DE COLONNE ÉCHOUE.
+//
+//     PostgreSQL refuse de déposer un objet dont une VUE dépend, et Prisma
+//     génère `DROP TABLE ...` sans CASCADE — délibérément, car un CASCADE
+//     aveugle emporterait ce qu'on ne voulait pas perdre. Le DDL généré passe
+//     donc AVANT le SQL métier, alors que les vues à déposer ne le sont
+//     qu'APRÈS. La migration échoue sur un message qui ne désigne pas la
+//     cause : « cannot drop column fiscal_year because view X depends on it ».
+//
+//     Déposer les vues d'abord lève l'obstacle. Elles ne portent aucune
+//     donnée, elles sont toutes recréées plus bas dans la même migration, et
+//     `IF EXISTS` rend la double dépose sans effet.
+// ---------------------------------------------------------------------------
+const preambule = readFileSync(join(SQL_DIR, '00_prelude.sql'), 'utf8');
+const preDdl =
+  '-- ─── Préambule joué AVANT le DDL : voir scripts/prepare-migrations.mjs ───\n' +
+  '-- Les vues bloqueraient toute suppression de table ou de colonne.\n\n' +
+  preambule +
+  '\n\n-- ─── Fin du préambule — DDL généré par Prisma ci-dessous ───\n\n';
+
+writeFileSync(join(after, 'migration.sql'), preDdl + (isEmpty ? '' : diffSql), 'utf8');
 console.log(`  ✓ ${isEmpty ? 'aucun changement de schéma' : 'écart de schéma'} → ${after}`);
 
 // ---------------------------------------------------------------------------
@@ -200,7 +227,8 @@ console.log(`  ✓ ${isEmpty ? 'aucun changement de schéma' : 'écart de schém
 if (isEmpty) {
   writeFileSync(
     join(after, 'migration.sql'),
-    '-- Migration sans changement de schéma Prisma : correctif SQL seul.\n' +
+    preDdl +
+      '-- Migration sans changement de schéma Prisma : correctif SQL seul.\n' +
       '-- Le contenu utile est injecté ci-dessous depuis prisma/sql/.\n',
     'utf8',
   );

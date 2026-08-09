@@ -25,7 +25,7 @@ import { IconComponent } from '../shared/icon.component';
 
         <div class="max-w-md">
           <h2 class="text-[26px] font-semibold leading-[1.25] tracking-[-0.02em] text-ink">
-            Distribution pétrolière —<br />de l’affaire à la facture.
+            Distribution pétrolière :<br />de l’affaire à la facture.
           </h2>
           <p class="mt-4 text-[14px] leading-relaxed text-ink-soft">
             Trois verrous encadrent l’exécution : aucune opération sur une affaire non
@@ -62,7 +62,7 @@ import { IconComponent } from '../shared/icon.component';
           </div>
 
           <h1 class="page-title">Connexion</h1>
-          <p class="page-sub mb-6">Console interne — accès réservé au personnel Elyon.</p>
+          <p class="page-sub mb-6">Application interne : accès réservé au personnel Elyon.</p>
 
           <form (ngSubmit)="submit()" novalidate>
             <div class="mb-3.5">
@@ -102,8 +102,8 @@ import { IconComponent } from '../shared/icon.component';
           </form>
 
           <p class="mt-6 border-t border-rule pt-4 text-[11px] leading-relaxed text-ink-faint">
-            Toute connexion est journalisée — auteur, horodatage et adresse. Le journal
-            d’audit est inscrit en base et ne peut être réécrit.
+            Toute connexion est journalisée : auteur, horodatage et adresse. Le journal
+            d’audit est conservé et ne peut être réécrit.
           </p>
         </div>
       </div>

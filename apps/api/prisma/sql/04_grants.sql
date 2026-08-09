@@ -89,7 +89,8 @@ BEGIN
   EXECUTE 'GRANT SELECT ON v_reste_a_facturer TO erp_app';
   EXECUTE 'GRANT SELECT ON v_rapprochement_encaissements TO erp_app';
   EXECUTE 'GRANT SELECT ON v_creances_echues TO erp_app';
-  EXECUTE 'GRANT SELECT ON v_assiette_absorption TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_charges_fixes_exercice TO erp_app';
+  EXECUTE 'GRANT SELECT ON v_absorption_reelle TO erp_app';
   EXECUTE 'GRANT SELECT ON v_crm_pipeline TO erp_app';
   EXECUTE 'GRANT SELECT ON v_crm_pipeline_par_etape TO erp_app';
   EXECUTE 'GRANT SELECT ON v_crm_alertes TO erp_app';

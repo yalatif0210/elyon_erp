@@ -4,6 +4,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService, OperationDetail, OperationRow } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { IconComponent } from '../shared/icon.component';
+import { grouper } from '../shared/format';
 import { StatusBadgeComponent, StatusKind } from '../shared/status-badge.component';
 import { OperationActionsComponent } from './operation-actions.component';
 
@@ -56,7 +57,7 @@ const FILTERS: { label: string; status?: string }[] = [
     <header class="mb-5 flex flex-wrap items-start justify-between gap-4">
       <div>
         <h1 class="page-title">Opérations</h1>
-        <p class="page-sub">Exécution physique — moyens, contrôles HSE et relevés</p>
+        <p class="page-sub">Exécution physique : moyens, contrôles HSE et relevés</p>
       </div>
       <!-- Proposée aux seuls rôles que le serveur laissera créer : un bouton
            qui renvoie sur le tableau de bord sans rien dire est pire qu'un
@@ -133,7 +134,7 @@ const FILTERS: { label: string; status?: string }[] = [
                 <span class="ml-1.5 font-mono text-[12px]">{{ means(o) }}</span>
               </td>
               <td class="num font-mono text-ink-soft">{{ volume(o) }}</td>
-              <td class="num font-mono text-ink-soft">{{ o.plannedLoadingDate?.slice(0, 10) ?? '—' }}</td>
+              <td class="num font-mono text-ink-soft">{{ o.plannedLoadingDate?.slice(0, 10) ?? '-' }}</td>
               <td>
                 <erp-status-badge [kind]="status(o.status).kind" [label]="status(o.status).label" />
               </td>
@@ -191,7 +192,7 @@ export class OperationsComponent implements OnInit {
   }
 
   protected volume(o: OperationRow): string {
-    return `${Number(o.plannedVolume).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} ${o.uom}`;
+    return `${grouper(Number(o.plannedVolume), { maximumFractionDigits: 0 })} ${o.uom}`;
   }
 
   protected rowClass(o: OperationRow): string {
@@ -310,7 +311,7 @@ export class OperationsComponent implements OnInit {
           } @empty {
             <li class="empty px-4 py-3 text-[13px]">
               Aucun type porté. Les contrôles HSE étant indexés par le type, aucun ne s’oppose
-              à cette opération — et la base refusera de la faire avancer.
+              à cette opération, et elle ne pourra pas avancer.
             </li>
           }
         </ol>
@@ -352,12 +353,12 @@ export class OperationsComponent implements OnInit {
             </div>
             <div class="flex justify-between gap-4 px-4 py-2">
               <dt class="text-ink-muted">Agent terrain</dt>
-              <dd class="text-ink">{{ o.fieldAgent?.fullName ?? '—' }}</dd>
+              <dd class="text-ink">{{ o.fieldAgent?.fullName ?? '-' }}</dd>
             </div>
             <div class="flex justify-between gap-4 px-4 py-2">
               <dt class="text-ink-muted">Chargement prévu</dt>
               <dd class="font-mono text-ink-soft">
-                {{ o.plannedLoadingDate?.slice(0, 10) ?? '—' }}
+                {{ o.plannedLoadingDate?.slice(0, 10) ?? '-' }}
               </dd>
             </div>
           </dl>
@@ -412,10 +413,10 @@ export class OperationDetailComponent implements OnInit {
   }
 
   protected means(o: OperationRow): string {
-    return o.assignment?.vehicle?.registration ?? o.assignment?.vehicleIdentifier ?? '—';
+    return o.assignment?.vehicle?.registration ?? o.assignment?.vehicleIdentifier ?? '-';
   }
 
   protected volume(o: OperationRow): string {
-    return `${Number(o.plannedVolume).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} ${o.uom}`;
+    return `${grouper(Number(o.plannedVolume), { maximumFractionDigits: 0 })} ${o.uom}`;
   }
 }

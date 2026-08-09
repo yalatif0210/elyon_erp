@@ -11,7 +11,7 @@ import {
   ParametreRequis,
 } from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
-import { dateOnly } from '../shared/format';
+import { dateOnly, grouper } from '../shared/format';
 
 /**
  * SURVEILLANCE (§ 5.4, § 9.1, § 11, § 14.6).
@@ -43,7 +43,7 @@ import { dateOnly } from '../shared/format';
       <h1 class="page-title">Surveillance</h1>
       <p class="page-sub">
         Ce que les verrous ne peuvent pas arrêter : le placement juste au-dessus du seuil, l'écart
-        entre marge promise et marge réalisée, la trésorerie immobilisée. Tout est lu en base,
+        entre marge promise et marge réalisée, la trésorerie immobilisée. Tout est lu à la source,
         rien n'est recalculé ici.
       </p>
     </header>
@@ -104,7 +104,7 @@ import { dateOnly } from '../shared/format';
       <p class="mb-2 text-[12px] leading-snug text-ink-faint">
         Ce qui est paramétrable est supprimable. Un paramètre absent ne fait pas échouer le
         contrôle : il le fait tourner sur sa valeur de secours, que personne n'a choisie. La liste
-        est déduite du code SQL lui-même, pas tenue à la main.
+        est établie automatiquement, pas tenue à la main.
       </p>
       <div class="card overflow-x-auto">
         <table class="table">
@@ -121,12 +121,12 @@ import { dateOnly } from '../shared/format';
             @for (p of parametres(); track p.parametre) {
               <tr>
                 <td class="font-mono text-[12px] text-ink">{{ p.parametre }}</td>
-                <td class="tabular text-ink-soft">{{ p.valeur ?? '—' }}</td>
+                <td class="tabular text-ink-soft">{{ p.valeur ?? '-' }}</td>
                 <td class="num tabular text-ink-soft">{{ p.lu_par }}</td>
                 <td class="text-[12px] text-ink-faint">{{ p.objets }}</td>
                 <td>
                   <span [class]="p.present ? 'text-ok' : 'text-crit font-medium'">
-                    {{ p.present ? 'défini' : 'ABSENT — repli en vigueur' }}
+                    {{ p.present ? 'défini' : 'ABSENT, repli en vigueur' }}
                   </span>
                 </td>
               </tr>
@@ -145,7 +145,7 @@ import { dateOnly } from '../shared/format';
       </div>
       <p class="mb-2 text-[12px] leading-snug text-ink-faint">
         Une affaire juste au-dessus du seuil minimum n'est pas anormale. Un commercial dont toutes
-        les affaires y atterrissent l'est — c'est le tableau suivant qui le dit.
+        les affaires y atterrissent l'est : c'est le tableau suivant qui le dit.
       </p>
       @if (bande().length === 0) {
         <div class="card px-[15px] py-3">
@@ -172,7 +172,7 @@ import { dateOnly } from '../shared/format';
                        [routerLink]="['/affaires']">{{ d.reference }}</a>
                   </td>
                   <td class="text-ink-soft">{{ d.client }}</td>
-                  <td class="text-ink-soft">{{ d.owner ?? '—' }}</td>
+                  <td class="text-ink-soft">{{ d.owner ?? '-' }}</td>
                   <td class="num tabular text-ink">{{ nombre(d.estimated_full_margin) }}</td>
                   <td class="num tabular text-ink-faint">{{ nombre(d.minimum_margin) }}</td>
                   <td class="num tabular font-medium text-warn-ink">
@@ -207,7 +207,7 @@ import { dateOnly } from '../shared/format';
             <tbody>
               @for (o of parCommercial(); track $index) {
                 <tr>
-                  <td class="text-ink">{{ o.owner ?? '—' }}</td>
+                  <td class="text-ink">{{ o.owner ?? '-' }}</td>
                   <td class="num tabular text-ink-soft">{{ o.deals_in_band }}</td>
                   <td class="num tabular text-ink-faint">{{ o.deals_total }}</td>
                   <td class="num tabular font-medium"
@@ -232,7 +232,7 @@ import { dateOnly } from '../shared/format';
       </div>
       <p class="mb-2 text-[12px] leading-snug text-ink-faint">
         Dans les deux sens : une affaire qui rapporte bien plus que promis mérite autant d'être
-        regardée qu'une qui rapporte moins. Le seuil de déclenchement est paramétré en base.
+        regardée qu'une qui rapporte moins. Le seuil de déclenchement est paramétrable.
       </p>
       @if (ecarts().length === 0) {
         <div class="card px-[15px] py-3">
@@ -260,7 +260,7 @@ import { dateOnly } from '../shared/format';
                 <tr>
                   <td class="font-mono text-[12px] text-ink">{{ v.reference }}</td>
                   <td class="text-ink-soft">{{ v.client }}</td>
-                  <td class="text-ink-soft">{{ v.owner ?? '—' }}</td>
+                  <td class="text-ink-soft">{{ v.owner ?? '-' }}</td>
                   <td class="num tabular text-ink-faint">{{ nombre(v.estimated_full_margin) }}</td>
                   <td class="num tabular text-ink">{{ nombre(v.realized_full_margin) }}</td>
                   <td class="num tabular font-medium"
@@ -316,7 +316,7 @@ import { dateOnly } from '../shared/format';
                 <td class="num tabular text-ink">{{ nombre(c.available_credit_pivot) }}</td>
                 <td class="num tabular font-medium"
                     [class]="teinteUtilisation(c.utilisation_pct)">
-                  {{ c.utilisation_pct ?? '—' }}{{ c.utilisation_pct ? ' %' : '' }}
+                  {{ c.utilisation_pct ?? '-' }}{{ c.utilisation_pct ? ' %' : '' }}
                 </td>
               </tr>
             }
@@ -334,7 +334,7 @@ import { dateOnly } from '../shared/format';
       </div>
       <p class="mb-2 text-[12px] leading-snug text-ink-faint">
         Elyon paie avant livraison : ce sont les avances qui pèsent au besoin en fonds de
-        roulement, pas les dettes. Seul le reliquat figure ici — une avance apurée aux deux tiers
+        roulement, pas les dettes. Seul le reliquat figure ici : une avance apurée aux deux tiers
         n'y pèse que pour le tiers restant.
       </p>
       @if (avances().length === 0) {
@@ -361,7 +361,7 @@ import { dateOnly } from '../shared/format';
                 <tr>
                   <td class="font-mono text-[12px] text-ink">{{ a.reference }}</td>
                   <td class="text-ink-soft">{{ a.supplier }}</td>
-                  <td class="font-mono text-[12px] text-ink-faint">{{ a.deal ?? '—' }}</td>
+                  <td class="font-mono text-[12px] text-ink-faint">{{ a.deal ?? '-' }}</td>
                   <td class="num tabular text-ink-faint">{{ nombre(a.prepaid_amount) }}</td>
                   <td class="num tabular text-ink-faint">{{ nombre(a.settled_amount) }}</td>
                   <td class="num tabular font-medium text-ink">
@@ -422,10 +422,10 @@ export class SupervisionComponent implements OnInit {
    * On ne réinjecte jamais le résultat de ce formatage dans un calcul.
    */
   protected nombre(v: string | null): string {
-    if (v === null || v === '') return '—';
+    if (v === null || v === '') return '-';
     const n = Number(v);
     if (Number.isNaN(n)) return v;
-    return n.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+    return grouper(n, { maximumFractionDigits: 2 });
   }
 
   protected signe(v: string | null): number {
@@ -433,7 +433,7 @@ export class SupervisionComponent implements OnInit {
   }
 
   protected jour(iso: string | null): string {
-    return iso ? dateOnly(iso) : '—';
+    return iso ? dateOnly(iso) : '-';
   }
 
   /** Un commercial dont plus de la moitié des affaires effleurent le seuil. */

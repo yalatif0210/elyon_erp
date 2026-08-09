@@ -30,7 +30,7 @@ const TYPE_LABELS: Record<string, string> = {
     <header class="mb-6">
       <h1 class="page-title">Registre des dérogations</h1>
       <p class="page-sub">
-        Verrous financier, HSE et conformité — toute levée y figure, avec son autorité et son motif.
+        Verrous financier, HSE et conformité, toute levée y figure, avec son autorité et son motif.
       </p>
     </header>
 

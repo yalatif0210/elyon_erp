@@ -15,6 +15,8 @@ import {
   HttpFailure,
 } from '../shared/action-panel.component';
 import { IconComponent } from '../shared/icon.component';
+import { grouper } from '../shared/format';
+import { MontantDirective } from '../shared/montant.directive';
 import { StatusBadgeComponent, StatusKind } from '../shared/status-badge.component';
 
 const STATUS: Record<string, { label: string; kind: StatusKind }> = {
@@ -56,6 +58,7 @@ const FILTERS: { label: string; status?: string }[] = [
     IconComponent,
     StatusBadgeComponent,
     ActionFeedbackComponent,
+    MontantDirective,
   ],
   template: `
     <header class="mb-5">
@@ -83,7 +86,7 @@ const FILTERS: { label: string; status?: string }[] = [
           money(outstandingPrepaid())
         }}</span>
         <span class="stat-note">
-          Sans contrepartie constatée — sur {{ money(totalPrepaid()) }} avancés
+          Sans contrepartie constatée : sur {{ money(totalPrepaid()) }} avancés
         </span>
       </div>
       <div class="stat bg-surface">
@@ -109,7 +112,7 @@ const FILTERS: { label: string; status?: string }[] = [
           <div>
             <label class="label" for="sup-f">Fournisseur</label>
             <select id="sup-f" class="field" [(ngModel)]="newSupplierId">
-              <option [ngValue]="''">—</option>
+              <option [ngValue]="''">Choisir</option>
               @for (p of suppliers(); track p.id) {
                 <option [ngValue]="p.id">{{ p.legalName }}</option>
               }
@@ -118,7 +121,7 @@ const FILTERS: { label: string; status?: string }[] = [
           <div>
             <label class="label" for="deal-f">Affaire</label>
             <select id="deal-f" class="field" [(ngModel)]="newDealId">
-              <option [ngValue]="''">— non rattachée —</option>
+              <option [ngValue]="''">Non rattachée</option>
               @for (d of dealOptions(); track d.id) {
                 <option [ngValue]="d.id">{{ d.reference }}</option>
               }
@@ -126,7 +129,7 @@ const FILTERS: { label: string; status?: string }[] = [
           </div>
           <div>
             <label class="label" for="mnt-f">Montant</label>
-            <input id="mnt-f" class="field text-right font-mono" [(ngModel)]="newAmount" />
+            <input id="mnt-f" class="field text-right font-mono" erpMontant [(ngModel)]="newAmount" />
           </div>
           <div>
             <label class="label" for="tva-f">Taux de TVA déductible</label>
@@ -140,7 +143,7 @@ const FILTERS: { label: string; status?: string }[] = [
         <p class="mt-2 text-[11px] leading-relaxed text-ink-faint">
           Une facture non rattachée à une affaire ne pourra jamais être confrontée au coût
           enregistré : le rapprochement, lui, est le contrôle qui ne repose sur aucune
-          déclaration (§ 14.6).
+          déclaration.
         </p>
         <button class="btn-primary mt-3" (click)="record()" [disabled]="state.busy()">
           Enregistrer
@@ -180,7 +183,7 @@ const FILTERS: { label: string; status?: string }[] = [
     @if (paying(); as inv) {
       <section class="card mb-5">
         <div class="card-header">
-          <h2 class="card-title">Régler {{ inv.reference }} — {{ inv.supplier.legalName }}</h2>
+          <h2 class="card-title">Régler {{ inv.reference }} · {{ inv.supplier.legalName }}</h2>
         </div>
         <div class="card-body">
           <p class="mb-3 text-[13px] text-ink-soft">
@@ -189,7 +192,7 @@ const FILTERS: { label: string; status?: string }[] = [
           <div class="flex flex-wrap items-end gap-3">
             <div>
               <label class="label" for="mnt">Montant</label>
-              <input id="mnt" class="field w-40 text-right font-mono" [(ngModel)]="payAmount" />
+              <input id="mnt" class="field w-40 text-right font-mono" erpMontant [(ngModel)]="payAmount" />
             </div>
             <div>
               <label class="label" for="dt">Date de règlement</label>
@@ -207,7 +210,7 @@ const FILTERS: { label: string; status?: string }[] = [
           <p class="mt-3 text-[11px] leading-relaxed text-ink-faint">
             Tant que la marchandise n’est pas reçue, ce règlement est une AVANCE : il pèse au
             besoin en fonds de roulement jusqu’à son apurement, qui se fera au chargement de
-            l’opération ou à sa clôture (§ 14.6).
+            l’opération ou à sa clôture.
           </p>
         </div>
       </section>
@@ -284,13 +287,13 @@ const FILTERS: { label: string; status?: string }[] = [
                 <span class="ml-1 text-[11px] font-normal text-ink-faint">{{ s.currencyCode }}</span>
               </td>
               <td class="num font-mono text-[12px] text-ink-muted">
-                {{ +s.vatAmount > 0 ? money(+s.vatAmount) : '—' }}
+                {{ +s.vatAmount > 0 ? money(+s.vatAmount) : '-' }}
               </td>
               <td class="num font-mono text-ink-soft">
-                {{ +s.prepaidAmount > 0 ? money(+s.prepaidAmount) : '—' }}
+                {{ +s.prepaidAmount > 0 ? money(+s.prepaidAmount) : '-' }}
               </td>
               <td class="num font-mono text-ink-soft">
-                {{ +s.prepaidAmount > 0 ? money(+s.settledAmount) : '—' }}
+                {{ +s.prepaidAmount > 0 ? money(+s.settledAmount) : '-' }}
               </td>
               <td class="num font-mono" [class]="advanceClass(s)">{{ remainderLabel(s) }}</td>
               <td class="text-[12px]" [class]="triggerClass(s)">
@@ -416,7 +419,7 @@ export class SupplierInvoicesComponent implements OnInit {
     const days = this.openAdvances()
       .map((i) => (i.prepaidAt ? daysSince(i.prepaidAt) : 0))
       .filter((d) => d > 0);
-    return days.length === 0 ? '—' : String(Math.max(...days));
+    return days.length === 0 ? '-' : String(Math.max(...days));
   });
 
   protected readonly state = new ActionState();
@@ -536,15 +539,13 @@ export class SupplierInvoicesComponent implements OnInit {
   }
 
   protected money(value: number): string {
-    if (!Number.isFinite(value)) return '—';
-    return value
-      .toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      .replace(/ | /g, ' ');
+    if (!Number.isFinite(value)) return '-';
+    return grouper(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   /** Reliquat, avec la durée d'immobilisation qui le qualifie. */
   protected remainderLabel(s: SupplierInvoiceRow): string {
-    if (Number(s.prepaidAmount) <= 0) return '—';
+    if (Number(s.prepaidAmount) <= 0) return '-';
     const left = remainder(s);
     if (left <= 0.01) return 'soldée';
     return this.money(left) + (s.prepaidAt ? ` · ${daysSince(s.prepaidAt)} j` : '');
@@ -560,11 +561,11 @@ export class SupplierInvoicesComponent implements OnInit {
    * toujours : « pourquoi celle-ci pèse-t-elle encore ? »
    */
   protected triggerLabel(s: SupplierInvoiceRow): string {
-    if (Number(s.prepaidAmount) <= 0) return '—';
+    if (Number(s.prepaidAmount) <= 0) return '-';
     if (remainder(s) <= 0.01) return 'apurée';
     if (s.purchaseOrderId) return 'chargement de l’opération';
     if (s.deal) return 'clôture de l’opération';
-    return 'apurement manuel — aucun dossier rattaché';
+    return 'apurement manuel : aucun dossier rattaché';
   }
 
   protected triggerClass(s: SupplierInvoiceRow): string {

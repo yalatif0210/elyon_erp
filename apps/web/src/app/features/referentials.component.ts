@@ -86,7 +86,7 @@ interface Tolerance {
                 <td class="num text-ink-soft">
                   @if (c.pegCurrencyCode) {
                     1 {{ c.pegCurrencyCode }} = {{ c.pegRate }} {{ c.code }}
-                  } @else { <span class="text-ink-faint">—</span> }
+                  } @else { <span class="text-ink-faint">-</span> }
                 </td>
               </tr>
             }
@@ -103,7 +103,6 @@ interface Tolerance {
       <section class="card mb-5">
         <div class="card-header">
           <h2 class="card-title">Seuils de marge</h2>
-          <span class="text-[11px] text-ink-faint">§ 5.4</span>
         </div>
         <div class="overflow-x-auto">
           <table class="table">
@@ -116,8 +115,8 @@ interface Tolerance {
                 <tr>
                   <td class="text-ink">{{ t.segment }}</td>
                   <td class="text-ink-muted">{{ t.product?.code ?? 'tous' }}</td>
-                  <td class="num text-crit">{{ t.directFloor ?? '—' }}</td>
-                  <td class="num text-warn-ink">{{ t.minimumMargin ?? '—' }}</td>
+                  <td class="num text-crit">{{ t.directFloor ?? '-' }}</td>
+                  <td class="num text-warn-ink">{{ t.minimumMargin ?? '-' }}</td>
                   <td class="text-ink-muted">{{ t.currencyCode }}/{{ t.uom }}</td>
                 </tr>
               }
@@ -135,7 +134,6 @@ interface Tolerance {
     <section class="card mb-5">
       <div class="card-header">
         <h2 class="card-title">Tolérances d'écart de volume</h2>
-        <span class="text-[11px] text-ink-faint">§ 8.3</span>
       </div>
       <div class="overflow-x-auto">
         <table class="table">
@@ -167,7 +165,7 @@ interface Tolerance {
     <section class="card">
       <div class="card-header">
         <h2 class="card-title">Répertoire des postes de coûts</h2>
-        <span class="text-[11px] text-ink-faint">{{ costPosts().length }} postes · § 6.5</span>
+        <span class="text-[11px] text-ink-faint">{{ costPosts().length }} postes</span>
       </div>
       <div class="overflow-x-auto">
         <table class="table">
@@ -202,7 +200,7 @@ interface Tolerance {
                     {{ c.variability === 'VARIABLE' ? 'variable' : 'fixe' }}
                   </span>
                 </td>
-                <td class="text-ink-muted">{{ c.costPool?.label ?? '—' }}</td>
+                <td class="text-ink-muted">{{ c.costPool?.label ?? '-' }}</td>
               </tr>
             }
           </tbody>

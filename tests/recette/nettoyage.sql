@@ -98,13 +98,79 @@ UPDATE invoices i
 -- --- Opportunités commerciales d'essai --------------------------------------
 DELETE FROM crm_opportunities WHERE title LIKE 'Recette CRM%';
 
+-- --- Grilles de seuils de marge d'essai -------------------------------------
+--
+-- ⚠️ CETTE PURGE EXISTAIT, MAIS AU MAUVAIS ENDROIT.
+--
+--    Elle était posée dans le SQL de migration, donc rejouée seulement quand le
+--    schéma change. Les campagnes qui tournent entre deux migrations laissaient
+--    leurs grilles s'empiler : huit lignes datées de 2030 à 2064 encombraient
+--    l'écran des seuils de marge, et un écran illisible finit par n'être plus
+--    lu.
+--
+--    Sa place est ici, avant chaque campagne. Les millésimes au-delà de 2030
+--    sont réservés à la recette : aucune grille réelle ne les porte.
+DELETE FROM margin_thresholds WHERE effective_from > DATE '2030-01-01';
+
+-- --- Cours de change d'essai ------------------------------------------------
+--
+-- Même cause, même correctif : `recette_dettes` importe des cours pour éprouver
+-- l'import de fichier, et ils encombraient le référentiel des taux de change.
+-- La table est en ajout seul, d'où la levée temporaire du verrou.
+ALTER TABLE fx_rates DISABLE TRIGGER trg_fx_rates_no_delete;
+DELETE FROM fx_rates WHERE effective_from > DATE '2030-01-01';
+ALTER TABLE fx_rates ENABLE TRIGGER trg_fx_rates_no_delete;
+
+-- --- Prix publiés d'essai ---------------------------------------------------
+--
+-- La prévision de vente tire désormais son prix de la publication : la recette
+-- doit donc en publier une, comme l'exploitant le ferait. Elle porte une date
+-- d'entrée en vigueur au 01/01/2020, qui ne se confond avec aucune publication
+-- réelle, et un auteur reconnaissable.
+ALTER TABLE administered_prices DISABLE TRIGGER trg_administered_prices_no_delete;
+DELETE FROM administered_prices
+ WHERE effective_from = DATE '2020-01-01' AND published_by = 'DGH';
+ALTER TABLE administered_prices ENABLE TRIGGER trg_administered_prices_no_delete;
+
 -- --- Exercices comptables d'essai et tout ce qui s'y rattache ---------------
 -- Les millésimes 2093 et au-delà sont réservés à la recette : aucun exercice
 -- réel ne les atteindra.
-DELETE FROM sales_forecasts
+-- ⚠️ LES BUDGETS DE POOL AVANT LES PRÉVISIONS, ET NON L'INVERSE.
+--
+--    Supprimer une prévision qui sert d'assiette à un budget de pool est
+--    REFUSÉ par la base — le coût de revient deviendrait incalculable. C'est
+--    le bon comportement en exploitation, et il impose ici l'ordre de
+--    démontage : on retire d'abord ce qui dépend, ensuite ce dont ça dépend.
+-- ⚠️ `absorption_rates` EST EN AJOUT SEUL : LE VERROU SE LÈVE, PUIS SE REPOSE.
+--
+--    Un budget de pool gouverne des coûts de revient déjà calculés — l'effacer
+--    en exploitation ferait disparaître l'explication d'une marge approuvée.
+--    Le verrou est donc juste, et on ne le contourne pas : on le suspend le
+--    temps d'un DELETE ciblé sur les seuls millésimes de recette, et on le
+--    remet AVANT toute autre instruction.
+--
+--    On désactive CE déclencheur-là, nommément, et non `session_replication_role`
+--    — qui couperait aussi les actions de clés étrangères, PostgreSQL les
+--    implémentant comme des déclencheurs système. C'est ainsi qu'une purge
+--    précédente avait laissé cinq lignes orphelines.
+-- ⚠️ LE VERROU RESTE LEVÉ JUSQU'À LA SUPPRESSION DES POOLS.
+--
+--    Supprimer un pool EMPORTE ses budgets par cascade — et la cascade
+--    déclenche le verrou d'ajout seul tout autant qu'un DELETE écrit à la
+--    main. Le remettre trop tôt faisait échouer la remise à zéro sur une
+--    instruction qui ne mentionne même pas la table concernée : « DELETE
+--    interdit sur absorption_rates » en réponse à une suppression de pools.
+ALTER TABLE absorption_rates DISABLE TRIGGER trg_absorption_rates_no_delete;
+
+DELETE FROM absorption_rates
  WHERE fiscal_year_id IN (SELECT id FROM fiscal_years WHERE year >= 2093);
-DELETE FROM fixed_cost_budgets
+DELETE FROM sales_forecasts
  WHERE fiscal_year_id IN (SELECT id FROM fiscal_years WHERE year >= 2093);
 DELETE FROM financing_rates
  WHERE fiscal_year_id IN (SELECT id FROM fiscal_years WHERE year >= 2093);
 DELETE FROM fiscal_years WHERE year >= 2093;
+
+-- Pools de charges d'essai, et par cascade leurs budgets.
+DELETE FROM cost_pools WHERE code LIKE 'RECETTE\_%';
+
+ALTER TABLE absorption_rates ENABLE TRIGGER trg_absorption_rates_no_delete;

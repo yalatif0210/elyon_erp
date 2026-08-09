@@ -40,7 +40,7 @@ const COMPLIANCE_TYPES: { code: string; label: string }[] = [
     <header class="mb-6">
       <h1 class="page-title">Conformité des moyens</h1>
       <p class="page-sub">
-        Statut déduit des pièces à échéance — jamais saisi. Un moyen non conforme ne peut être
+        Statut déduit des pièces à échéance, jamais saisi. Un moyen non conforme ne peut être
         affecté sans dérogation du Directeur Général.
       </p>
     </header>
@@ -63,7 +63,7 @@ const COMPLIANCE_TYPES: { code: string; label: string }[] = [
           <div>
             <label class="label" for="porteur">Porteur</label>
             <select id="porteur" class="field" [(ngModel)]="newSubject">
-              <option [ngValue]="''">— choisir —</option>
+              <option [ngValue]="''">Choisir</option>
               @for (o of rows(); track o.subject_id) {
                 <option [ngValue]="o.subject_kind + ':' + o.subject_id">
                   {{ kindLabel(o.subject_kind) }} · {{ o.subject_label }}
@@ -139,7 +139,7 @@ const COMPLIANCE_TYPES: { code: string; label: string }[] = [
               <td class="num" [class]="row.expiring_count > 0 ? 'font-semibold text-warn-ink' : 'text-ink-faint'">
                 {{ row.expiring_count }}
               </td>
-              <td class="num text-ink-soft">{{ row.next_expiry ? dateOnly(row.next_expiry) : '—' }}</td>
+              <td class="num text-ink-soft">{{ row.next_expiry ? dateOnly(row.next_expiry) : '-' }}</td>
               <td>
                 @if (row.is_compliant) {
                   <erp-status-badge kind="ok" label="Conforme" />
@@ -221,7 +221,7 @@ export class ComplianceComponent implements OnInit {
       })
       .subscribe({
         next: () => {
-          this.state.succeed('Pièce enregistrée — le statut de conformité est recalculé.');
+          this.state.succeed('Pièce enregistrée : le statut de conformité est recalculé.');
           this.newReference = '';
           this.reload();
         },

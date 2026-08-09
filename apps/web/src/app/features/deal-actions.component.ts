@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { ApiService, DealDetail, SupplierPriceOption } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { IconComponent } from '../shared/icon.component';
+import { grouper } from '../shared/format';
 
 /** Refus renvoyé par l'API — la validation rend un tableau, le métier une chaîne. */
 interface HttpFailure {
@@ -82,7 +83,7 @@ interface HttpFailure {
                   <td class="num font-mono text-[12px] text-ink-soft">
                     {{ n(p.carryingPerUnit) }}
                   </td>
-                  <td class="text-[12px] text-ink-soft">{{ p.validatedBy ?? '—' }}</td>
+                  <td class="text-[12px] text-ink-soft">{{ p.validatedBy ?? '-' }}</td>
                 </tr>
               }
             </tbody>
@@ -105,7 +106,7 @@ interface HttpFailure {
               <p class="pb-2 text-[12px]" [class]="outOfBand() ? 'text-warn-ink' : 'text-ok'">
                 @if (outOfBand()) {
                   <erp-icon name="alert-triangle" [size]="12" class="mr-1 inline" />
-                  Hors bande — motif exigé, et dérogation du DG pour approuver.
+                  Hors bande : motif exigé, et dérogation du DG pour approuver.
                 } @else {
                   <erp-icon name="check-circle" [size]="12" class="mr-1 inline" />
                   Dans la bande admise.
@@ -142,11 +143,11 @@ interface HttpFailure {
               [name]="deal.status !== 'DRAFT' ? 'check-circle' : 'clock'"
               [size]="13"
             />
-            Soumission au contrôle du risque — <em>chargé d’affaire</em>
+            Soumission au contrôle du risque : <em>chargé d’affaire</em>
           </li>
           <li class="flex items-center gap-2" [class]="stepClass(!!deal.creditApprovedBy)">
             <erp-icon [name]="deal.creditApprovedBy ? 'check-circle' : 'clock'" [size]="13" />
-            Approbation financière — <em>directeur financier</em>
+            Approbation financière : <em>directeur financier</em>
             @if (deal.creditApprovedBy) {
               <span class="text-ink-muted">· {{ deal.creditApprovedBy.fullName }}</span>
             }
@@ -154,7 +155,7 @@ interface HttpFailure {
           @if (deal.thresholds.belowMinimumMargin || deal.dgApprovedBy) {
             <li class="flex items-center gap-2" [class]="stepClass(!!deal.dgApprovedBy)">
               <erp-icon [name]="deal.dgApprovedBy ? 'check-circle' : 'lock'" [size]="13" />
-              Accord du DG — marge sous le seuil
+              Accord du DG : marge sous le seuil
               @if (deal.dgApprovedBy) {
                 <span class="text-ink-muted">· {{ deal.dgApprovedBy.fullName }}</span>
               }
@@ -207,7 +208,7 @@ interface HttpFailure {
 
         <p class="mt-3 text-[11px] leading-relaxed text-ink-faint">
           Un bouton visible ne préjuge pas du résultat : les seuils, le sourçage du prix et la
-          bande de tolérance sont appliqués par la base au moment de l’écriture. Un refus
+          bande de tolérance sont appliqués au moment de l’écriture. Un refus
           revient avec son motif.
         </p>
       </div>
@@ -282,7 +283,7 @@ export class DealActionsComponent {
   }
 
   protected n(v: number): string {
-    return v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return grouper(v, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   protected stepClass(done: boolean): string {
@@ -305,7 +306,7 @@ export class DealActionsComponent {
       .subscribe({
         next: () => {
           this.busy.set(false);
-          this.done.set('Fournisseur retenu — la marge est recalculée.');
+          this.done.set('Fournisseur retenu : la marge est recalculée.');
           this.changed.emit();
         },
         error: (e: HttpFailure) => this.fail(e),

@@ -59,7 +59,7 @@ const SEGMENT_LABELS: Record<string, string> = {
                     {{ segmentLabel(p.segment) }}
                   </span>
                 } @else {
-                  <span class="text-ink-faint">—</span>
+                  <span class="text-ink-faint">-</span>
                 }
               </td>
               <td class="font-mono text-[12px] text-ink-muted">{{ p.countryCode }}</td>

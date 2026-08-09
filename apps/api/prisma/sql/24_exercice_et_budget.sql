@@ -59,28 +59,20 @@ CREATE UNIQUE INDEX uniq_sales_forecast_courant
   ON sales_forecasts (fiscal_year_id, segment, product_id, month_index, kind)
   WHERE is_current;
 
--- Les charges fixes sont un ENSEMBLE de postes : plusieurs lignes courantes
--- coexistent légitimement. On garantit seulement l'unicité du libellé, pour
--- qu'un même poste ne soit pas budgété deux fois.
+-- ⚠️ LES INDEX SUR `fixed_cost_budgets` ONT DISPARU AVEC LA TABLE.
 --
--- ⚠️ DEUX INDEX PARTIELS, ET NON UN SEUL SUR `COALESCE(segment::text, '')`.
---
---    La conversion d'un type énuméré en texte est STABLE, pas IMMUTABLE :
---    l'ordre des valeurs peut changer si l'énumération évolue. PostgreSQL
---    refuse donc de l'employer dans une expression d'index. Les deux index
---    séparés disent la même chose et sont immuables — le NULL de `segment`
---    signifiant « entreprise entière », il forme sa propre classe d'unicité.
-DROP INDEX IF EXISTS uniq_fixed_cost_courant;
-DROP INDEX IF EXISTS uniq_fixed_cost_courant_segment;
-DROP INDEX IF EXISTS uniq_fixed_cost_courant_entreprise;
+--    Les charges fixes se DÉRIVENT désormais de la somme des budgets des pools
+--    déclarés FIXED (fichier 34). Elles se saisissaient à part et décrivaient
+--    le même argent que les pools : deux saisies parallèles que rien ne
+--    rapprochait. L'unicité qu'on garantissait ici est désormais celle du taux
+--    d'absorption du pool, ci-dessous.
 
-CREATE UNIQUE INDEX uniq_fixed_cost_courant_segment
-  ON fixed_cost_budgets (fiscal_year_id, label, segment)
-  WHERE is_current AND segment IS NOT NULL;
-
-CREATE UNIQUE INDEX uniq_fixed_cost_courant_entreprise
-  ON fixed_cost_budgets (fiscal_year_id, label)
-  WHERE is_current AND segment IS NULL;
+-- Un seul taux courant par pool et par exercice. Sans lui, deux taux
+-- « courants » coexistent, la somme des charges fixes double, et le point mort
+-- avec elle.
+DROP INDEX IF EXISTS uniq_absorption_courant;
+CREATE UNIQUE INDEX uniq_absorption_courant
+  ON absorption_rates (cost_pool_id, fiscal_year_id) WHERE is_current;
 
 -- ---------------------------------------------------------------------------
 --  4. Bornes de saisie.
@@ -93,9 +85,11 @@ ALTER TABLE sales_forecasts DROP CONSTRAINT IF EXISTS chk_forecast_positif;
 ALTER TABLE sales_forecasts ADD CONSTRAINT chk_forecast_positif
   CHECK (forecast_volume >= 0 AND reference_price >= 0);
 
-ALTER TABLE fixed_cost_budgets DROP CONSTRAINT IF EXISTS chk_fixed_cost_positif;
-ALTER TABLE fixed_cost_budgets ADD CONSTRAINT chk_fixed_cost_positif
-  CHECK (annual_amount >= 0);
+-- Le budget d'un pool remplace le budget de charges fixes : c'est lui qu'on
+-- borne désormais.
+ALTER TABLE absorption_rates DROP CONSTRAINT IF EXISTS chk_absorption_budget_positif;
+ALTER TABLE absorption_rates ADD CONSTRAINT chk_absorption_budget_positif
+  CHECK (budgeted_amount >= 0);
 
 -- Un taux négatif n'a pas de sens ; au-delà de 100 % l'an, c'est une saisie en
 -- points de base prise pour un pourcentage.
@@ -136,9 +130,9 @@ CREATE TRIGGER trg_financing_rate_exercice_clos
   BEFORE INSERT OR UPDATE ON financing_rates
   FOR EACH ROW EXECUTE FUNCTION refuse_ecriture_exercice_clos();
 
-DROP TRIGGER IF EXISTS trg_fixed_cost_exercice_clos ON fixed_cost_budgets;
-CREATE TRIGGER trg_fixed_cost_exercice_clos
-  BEFORE INSERT OR UPDATE ON fixed_cost_budgets
+DROP TRIGGER IF EXISTS trg_absorption_exercice_clos ON absorption_rates;
+CREATE TRIGGER trg_absorption_exercice_clos
+  BEFORE INSERT OR UPDATE ON absorption_rates
   FOR EACH ROW EXECUTE FUNCTION refuse_ecriture_exercice_clos();
 
 DROP TRIGGER IF EXISTS trg_forecast_exercice_clos ON sales_forecasts;
@@ -247,6 +241,57 @@ RETURNS int AS $$
 $$ LANGUAGE sql STABLE;
 
 
+-- ---------------------------------------------------------------------------
+--  LES CHARGES FIXES DE L'EXERCICE, DÉRIVÉES DES POOLS (§ 14.5)
+--
+--  Elles se saisissaient dans `fixed_cost_budgets`, table supprimée. Le budget
+--  d'un pool est saisi UNE FOIS et sert DEUX FOIS :
+--
+--    · divisé par l'assiette → la charge au litre → le seuil de marge ;
+--    · sommé sur les pools FIXES → le numérateur du point mort.
+--
+--  ⚠️ SEULS LES POOLS *FIXED* Y ENTRENT.
+--
+--     Un pool VARIABLE — des commissions bancaires proportionnelles, par
+--     exemple — s'absorbe bien au litre, mais n'est pas une charge fixe : la
+--     marge sur coût variable le compte déjà. L'ajouter ici le compterait deux
+--     fois et gonflerait le point mort d'autant.
+--
+--  La doctrine complète est dans le fichier 34 ; la vue est ici parce que le
+--  point mort (fichier 25) la lit, et que 25 précède 34.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE VIEW v_charges_fixes_exercice AS
+SELECT f.id                                                        AS fiscal_year_id,
+       f.year                                                      AS exercice,
+       f.label,
+       f.status::text                                              AS statut,
+       count(*) FILTER (WHERE cp.id IS NOT NULL)                   AS pools,
+       COALESCE(sum(ar.budgeted_amount)
+                FILTER (WHERE cp.id IS NOT NULL), 0)               AS charges_fixes,
+       -- ⚠️ ON NE SOMME PAS DES DEVISES DIFFÉRENTES SANS LE DIRE.
+       --    Le total resterait un nombre, et le point mort en découlerait
+       --    comme si de rien n'était. Même discipline que pour les unités.
+       count(DISTINCT cp.currency_code)                            AS devises,
+       min(cp.currency_code)                                       AS devise
+  FROM fiscal_years f
+  LEFT JOIN absorption_rates ar
+    ON ar.fiscal_year_id = f.id
+   AND ar.is_current
+  -- La jointure PORTE le filtre de nature : un taux dont le pool est variable
+  -- ou inactif donne `cp.id` nul, et les agrégats l'ignorent. Le filtrer en
+  -- WHERE ferait DISPARAÎTRE l'exercice qui n'a que des pools variables — et
+  -- le point mort, qui doit toujours rendre une ligne, n'aurait plus rien à
+  -- lire.
+  LEFT JOIN cost_pools cp
+    ON cp.id = ar.cost_pool_id
+   AND cp.is_active
+   AND cp.variability::text = 'FIXED'
+ GROUP BY f.id, f.year, f.label, f.status;
+
+COMMENT ON VIEW v_charges_fixes_exercice IS
+  'Charges fixes de l''exercice (§ 14.5), DÉRIVÉES de la somme des budgets des pools déclarés FIXED. Elles ne se saisissent plus : une seule saisie sert au seuil de marge et au point mort, ce que deux saisies parallèles ne pouvaient pas garantir. `devises` > 1 = total dénué de sens, et le point mort le dit.';
+
+
 -- ===========================================================================
 --  COUVERTURE — ce qui manque pour que le pilotage soit calculable.
 --
@@ -269,28 +314,45 @@ SELECT ex.year                                       AS exercice,
        'Coût de portage (§ 5.4) et BFR (§ 14.6)'::text AS sert_a
   FROM ex
 
-UNION ALL
-SELECT ex.year, ex.label, ex.statut,
-       'Budget de charges fixes',
-       EXISTS (SELECT 1 FROM fixed_cost_budgets b
-                WHERE b.fiscal_year_id = ex.id AND b.is_current),
-       'Point mort (§ 14.5)'
-  FROM ex
-
+-- ⚠️ L'ORDRE DE CES DEUX LIGNES EST L'ORDRE DE SAISIE, ET IL EST CONTRAINT.
+--
+--    La prévision d'abord : elle EST l'assiette d'absorption. Le budget d'un
+--    pool ne peut plus se saisir avant elle — la base le refuse, faute de
+--    dénominateur à lire. C'est voulu : l'ordre inverse produisait un taux
+--    calé sur une assiette recopiée à la main, qui divergeait ensuite.
 UNION ALL
 SELECT ex.year, ex.label, ex.statut,
        'Prévision de volumes',
        EXISTS (SELECT 1 FROM sales_forecasts s
-                WHERE s.fiscal_year_id = ex.id AND s.is_current),
+                WHERE s.fiscal_year_id = ex.id AND s.is_current
+                  AND s.kind::text = 'BUDGET'),
        'Assiette d''absorption (§ 14.2), plan d''approvisionnement et de trésorerie (§ 14.3)'
   FROM ex
 
+-- Une seule ligne pour les deux usages, parce qu'il n'y a plus qu'une saisie :
+-- le budget d'un pool sert au seuil de marge ET, s'il est de nature fixe, au
+-- point mort. C'est tout l'objet de la dérivation.
 UNION ALL
 SELECT ex.year, ex.label, ex.statut,
-       'Taux d''absorption',
+       'Budget des pools de charges',
        EXISTS (SELECT 1 FROM absorption_rates a
-                WHERE a.fiscal_year = ex.year AND a.is_current),
-       'Coût complet et seuil de marge (§ 14.2)'
+                WHERE a.fiscal_year_id = ex.id AND a.is_current),
+       'Coût complet et seuil de marge (§ 14.2) ; les pools FIXES forment aussi les charges fixes du point mort (§ 14.5)'
+  FROM ex
+
+-- Distincte de la précédente : on peut avoir budgété des pools sans qu'aucun
+-- ne soit de nature fixe. Le point mort serait alors de zéro litre, donc déjà
+-- atteint — le genre de chiffre que personne ne remet en cause.
+UNION ALL
+SELECT ex.year, ex.label, ex.statut,
+       -- Le libellé se lit dans la file de tâches suivi de « non saisi » :
+       -- il doit rester un GROUPE NOMINAL, sans « au moins un ».
+       'Pool de charges FIXES',
+       EXISTS (SELECT 1 FROM absorption_rates a
+                JOIN cost_pools cp ON cp.id = a.cost_pool_id
+                WHERE a.fiscal_year_id = ex.id AND a.is_current
+                  AND cp.is_active AND cp.variability::text = 'FIXED'),
+       'Point mort (§ 14.5)'
   FROM ex;
 
 COMMENT ON VIEW v_couverture_budgetaire IS

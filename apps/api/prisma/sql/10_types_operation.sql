@@ -79,10 +79,13 @@ RETURNS TABLE (
       CROSS JOIN contexte c
      WHERE a.operation_id = p_operation_id
        AND t.is_active AND t.is_current
-       AND (cardinality(t.applicable_segments) = 0 OR c.segment = ANY (t.applicable_segments))
-       AND (cardinality(t.applicable_transport_modes) = 0
+       -- COALESCE : `cardinality(NULL)` vaut NULL, pas zéro. Sans lui, un
+       -- modèle « applicable à tout » ne s'applique à RIEN.
+       AND (COALESCE(cardinality(t.applicable_segments), 0) = 0
+            OR c.segment = ANY (t.applicable_segments))
+       AND (COALESCE(cardinality(t.applicable_transport_modes), 0) = 0
             OR c.transport_mode = ANY (t.applicable_transport_modes))
-       AND (cardinality(t.applicable_risk_levels) = 0
+       AND (COALESCE(cardinality(t.applicable_risk_levels), 0) = 0
             OR c.hse_risk_level = ANY (t.applicable_risk_levels))
   ),
   points AS (

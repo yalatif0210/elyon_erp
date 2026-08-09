@@ -56,12 +56,12 @@ export class TerrainRetourComponent {
       >
         <p class="flex items-start gap-2 font-semibold">
           <erp-icon name="alert-triangle" [size]="18" class="mt-0.5" />
-          Refusé par le serveur
+          Refusé
         </p>
         <p class="mt-1.5 whitespace-pre-line">{{ erreur }}</p>
         <p class="mt-2 text-[14px]">
           Ce refus est définitif pour cet enregistrement : il ne repartira pas tel quel. Levez la
-          cause, puis refaites l’action — elle produira un enregistrement neuf.
+          cause, puis refaites l’action, elle produira un enregistrement neuf.
         </p>
       </div>
     }

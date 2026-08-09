@@ -33,7 +33,7 @@ import { IconComponent } from '../shared/icon.component';
       <h1 class="page-title">Ce que j'ai à traiter</h1>
       <p class="page-sub">
         Établi à partir de l'état réel de l'application. Une tâche disparaît d'elle-même dès
-        qu'elle est traitée — il n'y a rien à cocher.
+        qu'elle est traitée : il n'y a rien à cocher.
       </p>
     </header>
 
@@ -63,7 +63,7 @@ import { IconComponent } from '../shared/icon.component';
         <div class="card px-[15px] py-3">
           <p class="text-[11px] uppercase tracking-wide text-ink-muted">La plus ancienne</p>
           <p class="mt-0.5 text-[18px] font-semibold leading-tight text-ink">
-            {{ c.plusAncienne ? attente(c.plusAncienne) : '—' }}
+            {{ c.plusAncienne ? attente(c.plusAncienne) : '-' }}
           </p>
           <p class="mt-1 text-[11px] leading-snug text-ink-faint">
             {{ c.plusAncienne ? 'que quelqu’un attend' : 'rien en attente' }}
@@ -168,9 +168,9 @@ export class TachesComponent implements OnInit {
 
   protected intitule(u: Tache['urgence']): string {
     return u === 'BLOQUANT'
-      ? 'Bloquant — quelqu’un attend'
+      ? 'Bloquant : quelqu’un attend'
       : u === 'ANOMALIE'
-        ? 'Anomalies — déjà passé'
+        ? 'Anomalies : déjà passé'
         : 'À venir';
   }
 

@@ -8,6 +8,8 @@ import {
   ReferentialSpec,
 } from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
+import { grouper } from '../shared/format';
+import { MontantDirective } from '../shared/montant.directive';
 
 /**
  * Paramétrage des référentiels (SPECIFICATIONS.md § 1.1 bis).
@@ -21,19 +23,26 @@ import { IconComponent } from '../shared/icon.component';
 @Component({
   selector: 'erp-parameters',
   standalone: true,
-  imports: [FormsModule, IconComponent],
+  imports: [FormsModule, IconComponent, MontantDirective],
   template: `
     <header class="mb-5">
       <h1 class="page-title">Paramétrage</h1>
       <p class="page-sub">
-        Saisie unitaire ou import de fichier — aucune donnée de fonctionnement n’est figée
-        dans le code
+        Saisie unitaire ou import de fichier, aucune donnée de fonctionnement n’est figée d’avance
       </p>
     </header>
 
     <div class="grid grid-cols-1 gap-5 lg:grid-cols-[240px_1fr]">
       <!-- ============ Choix du référentiel ============ -->
-      <nav class="card h-fit overflow-hidden">
+      <!-- La liste compte jusqu'à vingt-huit réglages : elle dépasse la
+           hauteur de l'écran. Elle défile donc pour elle-même et reste en vue
+           pendant qu'on lit le panneau de droite, sans quoi changer de réglage
+           obligeait à remonter toute la page. Sur petit écran, la mise en page
+           repasse sur une colonne et la liste redevient un bloc ordinaire. -->
+      <nav
+        class="card h-fit overflow-hidden lg:sticky lg:top-[84px]
+               lg:max-h-[calc(100vh-104px)] lg:overflow-y-auto"
+      >
         @for (r of catalogue(); track r.key) {
           <button
             type="button"
@@ -89,7 +98,82 @@ import { IconComponent } from '../shared/icon.component';
             >
               Import de fichier
             </button>
+            <button
+              type="button"
+              class="rounded-[3px] px-2.5 py-1 text-[12px] font-medium transition-colors"
+              [class]="tabClass('consulter')"
+              (click)="tab.set('consulter')"
+            >
+              Ce qui est enregistré
+              @if (lignes()) {
+                <span class="ml-1 opacity-70">({{ lignes()!.length }})</span>
+              }
+            </button>
           </div>
+
+          <!-- ============ Ce qui est enregistré ============ -->
+          @if (tab() === 'consulter') {
+            <section class="card">
+              <div class="card-header">
+                <h2 class="card-title">{{ spec.label }}</h2>
+                <span class="text-[11px] text-ink-faint">
+                  {{ lignes() === null ? 'lecture en cours' : lignes()!.length + ' ligne(s)' }}
+                </span>
+              </div>
+
+              @if (lignes() === null) {
+                <div class="card-body">
+                  <p class="text-[13px] text-ink-faint">Lecture en cours.</p>
+                </div>
+              } @else if (lignes()!.length === 0) {
+                <div class="card-body">
+                  <p class="text-[13px] leading-relaxed text-ink-soft">
+                    Rien n’est encore enregistré pour ce réglage. Passez par la saisie unitaire
+                    ou par l’import de fichier.
+                  </p>
+                </div>
+              } @else {
+                <div class="overflow-x-auto">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        @for (f of colonnes(spec); track f.name) {
+                          <th [class.num]="alignerADroite(f)">{{ f.label }}</th>
+                        }
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (l of lignes(); track $index) {
+                        <tr>
+                          @for (f of colonnes(spec); track f.name) {
+                            <td
+                              [class.num]="alignerADroite(f)"
+                              [class.tabular]="alignerADroite(f)"
+                              [class]="f.name === spec.identity[0] ? 'text-ink' : 'text-ink-soft'"
+                            >
+                              {{ afficher(l, f) }}
+                            </td>
+                          }
+                          <td class="num">
+                            <button type="button" class="link text-[12px]" (click)="reprendre(l)">
+                              {{ spec.nature === 'historised' ? 'Repartir de là' : 'Modifier' }}
+                            </button>
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+
+              @if (lecture()) {
+                <div class="card-body border-t border-rule">
+                  <p class="text-[12px] leading-relaxed text-warn-ink">{{ lecture() }}</p>
+                </div>
+              }
+            </section>
+          }
 
           <!-- ============ Saisie unitaire ============ -->
           @if (tab() === 'saisie') {
@@ -134,7 +218,7 @@ import { IconComponent } from '../shared/icon.component';
                                 [checked]="hasValue(f.name, v)"
                                 (change)="toggleValue(f.name, v)"
                               />
-                              {{ v }}
+                              {{ libelle(f, v) }}
                             </label>
                           }
                         </div>
@@ -177,11 +261,16 @@ import { IconComponent } from '../shared/icon.component';
                              faute ne se voit pas — elle rattache l'objet à
                              rien, en silence. -->
                         @if (refChoices(f); as options) {
-                          <select class="field" [id]="'f-' + f.name" [(ngModel)]="form[f.name]">
-                            <option [ngValue]="null">—</option>
+                          <select
+                            class="field"
+                            [id]="'f-' + f.name"
+                            [(ngModel)]="form[f.name]"
+                            (ngModelChange)="onFieldChange(f)"
+                          >
+                            <option [ngValue]="null">Choisir</option>
                             @for (o of options; track o.value) {
                               <option [ngValue]="o.value">
-                                {{ o.value }}@if (o.label !== o.value) { — {{ o.label }} }
+                                {{ o.value }}@if (o.label !== o.value) { · {{ o.label }} }
                               </option>
                             }
                           </select>
@@ -195,21 +284,61 @@ import { IconComponent } from '../shared/icon.component';
                           <p class="py-1 text-[12px] text-ink-faint">Lecture du référentiel…</p>
                         }
                       } @else if (f.type === 'enum') {
-                        <select class="field" [id]="'f-' + f.name" [(ngModel)]="form[f.name]">
-                          <option [ngValue]="null">—</option>
+                        <select
+                          class="field"
+                          [id]="'f-' + f.name"
+                          [(ngModel)]="form[f.name]"
+                          (ngModelChange)="onFieldChange(f)"
+                        >
+                          <option [ngValue]="null">Choisir</option>
                           @for (v of f.values ?? []; track v) {
+                            <!-- Le libellé s'affiche, la valeur envoyée reste
+                                 le code : traduire la valeur la rendrait
+                                 dépendante de la langue de l'écran. -->
+                            <option [ngValue]="v">{{ libelle(f, v) }}</option>
+                          }
+                        </select>
+                      } @else if (f.type === 'version') {
+                        <!-- Les numéros DÉJÀ PRIS sont retirés de la liste.
+                             Un entier libre laissait écraser une version
+                             existante sur une faute de frappe — et une
+                             révision qui écrase ce qu'elle révise fait
+                             disparaître l'historique qu'on versionne
+                             justement pour le garder. -->
+                        <select class="field" [id]="'f-' + f.name" [(ngModel)]="form[f.name]">
+                          @for (v of versionChoices(); track v) {
                             <option [ngValue]="v">{{ v }}</option>
                           }
                         </select>
+                        @if (versionsPrises().length > 0) {
+                          <p class="mt-1 text-[11px] text-ink-faint">
+                            Déjà utilisées pour cette combinaison&nbsp;:
+                            {{ versionsPrises().join(', ') }}
+                          </p>
+                        }
                       } @else if (f.type === 'text') {
                         <textarea class="field" rows="2" [id]="'f-' + f.name" [(ngModel)]="form[f.name]"></textarea>
+                      } @else if (f.type === 'number' || f.type === 'integer') {
+                        <!-- Séparateurs de milliers pendant la frappe : un
+                             budget annuel se relit à l'œil, et une erreur d'un
+                             facteur dix se voit au lieu de se recompter. -->
+                        <input
+                          class="field text-right font-mono"
+                          erpMontant
+                          [id]="'f-' + f.name"
+                          [(ngModel)]="form[f.name]"
+                          (ngModelChange)="onFieldChange(f)"
+                        />
                       } @else {
+                        <!-- Le clavier numérique est porté par la branche des
+                             montants ci-dessus : ici il ne reste que du texte,
+                             des dates et des références. -->
                         <input
                           class="field"
                           [id]="'f-' + f.name"
                           [type]="f.type === 'date' ? 'date' : 'text'"
-                          [inputMode]="f.type === 'number' || f.type === 'integer' ? 'decimal' : 'text'"
                           [(ngModel)]="form[f.name]"
+                          (ngModelChange)="onFieldChange(f)"
                         />
                       }
 
@@ -268,14 +397,14 @@ import { IconComponent } from '../shared/icon.component';
           @if (tab() === 'import') {
             <section class="card">
               <div class="card-header">
-                <h2 class="card-title">Import — {{ spec.label }}</h2>
+                <h2 class="card-title">Import : {{ spec.label }}</h2>
                 <button class="link text-[12px]" (click)="downloadTemplate(spec)">
                   Télécharger le gabarit
                 </button>
               </div>
               <div class="card-body">
                 <p class="mb-4 text-[13px] leading-relaxed text-ink-soft">
-                  Déposez un fichier <strong>CSV</strong> — c’est le format qu’Excel et LibreOffice
+                  Déposez un fichier <strong>CSV</strong> : c’est le format qu’Excel et LibreOffice
                   produisent par « Enregistrer sous ». La première ligne porte les noms de
                   colonnes du gabarit. Les nombres acceptent la virgule décimale, les dates le
                   format jour/mois/année.
@@ -344,7 +473,7 @@ import { IconComponent } from '../shared/icon.component';
                             @for (r of rep.rejets; track $index) {
                               <tr class="row-crit">
                                 <td class="num font-mono">{{ r.line }}</td>
-                                <td class="font-mono text-[12px] text-ink-muted">{{ r.field ?? '—' }}</td>
+                                <td class="font-mono text-[12px] text-ink-muted">{{ r.field ?? '-' }}</td>
                                 <td class="text-ink">{{ r.message }}</td>
                               </tr>
                             }
@@ -382,7 +511,17 @@ export class ParametersComponent implements OnInit {
 
   protected readonly catalogue = signal<ReferentialSpec[]>([]);
   protected readonly selected = signal<ReferentialSpec | null>(null);
-  protected readonly tab = signal<'saisie' | 'import'>('saisie');
+  protected readonly tab = signal<'saisie' | 'import' | 'consulter'>('saisie');
+
+  /**
+   * Ce qui est déjà enregistré pour le réglage choisi.
+   *
+   * `null` tant que la lecture n’a pas abouti : un tableau vide signifie
+   * « rien d’enregistré », et confondre les deux ferait annoncer l’absence
+   * avant même d’avoir regardé.
+   */
+  protected readonly lignes = signal<Record<string, unknown>[] | null>(null);
+  protected readonly lecture = signal<string | null>(null);
   protected readonly busy = signal(false);
   protected readonly errors = signal<string[]>([]);
   protected readonly saved = signal<string | null>(null);
@@ -402,6 +541,16 @@ export class ParametersComponent implements OnInit {
   protected form: Record<string, unknown> = {};
   protected reason = '';
 
+  /**
+   * Numéros de version disponibles pour la combinaison en cours de saisie.
+   *
+   * `null` tant qu'aucune lecture n'a abouti — la liste retombe alors sur 1 à
+   * 100. C'est délibéré : privé de la lecture, l'écran doit rester utilisable,
+   * et la base refusera de toute façon un doublon. Une liste vide, elle,
+   * empêcherait toute saisie sans rien expliquer.
+   */
+  protected readonly versions = signal<{ libres: number[]; prises: number[] } | null>(null);
+
   protected readonly parsedColumns = computed(() => Object.keys(this.parsed()[0] ?? {}));
 
   ngOnInit(): void {
@@ -416,7 +565,16 @@ export class ParametersComponent implements OnInit {
     this.resetForm();
     this.report.set(null);
     this.parsed.set([]);
+    this.versions.set(null);
     this.loadReferences(spec);
+    this.refreshVersions();
+    this.chargerLignes(spec);
+  }
+
+  /** Après une écriture, ce qui est enregistré a changé : on le relit. */
+  private rafraichir(): void {
+    const spec = this.selected();
+    if (spec) this.chargerLignes(spec);
   }
 
   /**
@@ -468,7 +626,188 @@ export class ParametersComponent implements OnInit {
     return this.references()[f.refTable ?? ''] ?? undefined;
   }
 
-  protected tabClass(t: 'saisie' | 'import'): string {
+  /**
+   * Colonnes de consultation : celles du formulaire, les notes en moins.
+   *
+   * Une note tient parfois mille caractères et ferait déborder la ligne. Elle
+   * se lit au moment où on modifie, pas au moment où on parcourt.
+   */
+  protected colonnes(spec: ReferentialSpec): FieldSpec[] {
+    return spec.fields.filter((f) => f.type !== 'text');
+  }
+
+  protected alignerADroite(f: FieldSpec): boolean {
+    return f.type === 'number' || f.type === 'integer' || f.type === 'version';
+  }
+
+  /**
+   * Libellé français d'une valeur de liste, ou la valeur elle-même à défaut.
+   *
+   * Le repli n'est pas décoratif : une énumération qui gagne une valeur sans
+   * qu'on ait pensé à la traduire s'affiche telle quelle, ce qui reste lisible.
+   * Un libellé vide, lui, ferait disparaître le choix de la liste.
+   */
+  protected libelle(f: FieldSpec, valeur: string): string {
+    return f.valueLabels?.[valeur] ?? valeur;
+  }
+
+  /** Valeur d’une cellule, dans la forme sous laquelle elle a été choisie. */
+  protected afficher(ligne: Record<string, unknown>, f: FieldSpec): string {
+    // Une référence se relit par sa clé LISIBLE, posée à côté de
+    // l’identifiant : « ADM » et non « 6b7c54a9-a952… ».
+    const lisible = ligne['_lisible'] as Record<string, unknown> | undefined;
+    if (lisible && lisible[f.name] !== undefined && lisible[f.name] !== null) {
+      return String(lisible[f.name]);
+    }
+
+    const v = ligne[f.name];
+    if (v === null || v === undefined || v === '') return '-';
+    if (typeof v === 'boolean') return v ? 'oui' : 'non';
+    // Les listes se relisent dans la même langue que la saisie : afficher
+    // « PER_VOLUME » ici et « Au volume » dans le formulaire ferait douter
+    // qu'il s'agisse de la même chose.
+    if (Array.isArray(v)) {
+      return v.length === 0 ? 'tous' : v.map((x) => this.libelle(f, String(x))).join(', ');
+    }
+    if (f.type === 'enum') return this.libelle(f, String(v));
+    if (f.type === 'date') return String(v).slice(0, 10);
+    if (f.type === 'number' || f.type === 'integer') {
+      const n = Number(v);
+      return Number.isNaN(n) ? String(v) : grouper(n, { maximumFractionDigits: 6 });
+    }
+    return String(v);
+  }
+
+  /**
+   * Ramène une ligne existante dans le formulaire de saisie.
+   *
+   * ⚠️ SANS CELA, MODIFIER UNE LIGNE ÉTAIT IMPRATICABLE.
+   *
+   *    Le formulaire s'ouvrait vide. Pour poser une probabilité sur une étape
+   *    du pipeline, il fallait retaper le code, le libellé, le rang et l'issue
+   *    de mémoire, et se tromper de rang heurtait une contrainte d'unicité
+   *    avec un message qui ne parlait pas de l'étape voisine. Treize étapes,
+   *    quatre champs obligatoires chacune : personne ne l'aurait fait deux
+   *    fois.
+   *
+   *    Le dirigeant, le 9 août : « tu as inscrit des informations sans
+   *    probabilité et il est impossible de les mettre à jour ».
+   *
+   * ⚠️ SUR UNE DONNÉE HISTORISÉE, CECI NE MODIFIE RIEN.
+   *
+   *    Une grille de seuils ou un prix publié ne se réécrit jamais : la
+   *    validation le refuse, et c'est ce qui garantit qu'une marge approuvée
+   *    l'a été sur des chiffres qu'on peut encore retrouver. On repart donc de
+   *    la ligne existante pour en écrire une NOUVELLE, à une autre date. Le
+   *    bouton le dit : « repartir de là », pas « modifier ».
+   */
+  protected reprendre(ligne: Record<string, unknown>): void {
+    const spec = this.selected();
+    if (!spec) return;
+
+    const lisible = ligne['_lisible'] as Record<string, unknown> | undefined;
+    const valeurs: Record<string, unknown> = {};
+
+    for (const f of spec.fields) {
+      // Une référence se repose par sa clé lisible : c'est ce que le
+      // formulaire propose, et c'est ce que le serveur sait résoudre.
+      if (lisible && lisible[f.name] !== undefined && lisible[f.name] !== null) {
+        valeurs[f.name] = lisible[f.name];
+        continue;
+      }
+      const v = ligne[f.name];
+      if (v === null || v === undefined) continue;
+      if (Array.isArray(v)) {
+        valeurs[f.name] = v.join(',');
+      } else if (f.type === 'date') {
+        valeurs[f.name] = String(v).slice(0, 10);
+      } else {
+        valeurs[f.name] = v;
+      }
+    }
+
+    this.form = valeurs;
+    this.reason = '';
+    this.errors.set([]);
+    this.saved.set(null);
+    this.tab.set('saisie');
+    this.refreshVersions();
+  }
+
+  private chargerLignes(spec: ReferentialSpec): void {
+    this.lignes.set(null);
+    this.lecture.set(null);
+    this.api.lignesReferentiel(spec.key).subscribe({
+      next: (l) => this.lignes.set(l),
+      // Une lecture refusée n’est pas une absence de données : le dire évite
+      // de conclure que le réglage est vide alors qu’il ne l’est pas.
+      error: () => {
+        this.lignes.set([]);
+        this.lecture.set(
+          'Ce réglage ne se relit pas depuis cet écran, ou votre profil n’y donne pas accès. Ce qui est enregistré reste en place.',
+        );
+      },
+    });
+  }
+
+  /** Numéros proposés. Repli sur 1 à 100 si la lecture n'a pas abouti. */
+  protected versionChoices(): number[] {
+    return this.versions()?.libres ?? Array.from({ length: 100 }, (_, i) => i + 1);
+  }
+
+  protected versionsPrises(): number[] {
+    return this.versions()?.prises ?? [];
+  }
+
+  /**
+   * Un champ d'IDENTITÉ vient de changer : les versions libres avec lui.
+   *
+   * ⚠️ LES VERSIONS SE COMPTENT PAR IDENTITÉ, PAS GLOBALEMENT.
+   *
+   *    La version 1 du pool Administration 2026 et la version 1 du pool HSE
+   *    2026 coexistent normalement. La liste dépend donc de ce qui vient
+   *    d'être choisi juste au-dessus — c'est ce qui la distingue d'une liste
+   *    statique, et c'est tout le travail de ce champ.
+   */
+  protected onFieldChange(f: FieldSpec): void {
+    if (!this.selected()?.identity.includes(f.name)) return;
+    this.refreshVersions();
+  }
+
+  private refreshVersions(): void {
+    const spec = this.selected();
+    const champ = spec?.fields.find((f) => f.type === 'version');
+    if (!spec || !champ) {
+      this.versions.set(null);
+      return;
+    }
+
+    // Seuls les champs d'identité DÉJÀ renseignés sont transmis. Tant que le
+    // formulaire est incomplet, la liste porte sur ce qui est choisi — et non
+    // sur rien, ce qui laisserait croire que tous les numéros sont libres.
+    const identite: Record<string, string> = {};
+    for (const nom of spec.identity) {
+      if (nom === champ.name) continue;
+      const v = this.form[nom];
+      if (v === null || v === undefined || v === '') continue;
+      identite[nom] = String(v);
+    }
+
+    this.api.versionsLibres(spec.key, identite).subscribe({
+      next: (r) => {
+        this.versions.set(r);
+        // On ne déplace le choix de l'utilisateur que s'il est devenu
+        // indisponible : sinon, changer d'exercice remettrait sa version à 1
+        // sous ses doigts.
+        if (!r.libres.includes(Number(this.form[champ.name]))) {
+          this.form[champ.name] = r.suivant;
+        }
+      },
+      error: () => this.versions.set(null),
+    });
+  }
+
+  protected tabClass(t: 'saisie' | 'import' | 'consulter'): string {
     return this.tab() === t
       ? 'bg-primary text-white'
       : 'border border-rule-strong bg-surface text-ink-soft hover:bg-gray-100 hover:text-ink';
@@ -517,6 +856,11 @@ export class ParametersComponent implements OnInit {
         this.busy.set(false);
         this.saved.set(r.created ? 'Ligne créée.' : 'Ligne modifiée.');
         this.form = {};
+        // Ce qui est enregistré vient de changer : on le relit, et les numéros
+        // de version libres avec lui. Sans cela, l'onglet de consultation
+        // montrerait l'état d'avant la saisie qu'on vient de faire.
+        this.rafraichir();
+        this.refreshVersions();
       },
       error: (e: { error?: { message?: unknown; errors?: { message: string }[] } }) => {
         this.busy.set(false);
@@ -557,6 +901,9 @@ export class ParametersComponent implements OnInit {
         next: (r) => {
           this.busy.set(false);
           this.report.set(r);
+          // Un import à blanc n'écrit rien : relire serait inutile, et laisser
+          // croire qu'il a écrit.
+          if (!dryRun) this.rafraichir();
         },
         error: (e: { error?: { message?: unknown } }) => {
           this.busy.set(false);
