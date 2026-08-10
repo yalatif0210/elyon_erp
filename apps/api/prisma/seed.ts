@@ -308,7 +308,13 @@ async function main(): Promise<void> {
         pricingMethod: sp.pricingMethod,
         sourceLabel: sp.sourceLabel,
         effectiveFrom: D('2026-07-01'),
-        validatedById: users[UserRole.FINANCE_CFO],
+        // ⚠️ LA VALIDATION D'UN PRIX FOURNISSEUR EST RÉSERVÉE AU DG.
+        //
+        //    Le jeu de données précédait cette règle et validait au nom du
+        //    directeur financier. La base le refuse désormais, et le seed
+        //    échouait à cette ligne — un jeu de données qui ne se rejoue plus
+        //    laisse la recette sans base de départ, ce qui s'est produit.
+        validatedById: users[UserRole.DG],
         validatedAt: new Date('2026-07-01T09:00:00Z'),
       },
     });
@@ -323,37 +329,39 @@ async function main(): Promise<void> {
   //  fixe), commissions bancaires (indirectes et variables).
   // =========================================================================
   const poolDefs = [
-    { code: 'POOL_ADMIN', label: 'Administration et structure', allocationBasis: AllocationBasis.PER_VOLUME, segments: [], budget: 180_000_000, base: 12_000_000 },
-    { code: 'POOL_HSE', label: 'HSE et conformité', allocationBasis: AllocationBasis.PER_VOLUME, segments: [], budget: 24_000_000, base: 12_000_000 },
-    { code: 'POOL_MARITIME', label: 'Exploitation maritime et barge', allocationBasis: AllocationBasis.PER_VOLUME, segments: [CommercialSegment.MARITIME], budget: 96_000_000, base: 3_000_000 },
+    // ⚠️ LA NATURE DU POOL SE DÉCLARE, ELLE NE SE DEVINE PAS.
+    //
+    //    Les charges FIXES d'un pool forment le numérateur du point mort. Un
+    //    pool variable — des commissions bancaires proportionnelles — s'absorbe
+    //    au litre mais reste hors du point mort, où la marge sur coût variable
+    //    le compte déjà. Les mélanger le compterait deux fois.
+    { code: 'POOL_ADMIN', label: 'Administration et structure', allocationBasis: AllocationBasis.PER_VOLUME, variability: CostVariability.FIXED, segments: [] },
+    { code: 'POOL_HSE', label: 'HSE et conformité', allocationBasis: AllocationBasis.PER_VOLUME, variability: CostVariability.FIXED, segments: [] },
+    { code: 'POOL_MARITIME', label: 'Exploitation maritime et barge', allocationBasis: AllocationBasis.PER_VOLUME, variability: CostVariability.FIXED, segments: [CommercialSegment.MARITIME] },
+    { code: 'POOL_FINANCIER', label: 'Charges financières proportionnelles', allocationBasis: AllocationBasis.PER_VOLUME, variability: CostVariability.VARIABLE, segments: [] },
   ];
   const pools: Record<string, string> = {};
   for (const p of poolDefs) {
     const created = await prisma.costPool.upsert({
       where: { code: p.code },
       update: {},
-      create: { code: p.code, label: p.label, allocationBasis: p.allocationBasis, segments: p.segments, currencyCode: 'XOF' },
+      create: { code: p.code, label: p.label, allocationBasis: p.allocationBasis, variability: p.variability, segments: p.segments, currencyCode: 'XOF' },
     });
     pools[p.code] = created.id;
-
-    // Taux d'absorption — dénominateur BUDGÉTÉ, jamais réalisé glissant (§ 14.2).
-    const rate = p.budget / p.base;
-    await prisma.absorptionRate.upsert({
-      where: { costPoolId_fiscalYear_version: { costPoolId: created.id, fiscalYear: 2026, version: 1 } },
-      update: {},
-      create: {
-        costPoolId: created.id,
-        fiscalYear: 2026,
-        budgetedAmount: p.budget.toFixed(4),
-        budgetedBase: p.base.toFixed(6),
-        baseUom: UnitOfMeasure.L,
-        ratePerUnit: rate.toFixed(6),
-        isCurrent: true,
-        authorId: users[UserRole.FINANCE_CFO],
-        notes: 'Budget initial 2026. Assiette issue de la prévision de vente (§ 14.3).',
-      },
-    });
   }
+
+  // ⚠️ AUCUN TAUX D'ABSORPTION N'EST SEMÉ, ET C'EST VOULU.
+  //
+  //    Le budget d'un pool ne se pose plus seul : son assiette est DÉRIVÉE de
+  //    la prévision de vente budgétée de l'exercice, et la base refuse
+  //    l'écriture tant que cette prévision n'existe pas. Semer un taux
+  //    obligerait donc à semer aussi un exercice, une prévision et un prix
+  //    publié — c'est-à-dire à décider, dans un jeu de démonstration, des
+  //    valeurs qui relèvent du directeur financier.
+  //
+  //    Le pilotage dira « budget des pools non saisi », ce qui est la vérité,
+  //    plutôt que d'afficher un coût de revient qu'aucun auteur ne revendique.
+  //    C'est exactement le défaut relevé à l'audit du 9 août.
 
   const costPostDefs = [
     // --- Directs et variables : le gros du bataillon ---
@@ -384,7 +392,7 @@ async function main(): Promise<void> {
     { code: 'HSE_STRUCTURE', label: 'HSE — structure et équipements', category: 'HSE', nature: CostNature.INDIRECT, variability: CostVariability.FIXED, pool: 'POOL_HSE', allocationBasis: AllocationBasis.PER_VOLUME, displayOrder: 82 },
     { code: 'BARGE_EXPLOITATION', label: 'Barge — exploitation et amortissement', category: 'Maritime', nature: CostNature.INDIRECT, variability: CostVariability.FIXED, pool: 'POOL_MARITIME', allocationBasis: AllocationBasis.PER_VOLUME, displayOrder: 83 },
     // --- Indirect MAIS variable : brise la corrélation dans l'autre sens ---
-    { code: 'COMMISSIONS_BANCAIRES', label: 'Commissions bancaires proportionnelles', category: 'Financier', nature: CostNature.INDIRECT, variability: CostVariability.VARIABLE, pool: 'POOL_ADMIN', allocationBasis: AllocationBasis.PER_REVENUE, displayOrder: 84 },
+    { code: 'COMMISSIONS_BANCAIRES', label: 'Commissions bancaires proportionnelles', category: 'Financier', nature: CostNature.INDIRECT, variability: CostVariability.VARIABLE, pool: 'POOL_FINANCIER', allocationBasis: AllocationBasis.PER_VOLUME, displayOrder: 84 },
   ];
   for (const c of costPostDefs) {
     const { pool, ...rest } = c;

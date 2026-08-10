@@ -146,6 +146,48 @@ export interface ReferentialSpec {
 }
 
 /**
+ * QUI PEUT LIRE UN RÉFÉRENTIEL — DÉRIVÉ, JAMAIS TENU À LA MAIN.
+ *
+ * ⚠️ CE CALCUL CORRIGE UNE FUITE CONSTATÉE.
+ *
+ *    La lecture générique portait UNE seule liste de rôles pour les
+ *    vingt-huit référentiels. Le coordinateur logistique lisait donc les prix
+ *    d'achat fournisseurs — alors que la règle posée le 8 août veut qu'il ne
+ *    voie pas les marges, et que l'affaire lui montre déjà le prix de vente.
+ *    Les deux réunis donnent la marge de tête.
+ *
+ * ⚠️ LA RÈGLE EST CALCULÉE, ET C'EST TOUT L'INTÉRÊT.
+ *
+ *    Peut lire un référentiel :
+ *      · qui peut l'écrire ;
+ *      · qui peut écrire un référentiel qui le RÉFÉRENCE — sans quoi sa liste
+ *        déroulante serait vide et le champ retomberait en saisie libre.
+ *
+ *    Une liste tenue en parallèle finirait par diverger de l'une ou l'autre :
+ *    on n'oublie pas d'ajouter le référentiel, on oublie d'ajouter son rôle.
+ *    Ici, déclarer une référence suffit.
+ */
+let CACHE_LECTURE: Map<string, Set<UserRole>> | null = null;
+
+export function rolesDeLecture(key: string): UserRole[] {
+  if (!CACHE_LECTURE) {
+    const table = new Map<string, Set<UserRole>>();
+    for (const r of REFERENTIALS) table.set(r.key, new Set(r.writeRoles));
+
+    for (const source of REFERENTIALS) {
+      for (const champ of source.fields) {
+        if (champ.type !== 'reference' && champ.type !== 'referenceList') continue;
+        const vise = table.get(champ.refTable ?? '');
+        if (!vise) continue;
+        for (const role of source.writeRoles) vise.add(role);
+      }
+    }
+    CACHE_LECTURE = table;
+  }
+  return [...(CACHE_LECTURE.get(key) ?? new Set<UserRole>())];
+}
+
+/**
  * Les valeurs admises sont DÉRIVÉES des énumérations Prisma, jamais recopiées.
  *
  * Une liste tenue à la main diverge du schéma sans prévenir : la saisie

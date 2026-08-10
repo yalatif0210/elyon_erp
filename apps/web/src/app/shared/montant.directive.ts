@@ -117,7 +117,7 @@ const chiffres = (t: string): number => (t.match(/\d/g) ?? []).length;
 export class MontantDirective implements ControlValueAccessor {
   private readonly el = inject<ElementRef<HTMLInputElement>>(ElementRef);
 
-  private propager: (v: string) => void = () => undefined;
+  private propager: (v: number | null) => void = () => undefined;
   private toucher: () => void = () => undefined;
 
   writeValue(v: unknown): void {
@@ -126,7 +126,7 @@ export class MontantDirective implements ControlValueAccessor {
     );
   }
 
-  registerOnChange(fn: (v: string) => void): void {
+  registerOnChange(fn: (v: number | null) => void): void {
     this.propager = fn;
   }
 
@@ -167,7 +167,20 @@ export class MontantDirective implements ControlValueAccessor {
     }
     el.setSelectionRange(position, position);
 
-    this.propager(montantBrut(affiche));
+    // ⚠️ ON TRANSMET UN NOMBRE, PAS UNE CHAÎNE.
+    //
+    //    La directive propageait « 1234.56 ». Les champs qui la reçoivent sont
+    //    déclarés `number | null`, et tous leurs appelants actuels encadrent
+    //    par `Number(...)` — donc rien ne cassait. Mais la déclaration était
+    //    fausse, et le premier qui s'y fierait écrirait `a + b` : sur deux
+    //    montants de mille, la concaténation donne 1 0001 000, un résultat
+    //    plausible à l'œil.
+    //
+    //    On rend donc la déclaration vraie plutôt que de l'affaiblir. Le champ
+    //    vide et l'état « 1 234, » en cours de frappe valent respectivement
+    //    null et 1234 : l'affichage garde la virgule, le modèle non.
+    const brut = montantBrut(affiche);
+    this.propager(brut === '' ? null : Number(brut));
   }
 
   /** À la sortie du champ, on retire la virgule laissée en suspens. */

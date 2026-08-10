@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, effect, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
   ApiService,
@@ -11,6 +11,7 @@ import {
   ParametreRequis,
 } from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
+import { FiltreTexte, RechercheComponent } from '../shared/tableau';
 import { dateOnly, grouper } from '../shared/format';
 
 /**
@@ -37,7 +38,7 @@ import { dateOnly, grouper } from '../shared/format';
 @Component({
   selector: 'erp-supervision',
   standalone: true,
-  imports: [RouterLink, IconComponent],
+  imports: [RouterLink, IconComponent, RechercheComponent],
   template: `
     <header class="mb-6">
       <h1 class="page-title">Surveillance</h1>
@@ -107,6 +108,7 @@ import { dateOnly, grouper } from '../shared/format';
         est établie automatiquement, pas tenue à la main.
       </p>
       <div class="card overflow-x-auto">
+        <erp-recherche [filtre]="fParametres" libelle="les paramètres" />
         <table class="table">
           <thead>
             <tr>
@@ -118,7 +120,7 @@ import { dateOnly, grouper } from '../shared/format';
             </tr>
           </thead>
           <tbody>
-            @for (p of parametres(); track p.parametre) {
+            @for (p of fParametres.lignes(); track p.parametre) {
               <tr>
                 <td class="font-mono text-[12px] text-ink">{{ p.parametre }}</td>
                 <td class="tabular text-ink-soft">{{ p.valeur ?? '-' }}</td>
@@ -153,6 +155,7 @@ import { dateOnly, grouper } from '../shared/format';
         </div>
       } @else {
         <div class="card overflow-x-auto">
+          <erp-recherche [filtre]="fBande" libelle="les affaires" />
           <table class="table">
             <thead>
               <tr>
@@ -165,7 +168,7 @@ import { dateOnly, grouper } from '../shared/format';
               </tr>
             </thead>
             <tbody>
-              @for (d of bande(); track d.reference) {
+              @for (d of fBande.lignes(); track d.reference) {
                 <tr>
                   <td>
                     <a class="ref hover:underline"
@@ -194,6 +197,7 @@ import { dateOnly, grouper } from '../shared/format';
           <h2 class="text-[13px] font-semibold text-ink">Concentration par commercial</h2>
         </div>
         <div class="card overflow-x-auto">
+          <erp-recherche [filtre]="fParCommercial" libelle="les commerciaux" />
           <table class="table">
             <thead>
               <tr>
@@ -205,7 +209,7 @@ import { dateOnly, grouper } from '../shared/format';
               </tr>
             </thead>
             <tbody>
-              @for (o of parCommercial(); track $index) {
+              @for (o of fParCommercial.lignes(); track $index) {
                 <tr>
                   <td class="text-ink">{{ o.owner ?? '-' }}</td>
                   <td class="num tabular text-ink-soft">{{ o.deals_in_band }}</td>
@@ -243,6 +247,7 @@ import { dateOnly, grouper } from '../shared/format';
         </div>
       } @else {
         <div class="card overflow-x-auto">
+          <erp-recherche [filtre]="fEcarts" libelle="les écarts" />
           <table class="table">
             <thead>
               <tr>
@@ -256,7 +261,7 @@ import { dateOnly, grouper } from '../shared/format';
               </tr>
             </thead>
             <tbody>
-              @for (v of ecarts(); track v.reference) {
+              @for (v of fEcarts.lignes(); track v.reference) {
                 <tr>
                   <td class="font-mono text-[12px] text-ink">{{ v.reference }}</td>
                   <td class="text-ink-soft">{{ v.client }}</td>
@@ -288,6 +293,7 @@ import { dateOnly, grouper } from '../shared/format';
         et les commandes en cours, diminuées des garanties.
       </p>
       <div class="card overflow-x-auto">
+        <erp-recherche [filtre]="fEncours" libelle="les tiers" />
         <table class="table">
           <thead>
             <tr>
@@ -302,7 +308,7 @@ import { dateOnly, grouper } from '../shared/format';
             </tr>
           </thead>
           <tbody>
-            @for (c of encours(); track c.partner_code) {
+            @for (c of fEncours.lignes(); track c.partner_code) {
               <tr>
                 <td>
                   <span class="block text-[13px] text-ink">{{ c.partner_name }}</span>
@@ -343,6 +349,7 @@ import { dateOnly, grouper } from '../shared/format';
         </div>
       } @else {
         <div class="card overflow-x-auto">
+          <erp-recherche [filtre]="fAvances" libelle="les avances" />
           <table class="table">
             <thead>
               <tr>
@@ -357,7 +364,7 @@ import { dateOnly, grouper } from '../shared/format';
               </tr>
             </thead>
             <tbody>
-              @for (a of avances(); track a.reference) {
+              @for (a of fAvances.lignes(); track a.reference) {
                 <tr>
                   <td class="font-mono text-[12px] text-ink">{{ a.reference }}</td>
                   <td class="text-ink-soft">{{ a.supplier }}</td>
@@ -390,6 +397,30 @@ export class SupervisionComponent implements OnInit {
   protected readonly ecarts = signal<MarginVarianceRow[]>([]);
   protected readonly encours = signal<CreditExposureRow[]>([]);
   protected readonly avances = signal<OutstandingAdvanceRow[]>([]);
+
+  // ⚠️ UN CHAMP DE RECHERCHE PAR TABLEAU, QUI CHERCHE DANS TOUTE LA LIGNE.
+  //
+  //    Ces tableaux sont bornés — une ligne par paramètre, par tiers, par
+  //    commercial — donc les paginer n'apporterait rien. Ce qui manquait,
+  //    c'était de retrouver une ligne sans la chercher des yeux.
+  //
+  //    Chaque filtre SUIT son signal : la lecture ne change pas, seul
+  //    l'affichage se restreint.
+  protected readonly fParametres = new FiltreTexte<ParametreRequis>();
+  protected readonly fBande = new FiltreTexte<MarginBandRow>();
+  protected readonly fParCommercial = new FiltreTexte<MarginBandOwnerRow>();
+  protected readonly fEcarts = new FiltreTexte<MarginVarianceRow>();
+  protected readonly fEncours = new FiltreTexte<CreditExposureRow>();
+  protected readonly fAvances = new FiltreTexte<OutstandingAdvanceRow>();
+
+  private readonly suitLesFiltres = effect(() => {
+    this.fParametres.définir(this.parametres());
+    this.fBande.définir(this.bande());
+    this.fParCommercial.définir(this.parCommercial());
+    this.fEcarts.définir(this.ecarts());
+    this.fEncours.définir(this.encours());
+    this.fAvances.définir(this.avances());
+  });
   protected readonly chargement = signal(true);
 
   /**

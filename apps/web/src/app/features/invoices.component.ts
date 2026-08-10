@@ -2,6 +2,7 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService, InvoiceRow } from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
+import { PaginationComponent } from '../shared/tableau';
 import { grouper } from '../shared/format';
 import { StatusBadgeComponent, StatusKind } from '../shared/status-badge.component';
 import {
@@ -63,6 +64,7 @@ const FILTERS: { label: string; type?: string }[] = [
     StatusBadgeComponent,
     InvoiceActionsComponent,
     InvoiceLifecycleComponent,
+    PaginationComponent,
   ],
   template: `
     <header class="mb-5">
@@ -192,6 +194,13 @@ const FILTERS: { label: string; type?: string }[] = [
         </tbody>
       </table>
     </div>
+    <erp-pagination
+      [page]="page()"
+      [totalPages]="totalPages()"
+      [total]="total()"
+      libelle="factures"
+      (allerA)="allerA($event)"
+    />
 
     <p class="mt-3 text-[11px] leading-relaxed text-ink-faint">
       La TVA est <strong class="font-semibold">comprise</strong> dans le total facture, jamais
@@ -205,6 +214,26 @@ export class InvoicesComponent implements OnInit {
   private readonly api = inject(ApiService);
 
   protected readonly rows = signal<InvoiceRow[]>([]);
+
+  /**
+   * Page demandée au serveur.
+   *
+   * ⚠️ L'ÉCRAN LISAIT LA PAGE 1 ET N'EN SORTAIT JAMAIS.
+   *
+   *    L'API est paginée depuis l'origine — cinquante lignes par page — mais
+   *    aucune commande n'était affichée et le total n'était pas lu. Au-delà de
+   *    la cinquantième ligne, les données existaient et restaient invisibles,
+   *    sans compteur ni message pour le dire.
+   */
+  protected readonly page = signal(1);
+  protected readonly total = signal(0);
+  protected readonly totalPages = signal(1);
+
+  protected allerA(p: number): void {
+    this.page.set(p);
+    this.load();
+  }
+
   protected readonly active = signal('');
   protected readonly filters = FILTERS;
   protected search = '';
@@ -282,9 +311,14 @@ export class InvoicesComponent implements OnInit {
 
   protected load(): void {
     this.api
-      .invoices(1, { type: this.active() || undefined, search: this.search.trim() || undefined })
+      .invoices(this.page(), {
+        type: this.active() || undefined,
+        search: this.search.trim() || undefined,
+      })
       .subscribe((page) => {
         this.rows.set(page.items);
+        this.total.set(page.total);
+        this.totalPages.set(page.totalPages);
         // La pièce désignée est rafraîchie avec la liste : ses montants ont
         // pu changer sous l'effet d'une émission ou d'un encaissement.
         const current = this.selected();

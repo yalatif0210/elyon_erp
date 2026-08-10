@@ -117,9 +117,18 @@ DELETE FROM margin_thresholds WHERE effective_from > DATE '2030-01-01';
 -- Même cause, même correctif : `recette_dettes` importe des cours pour éprouver
 -- l'import de fichier, et ils encombraient le référentiel des taux de change.
 -- La table est en ajout seul, d'où la levée temporaire du verrou.
+-- ⚠️ ENCADRÉ PAR UNE TRANSACTION, ET CE N'EST PAS UNE PRÉCAUTION DE STYLE.
+--
+--    psql valide chaque instruction séparément. Le `DISABLE` était donc
+--    committé ; une erreur survenant ensuite interrompait le script AVANT le
+--    `ENABLE`, et le verrou d'ajout seul restait baissé sans que rien ne le
+--    signale. Un journal dont la protection est tombée ne se distingue en rien
+--    d'un journal protégé.
+BEGIN;
 ALTER TABLE fx_rates DISABLE TRIGGER trg_fx_rates_no_delete;
 DELETE FROM fx_rates WHERE effective_from > DATE '2030-01-01';
 ALTER TABLE fx_rates ENABLE TRIGGER trg_fx_rates_no_delete;
+COMMIT;
 
 -- --- Prix publiés d'essai ---------------------------------------------------
 --
@@ -127,10 +136,12 @@ ALTER TABLE fx_rates ENABLE TRIGGER trg_fx_rates_no_delete;
 -- doit donc en publier une, comme l'exploitant le ferait. Elle porte une date
 -- d'entrée en vigueur au 01/01/2020, qui ne se confond avec aucune publication
 -- réelle, et un auteur reconnaissable.
+BEGIN;
 ALTER TABLE administered_prices DISABLE TRIGGER trg_administered_prices_no_delete;
 DELETE FROM administered_prices
  WHERE effective_from = DATE '2020-01-01' AND published_by = 'DGH';
 ALTER TABLE administered_prices ENABLE TRIGGER trg_administered_prices_no_delete;
+COMMIT;
 
 -- --- Exercices comptables d'essai et tout ce qui s'y rattache ---------------
 -- Les millésimes 2093 et au-delà sont réservés à la recette : aucun exercice
@@ -160,6 +171,7 @@ ALTER TABLE administered_prices ENABLE TRIGGER trg_administered_prices_no_delete
 --    main. Le remettre trop tôt faisait échouer la remise à zéro sur une
 --    instruction qui ne mentionne même pas la table concernée : « DELETE
 --    interdit sur absorption_rates » en réponse à une suppression de pools.
+BEGIN;
 ALTER TABLE absorption_rates DISABLE TRIGGER trg_absorption_rates_no_delete;
 
 DELETE FROM absorption_rates
@@ -174,3 +186,4 @@ DELETE FROM fiscal_years WHERE year >= 2093;
 DELETE FROM cost_pools WHERE code LIKE 'RECETTE\_%';
 
 ALTER TABLE absorption_rates ENABLE TRIGGER trg_absorption_rates_no_delete;
+COMMIT;

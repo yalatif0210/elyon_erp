@@ -224,8 +224,27 @@ for label, route, tok in [
 
 s, b = call("GET", f"/api/internal/deals/{D1}", dg)
 m, t = b["margin"], b["thresholds"]
-check("Marge inchangée après ajout des nouvelles briques",
-      abs(m["directMargin"] - 55.28) < 0.01 and abs(m["fullMargin"] - 38.28) < 0.01,
+# ⚠️ LES VALEURS ATTENDUES ONT CHANGÉ, ET LE CALCUL EST DEVENU JUSTE.
+#
+#    Elles encodaient deux choses fausses :
+#
+#    · un taux de financement de 10 % l'an, lu dans un réglage global
+#      d'illustration, alors que le directeur financier a saisi 12 % au titre
+#      d'une lettre de crédit. Le portage passe de 9,7222 à 11,6667 F/L, soit
+#      exactement 9,7222 × 1,2 ; la marge directe recule d'autant, de 55,2778
+#      à 53,3333. C'est le défaut D13 de l'audit du 9 août.
+#
+#    · des taux d'absorption semés d'office. Le budget d'un pool ne se pose
+#      plus sans prévision de vente — son assiette en découle — donc le jeu de
+#      données n'en sème plus. Sans pool budgété, la charge indirecte vaut
+#      zéro et la marge complète rejoint la marge directe. Le pilotage dit
+#      « budget des pools non saisi », ce qui est la vérité.
+#
+#    On ne relâche donc pas l'assertion : on corrige ce qu'elle attendait.
+check("Marge conforme au taux de financement de l'exercice",
+      abs(m["directMargin"] - 53.3333) < 0.01
+      and abs(m["fullMargin"] - m["directMargin"]) < 0.01
+      and abs(m["financingRatePct"] - 12) < 0.01,
       f"directe {m['directMargin']} · complète {m['fullMargin']} · {t['message']}")
 
 ok = sum(1 for r in results if r[0])

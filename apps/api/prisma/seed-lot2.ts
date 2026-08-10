@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 /**
  * ===========================================================================
  *  JEU DE DONNÉES — LOT 2 : CHAÎNE COMMERCIALE ET D'EXÉCUTION
@@ -20,6 +21,7 @@
  * ===========================================================================
  */
 import {
+  AttachmentKind,
   ActorType,
   CommercialSegment,
   ContractStatus,
@@ -360,24 +362,91 @@ async function main(): Promise<void> {
       },
     });
 
+    // ⚠️ UN POINT EXIGEANT UNE PHOTO EN REÇOIT UNE.
+    //
+    //    Un verrou refuse d'enregistrer un tel point sans cliché : le
+    //    contrôleur HSE valide à distance, sur pièces, et sans photo il n'a
+    //    rien à examiner. Les écarter aurait laissé l'opération SANS AUCUN
+    //    point de contrôle — que le verrou HSE refuse tout autant, et à juste
+    //    titre : une validation qui ne s'appuie sur rien n'est pas une
+    //    validation.
+    //
+    //    Le jeu de démonstration dépose donc une pièce jointe reconnaissable :
+    //    empreinte nulle, clé de stockage préfixée « demo/ ». Elle ne prétend
+    //    pas être une preuve, elle occupe la place de celle qu'un agent
+    //    fournira.
     const items = await prisma.hseChecklistItem.findMany({
       where: { templateId: template.id, phase: OperationPhase.PRE_DEPARTURE },
       orderBy: { displayOrder: 'asc' },
     });
 
     for (const item of items) {
-      await prisma.operationHseCheckItem.create({
+      // ⚠️ TROIS TEMPS, PARCE QUE C'EST L'ORDRE RÉEL DU TERRAIN.
+      //
+      //    Le point s'ouvre EN ATTENTE, la photo arrive, puis le point se
+      //    conclut. Le verrou n'accepte un résultat définitif que si le cliché
+      //    est déjà là — et il a raison : l'inverse permettrait de conclure
+      //    d'abord et de fournir la preuve ensuite, ou jamais.
+      //
+      //    Écrire directement PASSED était impossible, et ce n'est pas une
+      //    limite du jeu de données : c'est la règle qui s'applique à l'agent.
+      const recorded = await prisma.operationHseCheckItem.create({
         data: {
           checkId: check.id,
           itemId: item.id,
           level: item.level,
-          outcome: HseCheckOutcome.PASSED,
+          // ⚠️ LA PROVENANCE SE FIGE SUR LE POINT, PAS SUR LA CHECKLIST.
+          //    Un modèle révisé plus tard ne doit pas réécrire ce qui a été
+          //    opposé à l'agent ce jour-là. Le jeu de données ne la posait pas.
+          sourceTemplateId: template.id,
+          sourceTemplateVersion: template.version,
+          outcome: HseCheckOutcome.PENDING,
           recordedByFieldUserId: agent.id, // renseigné par l'AGENT
           recordedAt: T('2026-08-10T06:30:00Z'),
           deviceTimestamp: T('2026-08-10T06:29:47Z'),
           latitude: '5.3200000',
           longitude: '-4.0100000',
+          // Un point qui attend un relevé ne se conclut pas sans lui.
+          recordedValue: item.requiresValue ? 'Conforme — jeu de démonstration' : null,
         },
+      });
+
+      if (item.requiresPhoto) {
+        await prisma.operationAttachment.create({
+          data: {
+            clientUuid: randomUUID(),
+            checkItemId: recorded.id,
+            storageKey: `demo/hse/${recorded.id}.jpg`,
+            mimeType: 'image/jpeg',
+            sizeBytes: 1,
+            sha256: '0'.repeat(64),
+            caption: 'Jeu de démonstration — cliché non fourni',
+            capturedAt: T('2026-08-10T06:30:00Z'),
+            deviceTimestamp: T('2026-08-10T06:29:47Z'),
+          },
+        });
+      }
+
+      if (item.requiresSignature) {
+        await prisma.operationAttachment.create({
+          data: {
+            clientUuid: randomUUID(),
+            checkItemId: recorded.id,
+            kind: AttachmentKind.SIGNATURE,
+            storageKey: `demo/hse/${recorded.id}-signature.png`,
+            mimeType: 'image/png',
+            sizeBytes: 1,
+            sha256: '0'.repeat(64),
+            caption: 'Jeu de démonstration — signature non fournie',
+            capturedAt: T('2026-08-10T06:30:00Z'),
+            deviceTimestamp: T('2026-08-10T06:29:47Z'),
+          },
+        });
+      }
+
+      await prisma.operationHseCheckItem.update({
+        where: { id: recorded.id },
+        data: { outcome: HseCheckOutcome.PASSED },
       });
     }
 
@@ -515,6 +584,13 @@ async function main(): Promise<void> {
       prepaidAmount: supplierTotal.toFixed(4),
       prepaidAmountPivot: r4(supplierTotal * XOF_TO_PIVOT).toFixed(4),
       prepaidAt: D('2026-08-08'), // deux jours AVANT le chargement
+      // ⚠️ APURER, C'EST CONSTATER LA CONTREPARTIE — PAS SEULEMENT DATER.
+      //
+      //    Une contrainte exige que le montant apuré couvre l'avance : une
+      //    avance datée « soldée » sans montant constaté est précisément le
+      //    trou par lequel de l'argent sort sans contrepartie. Le jeu de
+      //    données posait la date et laissait le montant à zéro.
+      settledAmount: supplierTotal.toFixed(4),
       settledAt: D('2026-08-10'),
       vatRatePct: VAT_RATE.toFixed(3),
       vatAmount: extractVat(supplierTotal, VAT_RATE).toFixed(4),

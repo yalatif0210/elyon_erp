@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService, DealDetail, DealRow } from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
+import { PaginationComponent } from '../shared/tableau';
 import { grouper } from '../shared/format';
 import { StatusBadgeComponent, StatusKind } from '../shared/status-badge.component';
 import { DealActionsComponent } from './deal-actions.component';
@@ -44,7 +45,7 @@ export function dealStatus(code: string): { label: string; kind: StatusKind } {
 @Component({
   selector: 'erp-deals',
   standalone: true,
-  imports: [FormsModule, RouterLink, IconComponent, StatusBadgeComponent],
+  imports: [FormsModule, RouterLink, IconComponent, StatusBadgeComponent, PaginationComponent],
   template: `
     <header class="mb-5 flex items-end justify-between gap-4">
       <div>
@@ -131,6 +132,8 @@ export function dealStatus(code: string): { label: string; kind: StatusKind } {
         </tbody>
       </table>
     </div>
+    <erp-pagination [page]="page()" [totalPages]="totalPages()" [total]="total()"
+                    libelle="affaires" (allerA)="allerA($event)" />
 
     <p class="mt-3 text-[11px] text-ink-faint">
       Les marges sont exprimées par unité, dans la devise de l’affaire. Elles sont recalculées
@@ -142,6 +145,21 @@ export class DealsComponent implements OnInit {
   private readonly api = inject(ApiService);
 
   protected readonly rows = signal<DealRow[]>([]);
+
+  /**
+   * Page demandée au serveur.
+   *
+   * L'écran lisait la page 1 et n'en sortait jamais : au-delà de la
+   * cinquantième affaire, les lignes existaient sans s'afficher nulle part.
+   */
+  protected readonly page = signal(1);
+  protected readonly total = signal(0);
+  protected readonly totalPages = signal(1);
+
+  protected allerA(p: number): void {
+    this.page.set(p);
+    this.load();
+  }
   protected readonly active = signal('');
   protected readonly filters = FILTERS;
   protected search = '';
@@ -199,8 +217,15 @@ export class DealsComponent implements OnInit {
 
   private load(): void {
     this.api
-      .deals(1, { status: this.active() || undefined, search: this.search.trim() || undefined })
-      .subscribe((page) => this.rows.set(page.items));
+      .deals(this.page(), {
+        status: this.active() || undefined,
+        search: this.search.trim() || undefined,
+      })
+      .subscribe((page) => {
+        this.rows.set(page.items);
+        this.total.set(page.total);
+        this.totalPages.set(page.totalPages);
+      });
   }
 }
 

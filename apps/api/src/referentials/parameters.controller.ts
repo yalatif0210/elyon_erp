@@ -10,12 +10,12 @@ import {
   Post,
   Req,
 } from '@nestjs/common';
-import { ActorType, AuditAction, UserRole } from '@prisma/client';
+import { ActorType, AuditAction, Prisma, UserRole } from '@prisma/client';
 import { IsArray, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import { AuditService } from '../common/audit/audit.service';
 import { Realm, RequireRealm, Roles } from '../common/auth/realm';
 import { SettingsService } from '../common/config/settings.service';
-import { humaniseCheck } from '../common/filters/prisma-exception.filter';
+import { humaniseCheck, translatePostgresError } from '../common/filters/prisma-exception.filter';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { FieldSpec, REFERENTIALS, ReferentialSpec, findReferential } from './registry';
 
@@ -228,6 +228,9 @@ export class ParametersService {
       nature: r.nature,
       identity: r.identity,
       caution: r.caution ?? null,
+      // Le champ qui porte la date d'entrée en vigueur : l'écran en a besoin
+      // pour proposer une date NEUVE quand on repart d'une ligne historisée.
+      effectiveFrom: r.effectiveFrom ?? null,
       fields: r.fields,
     }));
   }
@@ -314,26 +317,44 @@ export class ParametersService {
 
     for (const field of spec.fields) {
       if (field.type !== 'reference' || out[field.name] == null) continue;
-      // Les clés naturelles (code devise) sont stockées telles quelles.
-      if (!field.name.endsWith('Id')) continue;
       const target = findReferential(field.refTable ?? '');
       if (!target) continue;
+
+      const cle = field.refKey ?? 'code';
+      const valeur = cleLisible(field.refTable, cle, out[field.name]);
+
+      // ⚠️ TOUTES LES TABLES N'ONT PAS DE COLONNE `id`.
+      //
+      //    `system_settings` a pour clé primaire sa CLÉ. Demander `id` sur ce
+      //    modèle fait échouer la requête, et la ligne ressort rejetée avec un
+      //    message parlant d'un champ inconnu — alors que la donnée est juste.
+      //    Le même piège m'avait déjà mordu dans l'écriture ; il m'a mordu une
+      //    seconde fois en portant la vérification ici.
+      //
+      //    On ne demande donc l'identifiant que là où on va s'en servir.
+      const parIdentifiant = field.name.endsWith('Id');
       const row = await this.delegate(target).findFirst({
-        where: {
-          [field.refKey ?? 'code']: cleLisible(
-            field.refTable,
-            field.refKey ?? 'code',
-            out[field.name],
-          ),
-        },
-        select: { id: true },
+        where: { [cle]: valeur },
+        select: parIdentifiant ? { id: true } : { [cle]: true },
       });
       if (!row) {
         throw new Error(
           `${field.label} : « ${String(out[field.name])} » ne correspond à aucun ${target.label.toLowerCase()}`,
         );
       }
-      out[field.name] = row['id'];
+
+      // ⚠️ L'EXISTENCE SE VÉRIFIE MÊME QUAND ON NE REMPLACE PAS LA VALEUR.
+      //
+      //    Le contrôle était sauté dès que le champ ne se terminait pas par
+      //    « Id » — au motif qu'une clé naturelle se stocke telle quelle. Sauf
+      //    que « vérifier » et « remplacer » sont deux choses : la clé se garde
+      //    telle quelle, mais elle doit exister.
+      //
+      //    Constaté : l'import créait un réglage système sous une clé inventée.
+      //    L'écran avait été fermé par une liste déroulante, l'import non. Une
+      //    restriction d'interface n'est pas une règle, et j'avais présenté
+      //    celle-ci comme une garantie.
+      if (parIdentifiant) out[field.name] = row['id'];
     }
     return out;
   }
@@ -381,13 +402,46 @@ export class ParametersService {
    * vigueur : deux lignes ne doivent jamais se recouvrir, sinon la résolution
    * d'un prix ou d'un seuil devient dépendante de l'ordre de lecture.
    */
+  /**
+   * Nom de la colonne d'auteur du modèle, s'il en porte une.
+   *
+   * Lu dans le modèle lui-même, jamais déclaré au registre : une liste tenue
+   * en parallèle oublierait la prochaine table à en gagner une.
+   */
+  private champAuteur(spec: ReferentialSpec): string | null {
+    const modele = Prisma.dmmf.datamodel.models.find(
+      (m) => m.name.toLowerCase() === spec.model.toLowerCase(),
+    );
+    const champ = modele?.fields.find(
+      (f) => f.kind === 'scalar' && ['authorId', 'recordedById', 'createdById'].includes(f.name),
+    );
+    return champ?.name ?? null;
+  }
+
   private async writeOne(
     spec: ReferentialSpec,
-    values: Record<string, unknown>,
+    brut: Record<string, unknown>,
     actorId: string,
     reason?: string,
   ): Promise<{ created: boolean; id: string }> {
     const delegate = this.delegate(spec);
+    // ⚠️ L'AUTEUR S'INSCRIT SUR LA LIGNE, PAS SEULEMENT AU JOURNAL.
+    //
+    //    Treize tables déclarent une colonne d'auteur — taux d'absorption,
+    //    prévision de vente, seuil de marge, prix publié. Aucune n'était
+    //    renseignée : vos six prévisions de vente portaient un auteur nul.
+    //
+    //    L'écran affiche pourtant, sous le champ Motif : « conservé au
+    //    journal, aux côtés de l'auteur et de l'horodatage ». La promesse était
+    //    à moitié fausse — le journal, oui ; la ligne, non. Retrouver qui a
+    //    fixé un taux supposait de croiser le journal à la main.
+    //
+    //    La colonne est DÉRIVÉE du modèle, jamais déclarée au registre : une
+    //    liste tenue en parallèle oublierait la prochaine table.
+    const values = { ...brut };
+    const champAuteur = this.champAuteur(spec);
+    if (champAuteur && actorId) values[champAuteur] = actorId;
+
     const identityWhere = Object.fromEntries(
       spec.identity.map((k) => [k, values[k] ?? null]),
     );
@@ -439,7 +493,7 @@ export class ParametersService {
     return { created: true, id: String(created['id'] ?? '') };
   }
 
-  private trace(
+  private async trace(
     spec: ReferentialSpec,
     action: AuditAction,
     after: unknown,
@@ -447,9 +501,22 @@ export class ParametersService {
     reason?: string,
     before?: unknown,
   ) {
+    // ⚠️ LE JOURNAL PORTAIT UN IDENTIFIANT, PAS UN NOM.
+    //
+    //    `actor_label` était nul sur cent cinquante écritures sur cent
+    //    cinquante. Relire le journal supposait une jointure faite à la main,
+    //    ce qui revient à ne pas pouvoir le relire.
+    const auteur = actorId
+      ? await this.prisma.user.findUnique({
+          where: { id: actorId },
+          select: { fullName: true, role: true },
+        })
+      : null;
+
     return this.audit.record({
       actorType: ActorType.INTERNAL_USER,
       actorId,
+      actorLabel: auteur ? `${auteur.fullName} (${auteur.role})` : undefined,
       action,
       entityType: spec.model,
       entityId: (after as Record<string, unknown>)?.['id'] as string | undefined,
@@ -517,12 +584,22 @@ export class ParametersService {
         rejectedLines.add(line);
         continue;
       }
-      if (dto.dryRun) {
-        created += 1;
-        continue;
-      }
       try {
+        // ⚠️ LA SIMULATION RÉSOUT LES RÉFÉRENCES, ELLE AUSSI.
+        //
+        //    Elle comptait la ligne comme « serait créée » sans rien vérifier
+        //    au-delà de la conversion des types. Un fichier désignant un
+        //    produit, un site ou un réglage qui n'existe pas ressortait donc
+        //    « 0 rejetée » à la simulation, puis échouait à l'import réel.
+        //
+        //    Une simulation qui annonce autre chose que ce qui va se produire
+        //    est pire qu'absente : elle donne l'assurance de ne pas vérifier.
+        //    La résolution ne fait que LIRE — la simuler ne coûte rien.
         const resolved = await this.resolveReferences(spec, values);
+        if (dto.dryRun) {
+          created += 1;
+          continue;
+        }
         const r = await this.writeOne(spec, resolved, actorId, dto.reason);
         if (r.created) created += 1;
         else updated += 1;
@@ -585,6 +662,26 @@ export class ParametersService {
  * fichier de prix ne l'aide pas, et expose la structure interne.
  */
 function firstLine(message: string): string {
+  // ⚠️ LE MESSAGE DU DÉCLENCHEUR EST ENVELOPPÉ, ET L'ENVELOPPE TIENT SUR UNE
+  //    SEULE LIGNE.
+  //
+  //    Le moteur rend la panne ainsi :
+  //      ConnectorError(ConnectorError { user_facing_error: None,
+  //      kind: QueryError(PostgresError { code: "23514", message: "Aucun prix
+  //      PUMP n'est publié aujourd'hui…", severity: "ERROR", … }) })
+  //
+  //    « Garder la dernière ligne » ne retirait donc rien : l'exploitant lisait
+  //    ce bloc entier, avec la phrase utile noyée au milieu. Tout le soin mis à
+  //    rédiger des refus explicites — c'est l'ossature de ce système — était
+  //    annulé au dernier mètre, sur l'écran où ces refus se rencontrent le plus.
+  //
+  //    Le traducteur qui sait ouvrir cette enveloppe existait déjà, et servait
+  //    le reste de l'application. Ce chemin-ci ne l'appelait pas.
+  const traduit = translatePostgresError(message);
+  if (traduit.code !== 'UNKNOWN' && traduit.message !== 'Erreur de persistance.') {
+    return traduit.message;
+  }
+
   // Une contrainte métier a sa traduction — la même que celle servie par le
   // filtre d'exceptions. Deux formulations pour une même règle, selon le
   // chemin emprunté, dérouteraient l'utilisateur.

@@ -832,6 +832,14 @@ export interface ReferentialSpec {
   nature: 'mutable' | 'historised';
   identity: string[];
   caution: string | null;
+  /**
+   * Champ portant la date d'entrée en vigueur, sur une donnée historisée.
+   *
+   * L'écran en a besoin pour proposer une date NEUVE quand on repart d'une
+   * ligne existante : reprendre l'ancienne heurterait la règle « une donnée
+   * historisée ne se réécrit pas », au moment précis où l'on croit publier.
+   */
+  effectiveFrom?: string | null;
   fields: FieldSpec[];
 }
 
@@ -1242,9 +1250,9 @@ export class ApiService {
 
   // --- Documents et signatures (§ 12) --------------------------------------
 
-  documents(): Observable<Page<unknown>> {
+  documents(page = 1): Observable<Page<unknown>> {
     return this.http.get<Page<unknown>>(`${this.base}/documents`, {
-      params: new HttpParams().set('pageSize', 100),
+      params: new HttpParams().set('page', page).set('pageSize', 50),
     });
   }
 
@@ -1471,13 +1479,28 @@ export class ApiService {
    * Les références y sont doublées d'une clé lisible sous `_lisible` : l'écran
    * de consultation montre « ADM » là où la ligne porte un identifiant.
    */
-  lignesReferentiel(key: string): Observable<Record<string, unknown>[]> {
-    return this.http.get<unknown>(`${this.base}/referentials/${key}`).pipe(
-      map((payload) =>
-        (Array.isArray(payload)
-          ? payload
-          : ((payload as { items?: unknown[] })?.items ?? [])) as Record<string, unknown>[],
-      ),
+  lignesReferentiel(
+    key: string,
+    options: { page?: number; pageSize?: number; search?: string } = {},
+  ): Observable<Page<Record<string, unknown>>> {
+    let params = new HttpParams();
+    if (options.page) params = params.set('page', options.page);
+    if (options.pageSize) params = params.set('pageSize', options.pageSize);
+    if (options.search) params = params.set('search', options.search);
+    return this.http.get<unknown>(`${this.base}/referentials/${key}/lignes`, { params }).pipe(
+      map((payload) => {
+        // ⚠️ DEUX FORMES DE RÉPONSE, ET IL FAUT LES DEUX.
+        //
+        //    La lecture générique rend désormais une page. Les routes dédiées
+        //    — devises, produits, postes de coût — rendent toujours un tableau
+        //    simple : ce sont des listes bornées qu'on charge d'un bloc pour
+        //    alimenter des listes déroulantes.
+        if (Array.isArray(payload)) {
+          const items = payload as Record<string, unknown>[];
+          return { items, page: 1, pageSize: items.length, total: items.length, totalPages: 1 };
+        }
+        return payload as Page<Record<string, unknown>>;
+      }),
     );
   }
 

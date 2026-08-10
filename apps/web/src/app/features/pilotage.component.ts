@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
   ApiService,
@@ -10,6 +10,7 @@ import {
   PrevisionVente,
 } from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
+import { FiltreTexte, RechercheComponent } from '../shared/tableau';
 import { grouper } from '../shared/format';
 
 /**
@@ -33,7 +34,7 @@ import { grouper } from '../shared/format';
 @Component({
   selector: 'erp-pilotage',
   standalone: true,
-  imports: [RouterLink, IconComponent],
+  imports: [RouterLink, IconComponent, RechercheComponent],
   template: `
     <header class="mb-6">
       <h1 class="page-title">Pilotage financier</h1>
@@ -144,6 +145,7 @@ import { grouper } from '../shared/format';
           charges fixes qu'on cherche à couvrir : les compter ici les compterait deux fois.
         </p>
         <div class="card overflow-x-auto">
+          <erp-recherche [filtre]="fMarges" libelle="les segments" />
           <table class="table">
             <thead>
               <tr>
@@ -154,7 +156,7 @@ import { grouper } from '../shared/format';
               </tr>
             </thead>
             <tbody>
-              @for (m of marges(); track m.segment) {
+              @for (m of fMarges.lignes(); track m.segment) {
                 <tr>
                   <td class="text-ink">{{ m.segment }}</td>
                   <td class="num tabular text-ink-soft">{{ m.affaires }}</td>
@@ -236,6 +238,7 @@ import { grouper } from '../shared/format';
           révision se confirme, et ce qu'elles coûtent à date.
         </p>
         <div class="card overflow-x-auto">
+          <erp-recherche [filtre]="fAbsorption" libelle="les pools" />
           <table class="table">
             <thead>
               <tr>
@@ -248,7 +251,7 @@ import { grouper } from '../shared/format';
               </tr>
             </thead>
             <tbody>
-              @for (a of absorption(); track a.pool) {
+              @for (a of fAbsorption.lignes(); track a.pool) {
                 <tr>
                   <td>
                     <span class="block text-[13px] text-ink">{{ a.pool_libelle }}</span>
@@ -331,6 +334,7 @@ import { grouper } from '../shared/format';
           peut cacher du volume perdu, compensé par une hausse que l'entreprise n'a pas décidée.
         </p>
         <div class="card overflow-x-auto">
+          <erp-recherche [filtre]="fPrevisions" libelle="les prévisions" />
           <table class="table">
             <thead>
               <tr>
@@ -345,7 +349,7 @@ import { grouper } from '../shared/format';
               </tr>
             </thead>
             <tbody>
-              @for (p of previsions(); track $index) {
+              @for (p of fPrevisions.lignes(); track $index) {
                 <tr>
                   <td class="text-ink">{{ p.segment }}</td>
                   <td class="text-ink-soft">{{ p.produit }}</td>
@@ -384,6 +388,19 @@ export class PilotageComponent implements OnInit {
   protected readonly bfr = signal<Bfr | null>(null);
   protected readonly previsions = signal<PrevisionVente[]>([]);
   protected readonly absorption = signal<AbsorptionReelle[]>([]);
+
+  // Un champ de recherche par tableau : ils sont bornés, mais retrouver un
+  // pool parmi quinze ou un segment parmi trois se fait mieux au clavier
+  // qu'à l'œil. Chaque filtre suit son signal, la lecture ne change pas.
+  protected readonly fMarges = new FiltreTexte<MargeCoutVariable>();
+  protected readonly fAbsorption = new FiltreTexte<AbsorptionReelle>();
+  protected readonly fPrevisions = new FiltreTexte<PrevisionVente>();
+
+  private readonly suitLesFiltres = effect(() => {
+    this.fMarges.définir(this.marges());
+    this.fAbsorption.définir(this.absorption());
+    this.fPrevisions.définir(this.previsions());
+  });
 
   /** Ce qui manque, en tête d'écran : c'est l'action, le reste est la lecture. */
   protected readonly manquantes = computed(() =>

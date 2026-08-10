@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Controller,
   Get,
   Injectable,
@@ -13,7 +14,7 @@ import { IsIn, IsOptional } from 'class-validator';
 import { Realm, RequireRealm, Roles, SkipAudit } from '../common/auth/realm';
 import { Page, PaginationQuery, paginate } from '../common/http/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { findReferential } from './registry';
+import { findReferential, rolesDeLecture } from './registry';
 
 /**
  * Lecture des référentiels du lot 1.
@@ -454,7 +455,11 @@ export class ReferentialsService {
    *    faut une recherche — le plafond fait apparaître le besoin au lieu de
    *    laisser l'écran ramer en silence sur dix mille lignes.
    */
-  async parReferentiel(key: string) {
+  async parReferentiel(
+    key: string,
+    role?: UserRole,
+    pagination: { page?: number; pageSize?: number; search?: string } = {},
+  ) {
     const spec = findReferential(key);
     if (!spec) {
       throw new NotFoundException(
@@ -462,8 +467,17 @@ export class ReferentialsService {
       );
     }
 
+    // Le rôle se vérifie ICI, sur les rôles dérivés du registre : le
+    // décorateur de route ignore quelle clé sera demandée.
+    if (role && !rolesDeLecture(key).includes(role)) {
+      throw new ForbiddenException(
+        `Votre rôle ne donne pas accès au référentiel « ${spec.label} ».`,
+      );
+    }
+
     const delegate = (this.prisma as unknown as Record<string, unknown>)[spec.model] as {
       findMany: (a: unknown) => Promise<Record<string, unknown>[]>;
+      count: (a: unknown) => Promise<number>;
     };
     if (!delegate) {
       throw new NotFoundException(`Référentiel « ${key} » sans table associée.`);
@@ -497,19 +511,64 @@ export class ReferentialsService {
       include[rel.name] = { select: { [cleLisible]: true } };
     }
 
-    // Tri sur le premier champ d'identité : c'est celui qui désigne la ligne
-    // pour un humain, donc celui dans lequel il la cherchera.
+    // ⚠️ LA COUPURE MUETTE À 500 LIGNES EST REMPLACÉE PAR UNE VRAIE PAGINATION.
+    //
+    //    L'écran affichait « 500 ligne(s) » sans distinguer 500 d'« au moins
+    //    500 ». Les prix publiés et les cours de change franchissent ce seuil
+    //    en moins d'un an : on aurait conclu qu'une ligne n'existe pas alors
+    //    qu'elle était au-delà de la coupure.
+    //
+    //    La recherche porte sur les colonnes TEXTE du référentiel, celles dans
+    //    lesquelles un humain cherche. Chercher dans un identifiant technique
+    //    n'aurait aucun sens ; chercher dans un montant non plus.
     const cle = spec.identity[0];
-    const lignes = await delegate.findMany({
-      orderBy: { [cle]: 'asc' },
-      take: 500,
-      ...(Object.keys(include).length > 0 ? { include } : {}),
-    });
+    const page = Math.max(1, Number(pagination.page ?? 1));
+    // ⚠️ `pageSize: 0` VEUT DIRE « TOUT », ET IL FAUT QUE CELA EXISTE.
+    //
+    //    En corrigeant la coupure muette à 500, j'ai fait passer la route des
+    //    listes déroulantes par une page de 200 : le même défaut, à un seuil
+    //    plus bas. Une liste de choix tronquée est pire qu'une liste longue —
+    //    l'élément absent n'est pas signalé, il est simplement introuvable.
+    //
+    //    La consultation demande donc une page ; les listes de choix demandent
+    //    tout, explicitement.
+    const tout = Number(pagination.pageSize) === 0;
+    const pageSize = tout
+      ? Number.MAX_SAFE_INTEGER
+      : Math.min(200, Math.max(5, Number(pagination.pageSize ?? 50)));
+    const recherche = (pagination.search ?? '').trim();
+
+    const modeleTexte = Prisma.dmmf.datamodel.models.find(
+      (m) => m.name.toLowerCase() === spec.model.toLowerCase(),
+    );
+    const colonnesTexte = (modeleTexte?.fields ?? [])
+      .filter((f) => f.kind === 'scalar' && f.type === 'String' && !f.isList && f.name !== 'id')
+      .filter((f) => spec.fields.some((d) => d.name === f.name))
+      .map((f) => f.name);
+
+    const where =
+      recherche && colonnesTexte.length > 0
+        ? {
+            OR: colonnesTexte.map((c) => ({
+              [c]: { contains: recherche, mode: 'insensitive' as const },
+            })),
+          }
+        : {};
+
+    const [lignes, total] = await Promise.all([
+      delegate.findMany({
+        where,
+        orderBy: { [cle]: 'asc' },
+        ...(tout ? {} : { skip: (page - 1) * pageSize, take: pageSize }),
+        ...(Object.keys(include).length > 0 ? { include } : {}),
+      }),
+      delegate.count({ where }),
+    ]);
 
     // La clé lisible est posée À CÔTÉ de l'identifiant, jamais à sa place :
     // l'écran de consultation montre l'une, la modification a besoin de
     // l'autre.
-    return lignes.map((l) => {
+    const items = lignes.map((l) => {
       const lisible: Record<string, unknown> = {};
       for (const [champ, { relation, cle: k }] of Object.entries(relations)) {
         const cible = l[relation] as Record<string, unknown> | null | undefined;
@@ -517,6 +576,14 @@ export class ReferentialsService {
       }
       return { ...l, _lisible: lisible };
     });
+
+    return {
+      items,
+      page,
+      pageSize,
+      total,
+      totalPages: tout ? 1 : Math.max(1, Math.ceil(total / pageSize)),
+    };
   }
 }
 
@@ -639,6 +706,43 @@ export class ReferentialsController {
    * Numéros de version libres — DÉCLARÉE AVANT `:key`, sans quoi celle-ci
    * l'avalerait et rendrait « référentiel versions-libres inconnu ».
    */
+  /**
+   * CONSULTATION PAGINÉE D'UN RÉFÉRENTIEL.
+   *
+   * ⚠️ UN CHEMIN DISTINCT, ET CE N'EST PAS UN DOUBLON.
+   *
+   *    `GET /referentials/:key` est arbitré par les routes dédiées : treize
+   *    référentiels y répondent par leur liste ENTIÈRE, parce que c'est ce
+   *    qu'il faut pour remplir une liste déroulante. L'écran de consultation
+   *    passait donc par elles pour la moitié des réglages, sans pagination ni
+   *    recherche — et sans que rien ne distingue les deux cas à l'écran.
+   *
+   *    Deux besoins, deux chemins : la liste entière pour choisir, la page
+   *    pour consulter.
+   */
+  @Get(':key/lignes')
+  @Roles(
+    UserRole.DG,
+    UserRole.FINANCE_CFO,
+    UserRole.ACCOUNTANT,
+    UserRole.CCOO,
+    UserRole.LOGISTICS_COORD,
+    UserRole.ASSISTANT_DG,
+    UserRole.IT_ADMIN,
+    UserRole.SALES_REP,
+  )
+  lignes(
+    @Param('key') key: string,
+    @Req() req: { auth: { role: UserRole } },
+    @Query() query: { page?: string; pageSize?: string; search?: string },
+  ) {
+    return this.service.parReferentiel(key, req.auth.role, {
+      page: query.page ? Number(query.page) : undefined,
+      pageSize: query.pageSize ? Number(query.pageSize) : undefined,
+      search: query.search,
+    });
+  }
+
   @Get(':key/versions-libres')
   @Roles(
     UserRole.DG,
@@ -678,10 +782,18 @@ export class ReferentialsController {
    *    leurs filtres de rôle et leur pagination. Les routes spécifiques
    *    gardent donc la main ; celle-ci ne sert que ce qu'aucune ne couvre.
    *
-   * Le cloisonnement par rôle des routes spécifiques reste intact : elles ne
-   * passent jamais par ici. Cette route sert des référentiels de paramétrage —
-   * exercices, regroupements de charges, types d'exigence — dont la lecture ne
-   * révèle aucune donnée de risque client.
+   * ⚠️ LE RÔLE SE VÉRIFIE PAR RÉFÉRENTIEL, PAS PAR ROUTE.
+   *
+   *    Une seule liste de rôles couvrait les vingt-huit référentiels. Le
+   *    coordinateur logistique lisait donc les prix d'achat fournisseurs, et
+   *    l'affaire lui montrant déjà le prix de vente, la marge se calculait de
+   *    tête. La règle « un coordinateur logistique ne voit pas les marges »
+   *    était défaite par la route la plus générique de l'application.
+   *
+   *    Le décorateur ne peut pas exprimer cela : il ignore quelle clé sera
+   *    demandée. Le contrôle se fait donc DANS la méthode, sur les rôles
+   *    dérivés du registre. Le décorateur ne garde qu'un rôle de première
+   *    barrière contre les rôles qui n'ont rien à faire ici.
    */
   @Get(':key')
   @Roles(
@@ -692,8 +804,20 @@ export class ReferentialsController {
     UserRole.LOGISTICS_COORD,
     UserRole.ASSISTANT_DG,
     UserRole.IT_ADMIN,
+    UserRole.SALES_REP,
   )
-  generique(@Param('key') key: string) {
-    return this.service.parReferentiel(key);
+  /**
+   * ⚠️ REND UN TABLEAU SIMPLE, ET C'EST VOULU.
+   *
+   *    Cette route alimente les LISTES DÉROULANTES : elles ont besoin de la
+   *    liste entière, pas d'une page. Lui avoir fait rendre une page a cassé
+   *    d'un coup tous ses appelants — la recette a signalé la régression au
+   *    passage suivant, ce qui est exactement son office.
+   *
+   *    La consultation paginée vit sur `/:key/lignes`, au-dessus.
+   */
+  async generique(@Param('key') key: string, @Req() req: { auth: { role: UserRole } }) {
+    const page = await this.service.parReferentiel(key, req.auth.role, { pageSize: 0 });
+    return page.items;
   }
 }

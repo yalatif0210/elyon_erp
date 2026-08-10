@@ -4,6 +4,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService, OperationDetail, OperationRow } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { IconComponent } from '../shared/icon.component';
+import { PaginationComponent } from '../shared/tableau';
 import { grouper } from '../shared/format';
 import { StatusBadgeComponent, StatusKind } from '../shared/status-badge.component';
 import { OperationActionsComponent } from './operation-actions.component';
@@ -52,7 +53,7 @@ const FILTERS: { label: string; status?: string }[] = [
 @Component({
   selector: 'erp-operations',
   standalone: true,
-  imports: [FormsModule, RouterLink, IconComponent, StatusBadgeComponent],
+  imports: [FormsModule, RouterLink, IconComponent, StatusBadgeComponent, PaginationComponent],
   template: `
     <header class="mb-5 flex flex-wrap items-start justify-between gap-4">
       <div>
@@ -147,6 +148,13 @@ const FILTERS: { label: string; status?: string }[] = [
         </tbody>
       </table>
     </div>
+    <erp-pagination
+      [page]="page()"
+      [totalPages]="totalPages()"
+      [total]="total()"
+      libelle="opérations"
+      (allerA)="allerA($event)"
+    />
   `,
 })
 export class OperationsComponent implements OnInit {
@@ -154,6 +162,26 @@ export class OperationsComponent implements OnInit {
   private readonly auth = inject(AuthService);
 
   protected readonly rows = signal<OperationRow[]>([]);
+
+  /**
+   * Page demandée au serveur.
+   *
+   * ⚠️ L'ÉCRAN LISAIT LA PAGE 1 ET N'EN SORTAIT JAMAIS.
+   *
+   *    L'API est paginée depuis l'origine — cinquante lignes par page — mais
+   *    aucune commande n'était affichée et le total n'était pas lu. Au-delà de
+   *    la cinquantième ligne, les données existaient et restaient invisibles,
+   *    sans compteur ni message pour le dire.
+   */
+  protected readonly page = signal(1);
+  protected readonly total = signal(0);
+  protected readonly totalPages = signal(1);
+
+  protected allerA(p: number): void {
+    this.page.set(p);
+    this.load();
+  }
+
   protected readonly active = signal('');
   protected readonly filters = FILTERS;
   protected search = '';
@@ -203,11 +231,15 @@ export class OperationsComponent implements OnInit {
 
   private load(): void {
     this.api
-      .operations(1, {
+      .operations(this.page(), {
         status: this.active() || undefined,
         search: this.search.trim() || undefined,
       })
-      .subscribe((page) => this.rows.set(page.items));
+      .subscribe((page) => {
+        this.rows.set(page.items);
+        this.total.set(page.total);
+        this.totalPages.set(page.totalPages);
+      });
   }
 }
 

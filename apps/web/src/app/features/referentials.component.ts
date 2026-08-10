@@ -1,7 +1,8 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, effect, inject, signal } from '@angular/core';
 import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { IconComponent } from '../shared/icon.component';
+import { FiltreTexte, RechercheComponent } from '../shared/tableau';
 
 interface Currency {
   code: string;
@@ -46,7 +47,7 @@ interface Tolerance {
 @Component({
   selector: 'erp-referentials',
   standalone: true,
-  imports: [IconComponent],
+  imports: [IconComponent, RechercheComponent],
   template: `
     <header class="mb-6">
       <h1 class="page-title">Référentiels</h1>
@@ -60,12 +61,13 @@ interface Tolerance {
     <section class="card mb-5">
       <div class="card-header"><h2 class="card-title">Devises</h2></div>
       <div class="overflow-x-auto">
+        <erp-recherche [filtre]="fCurrencies" libelle="les devises" />
         <table class="table">
           <thead>
             <tr><th>Code</th><th>Libellé</th><th class="num">Décimales</th><th>Rôle</th><th>Parité fixe</th></tr>
           </thead>
           <tbody>
-            @for (c of currencies(); track c.code) {
+            @for (c of fCurrencies.lignes(); track c.code) {
               <tr>
                 <td class="font-mono text-ink">{{ c.code }}</td>
                 <td class="text-ink-soft">{{ c.name }} <span class="text-ink-faint">{{ c.symbol }}</span></td>
@@ -105,13 +107,14 @@ interface Tolerance {
           <h2 class="card-title">Seuils de marge</h2>
         </div>
         <div class="overflow-x-auto">
+          <erp-recherche [filtre]="fThresholds" libelle="les seuils" />
           <table class="table">
             <thead>
               <tr><th>Segment</th><th>Produit</th><th class="num">Plancher direct</th>
                   <th class="num">Seuil minimum</th><th>Unité</th></tr>
             </thead>
             <tbody>
-              @for (t of thresholds(); track $index) {
+              @for (t of fThresholds.lignes(); track $index) {
                 <tr>
                   <td class="text-ink">{{ t.segment }}</td>
                   <td class="text-ink-muted">{{ t.product?.code ?? 'tous' }}</td>
@@ -136,13 +139,14 @@ interface Tolerance {
         <h2 class="card-title">Tolérances d'écart de volume</h2>
       </div>
       <div class="overflow-x-auto">
+        <erp-recherche [filtre]="fTolerances" libelle="les tolérances" />
         <table class="table">
           <thead>
             <tr><th>Segment</th><th>Mode</th><th>Produit</th>
                 <th class="num">Normal</th><th class="num">Alerte</th><th class="num">Critique</th></tr>
           </thead>
           <tbody>
-            @for (t of tolerances(); track $index) {
+            @for (t of fTolerances.lignes(); track $index) {
               <tr>
                 <td class="text-ink-soft">{{ t.segment ?? 'tous' }}</td>
                 <td class="text-ink-soft">{{ t.transportMode ?? 'tous' }}</td>
@@ -168,13 +172,14 @@ interface Tolerance {
         <span class="text-[11px] text-ink-faint">{{ costPosts().length }} postes</span>
       </div>
       <div class="overflow-x-auto">
+        <erp-recherche [filtre]="fCostPosts" libelle="les postes" />
         <table class="table">
           <thead>
             <tr><th>Code</th><th>Libellé</th><th>Catégorie</th><th>Nature</th>
                 <th>Variabilité</th><th>Regroupement</th></tr>
           </thead>
           <tbody>
-            @for (c of costPosts(); track c.code) {
+            @for (c of fCostPosts.lignes(); track c.code) {
               <tr>
                 <td class="font-mono text-[12px] text-ink-muted">{{ c.code }}</td>
                 <td class="text-ink">
@@ -222,6 +227,20 @@ export class ReferentialsComponent implements OnInit {
   protected readonly costPosts = signal<CostPost[]>([]);
   protected readonly thresholds = signal<Threshold[]>([]);
   protected readonly tolerances = signal<Tolerance[]>([]);
+
+  // Un champ de recherche par tableau. Les postes de coût dépassent la
+  // vingtaine, les devises et les seuils grossissent avec l'activité.
+  protected readonly fCurrencies = new FiltreTexte<Currency>();
+  protected readonly fThresholds = new FiltreTexte<Threshold>();
+  protected readonly fTolerances = new FiltreTexte<Tolerance>();
+  protected readonly fCostPosts = new FiltreTexte<CostPost>();
+
+  private readonly suitLesFiltres = effect(() => {
+    this.fCurrencies.définir(this.currencies());
+    this.fThresholds.définir(this.thresholds());
+    this.fTolerances.définir(this.tolerances());
+    this.fCostPosts.définir(this.costPosts());
+  });
 
   ngOnInit(): void {
     this.api.currencies().subscribe((rows) => this.currencies.set(rows as Currency[]));

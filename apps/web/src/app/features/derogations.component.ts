@@ -2,6 +2,7 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { ApiService, Derogation } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { IconComponent } from '../shared/icon.component';
+import { PaginationComponent } from '../shared/tableau';
 import { StatusBadgeComponent } from '../shared/status-badge.component';
 import { dateOnly } from '../shared/format';
 
@@ -25,7 +26,7 @@ const TYPE_LABELS: Record<string, string> = {
 @Component({
   selector: 'erp-derogations',
   standalone: true,
-  imports: [IconComponent, StatusBadgeComponent],
+  imports: [IconComponent, StatusBadgeComponent, PaginationComponent],
   template: `
     <header class="mb-6">
       <h1 class="page-title">Registre des dérogations</h1>
@@ -121,6 +122,8 @@ const TYPE_LABELS: Record<string, string> = {
         </tbody>
       </table>
     </div>
+    <erp-pagination [page]="page()" [totalPages]="totalPages()" [total]="total()"
+                    libelle="dérogations" (allerA)="allerA($event)" />
   `,
 })
 export class DerogationsComponent implements OnInit {
@@ -128,6 +131,21 @@ export class DerogationsComponent implements OnInit {
   private readonly auth = inject(AuthService);
 
   protected readonly rows = signal<Derogation[]>([]);
+
+  /**
+   * Page demandée au serveur.
+   *
+   * L'écran lisait la page 1 et n'en sortait jamais : au-delà de la
+   * cinquantième ligne, les données existaient sans s'afficher nulle part.
+   */
+  protected readonly page = signal(1);
+  protected readonly totalPages = signal(1);
+
+  protected allerA(p: number): void {
+    this.page.set(p);
+    this.load();
+  }
+
   protected readonly pending = signal<Derogation[]>([]);
   protected readonly total = signal(0);
 
@@ -163,9 +181,10 @@ export class DerogationsComponent implements OnInit {
   }
 
   private load(): void {
-    this.api.derogations().subscribe((page) => {
+    this.api.derogations(this.page()).subscribe((page) => {
       this.rows.set(page.items);
       this.total.set(page.total);
+      this.totalPages.set(page.totalPages);
     });
     // La revue mensuelle est réservée au DG et au CFO : on n'appelle pas
     // l'endpoint pour les autres, qui recevraient un 403 inutile.

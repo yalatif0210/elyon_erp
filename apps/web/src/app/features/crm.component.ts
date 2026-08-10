@@ -9,6 +9,7 @@ import {
   PerformanceCommerciale,
 } from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
+import { TableauPagine, TableauControlesComponent } from '../shared/tableau';
 import { dateOnly, grouper } from '../shared/format';
 
 /**
@@ -30,7 +31,7 @@ import { dateOnly, grouper } from '../shared/format';
 @Component({
   selector: 'erp-crm',
   standalone: true,
-  imports: [FormsModule, IconComponent],
+  imports: [FormsModule, IconComponent, TableauControlesComponent],
   template: `
     <header class="mb-6">
       <h1 class="page-title">Pipeline commercial</h1>
@@ -318,7 +319,9 @@ import { dateOnly, grouper } from '../shared/format';
           </p>
         </div>
       } @else {
-        <div class="card overflow-x-auto">
+        <div class="card overflow-hidden">
+          <erp-tableau-controles [tableau]="tableauPipeline" libelle="le pipeline" />
+          <div class="overflow-x-auto">
           <table class="table">
             <thead>
               <tr>
@@ -332,7 +335,7 @@ import { dateOnly, grouper } from '../shared/format';
               </tr>
             </thead>
             <tbody>
-              @for (o of pipeline(); track o.id) {
+              @for (o of tableauPipeline.lignes(); track o.id) {
                 <tr>
                   <td class="ref">{{ o.reference }}</td>
                   <td class="text-ink">{{ o.title }}</td>
@@ -354,6 +357,7 @@ import { dateOnly, grouper } from '../shared/format';
             </tbody>
           </table>
         </div>
+        </div>
       }
     </section>
   `,
@@ -362,6 +366,16 @@ export class CrmComponent implements OnInit {
   private readonly api = inject(ApiService);
 
   protected readonly pipeline = signal<CrmPipelineRow[]>([]);
+
+  /** Recherche et pagination du pipeline, côté navigateur. */
+  protected readonly tableauPipeline = new TableauPagine<CrmPipelineRow>();
+
+  /** Une seule porte d'entrée : le signal et le tableau restent en phase. */
+  private remplirPipeline(rows: CrmPipelineRow[]): void {
+    this.pipeline.set(rows);
+    this.tableauPipeline.définir(rows);
+  }
+
   protected readonly etapes = signal<CrmEtape[]>([]);
   protected readonly alertes = signal<CrmAlerte[]>([]);
   protected readonly conversions = signal<CrmConversion[]>([]);
@@ -398,7 +412,7 @@ export class CrmComponent implements OnInit {
 
   ngOnInit(): void {
     const vide = () => undefined;
-    this.api.crmPipeline(true).subscribe({ next: (r) => this.pipeline.set(r), error: vide });
+    this.api.crmPipeline(true).subscribe({ next: (r) => this.remplirPipeline(r), error: vide });
     this.api.crmParEtape().subscribe({ next: (r) => this.etapes.set(r), error: vide });
     this.api.crmAlertes().subscribe({ next: (r) => this.alertes.set(r), error: vide });
     this.api.crmConversion().subscribe({ next: (r) => this.conversions.set(r), error: vide });

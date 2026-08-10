@@ -87,6 +87,67 @@ export class MarginService {
    * vérifiable à la main face à un tableur, ce qu'une lecture base au milieu
    * de la formule rendrait impossible.
    */
+  /**
+   * Conditions financières de l'exercice courant.
+   *
+   * Une seule lecture, au même endroit, pour le taux, le millésime et la base
+   * de jours. Les trois se répondent : un taux de 2026 employé avec la base de
+   * jours d'un autre exercice donnerait un portage qu'aucun document ne
+   * justifie.
+   *
+   * ⚠️ LE REPLI SUR LES RÉGLAGES GLOBAUX EST CONSERVÉ, MAIS IL VIENT APRÈS.
+   *
+   *    Il ne sert qu'aux bases où aucun exercice n'est encore déclaré. Dès
+   *    qu'un exercice porte ses conditions, ce sont elles qui gouvernent —
+   *    c'est tout l'objet du rattachement à l'exercice.
+   */
+  private async conditionsDeLExercice(): Promise<{
+    financingRatePct: number;
+    fiscalYear: number;
+    daysPerYear: number;
+  }> {
+    const exercice = await this.prisma.fiscalYear.findFirst({
+      where: { isCurrent: true },
+      select: {
+        year: true,
+        financingRates: {
+          where: { isCurrent: true },
+          select: { annualRatePct: true, carryingDaysPerYear: true },
+          take: 1,
+        },
+      },
+    });
+
+    const taux = exercice?.financingRates[0];
+
+    // ⚠️ ON REFUSE DE CALCULER PLUTÔT QUE DE PORTER À TAUX ZÉRO.
+    //
+    //    Sans taux, le coût de portage vaudrait zéro et la marge affichée
+    //    serait FLATTEUSE : sur un cycle de 45 jours et un prix d'achat de
+    //    700 F, ce sont environ 10 F par litre qui disparaissent — l'ordre de
+    //    grandeur du seuil lui-même. Une affaire à refuser passerait, et rien
+    //    à l'écran ne dirait pourquoi.
+    //
+    //    Le refus nomme la donnée manquante et l'écran où la saisir. La file
+    //    de tâches la réclame déjà au directeur financier.
+    if (!exercice) {
+      throw new BadRequestException(
+        'Aucun exercice comptable n’est déclaré courant. La marge dépend des conditions de financement de l’exercice : déclarez-le au paramétrage, rubrique Exercices comptables.',
+      );
+    }
+    if (!taux) {
+      throw new BadRequestException(
+        `Aucun taux de financement n’est saisi pour l’exercice ${exercice.year}. Le coût de portage en dépend, et le calculer à taux zéro donnerait une marge flatteuse : saisissez-le au paramétrage, rubrique Taux de financement.`,
+      );
+    }
+
+    return {
+      financingRatePct: Number(taux.annualRatePct),
+      fiscalYear: exercice.year,
+      daysPerYear: taux.carryingDaysPerYear,
+    };
+  }
+
   computeCarryingCost(
     unitPurchasePrice: number,
     clientPaymentTermsDays: number,
@@ -386,11 +447,23 @@ export class MarginService {
       },
     });
 
-    const [financingRatePct, fiscalYear, daysPerYear] = await Promise.all([
-      this.settings.number('FINANCING_RATE_ANNUAL_PCT', 10),
-      this.settings.number('CURRENT_FISCAL_YEAR', new Date().getUTCFullYear()),
-      this.settings.number('CARRYING_DAYS_PER_YEAR', CARRYING_DAYS_PER_YEAR_FALLBACK),
-    ]);
+    // ⚠️ LES CONDITIONS DE L'EXERCICE, PAS LES PARAMÈTRES GLOBAUX.
+    //
+    //    Ces trois valeurs étaient lues dans les réglages système, avec des
+    //    replis écrits en dur — 10 % l'an, l'année civile, 360 jours. Or elles
+    //    se saisissent par EXERCICE depuis que l'exercice comptable existe :
+    //    le directeur financier avait posé 12 % au titre d'une lettre de
+    //    crédit, et le calcul de marge employait toujours 10 %.
+    //
+    //    Le coût de portage était donc sous-estimé d'un sixième, ce qui
+    //    remonte dans la marge directe et dans le verdict du seuil. Une
+    //    affaire refusée à raison pouvait passer.
+    //
+    //    C'est le défaut que tout ce module cherchait à empêcher : une valeur
+    //    décidée par le CFO, écrasée en silence par une valeur d'illustration.
+    //    Je l'avais posé dans la base sans jamais y brancher le calcul.
+    const conditions = await this.conditionsDeLExercice();
+    const { financingRatePct, fiscalYear, daysPerYear } = conditions;
 
     const volume = Number(deal.contractedVolume);
     const unitSalePrice = Number(deal.unitSalePrice);

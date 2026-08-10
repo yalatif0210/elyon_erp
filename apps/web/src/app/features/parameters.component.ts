@@ -106,7 +106,7 @@ import { MontantDirective } from '../shared/montant.directive';
             >
               Ce qui est enregistré
               @if (lignes()) {
-                <span class="ml-1 opacity-70">({{ lignes()!.length }})</span>
+                <span class="ml-1 opacity-70">({{ totalLignes() }})</span>
               }
             </button>
           </div>
@@ -117,8 +117,59 @@ import { MontantDirective } from '../shared/montant.directive';
               <div class="card-header">
                 <h2 class="card-title">{{ spec.label }}</h2>
                 <span class="text-[11px] text-ink-faint">
-                  {{ lignes() === null ? 'lecture en cours' : lignes()!.length + ' ligne(s)' }}
+                  {{ lignes() === null ? 'lecture en cours' : totalLignes() + ' ligne(s)' }}
                 </span>
+              </div>
+
+              <!-- Recherche et pagination : servies par le SERVEUR. Filtrer
+                   dans le navigateur ne trouverait que ce qui y est déjà
+                   arrivé, ce qui est précisément le défaut qu'on corrige. -->
+              <div class="flex flex-wrap items-center justify-between gap-3 border-b border-rule
+                          px-[15px] py-2.5">
+                <div class="flex items-center gap-2">
+                  <input
+                    type="search"
+                    class="field h-8 w-56 text-[13px]"
+                    placeholder="Rechercher"
+                    aria-label="Rechercher dans ce réglage"
+                    [ngModel]="recherche"
+                    (ngModelChange)="chercher($event)"
+                  />
+                  @if (recherche) {
+                    <button type="button" class="link text-[12px]" (click)="chercher('')">
+                      Effacer
+                    </button>
+                  }
+                </div>
+                <div class="flex items-center gap-3 text-[12px] text-ink-soft">
+                  <select
+                    class="field h-8 w-[92px] text-[12px]"
+                    aria-label="Lignes par page"
+                    [ngModel]="taillePage()"
+                    (ngModelChange)="changerTaille(+$event)"
+                  >
+                    @for (n of taillesPage; track n) {
+                      <option [ngValue]="n">{{ n }} / page</option>
+                    }
+                  </select>
+                  <button
+                    type="button"
+                    class="btn-ghost h-8 px-2 text-[12px]"
+                    [disabled]="pageCourante() <= 1"
+                    (click)="allerA(pageCourante() - 1)"
+                  >
+                    Précédent
+                  </button>
+                  <span class="tabular">{{ pageCourante() }} / {{ totalPages() }}</span>
+                  <button
+                    type="button"
+                    class="btn-ghost h-8 px-2 text-[12px]"
+                    [disabled]="pageCourante() >= totalPages()"
+                    (click)="allerA(pageCourante() + 1)"
+                  >
+                    Suivant
+                  </button>
+                </div>
               </div>
 
               @if (lignes() === null) {
@@ -127,10 +178,17 @@ import { MontantDirective } from '../shared/montant.directive';
                 </div>
               } @else if (lignes()!.length === 0) {
                 <div class="card-body">
-                  <p class="text-[13px] leading-relaxed text-ink-soft">
-                    Rien n’est encore enregistré pour ce réglage. Passez par la saisie unitaire
-                    ou par l’import de fichier.
-                  </p>
+                  @if (recherche) {
+                    <p class="text-[13px] leading-relaxed text-ink-soft">
+                      Aucune ligne ne correspond à «&nbsp;{{ recherche }}&nbsp;». Le réglage compte
+                      d’autres lignes : effacez la recherche pour les revoir.
+                    </p>
+                  } @else {
+                    <p class="text-[13px] leading-relaxed text-ink-soft">
+                      Rien n’est encore enregistré pour ce réglage. Passez par la saisie unitaire
+                      ou par l’import de fichier.
+                    </p>
+                  }
                 </div>
               } @else {
                 <div class="overflow-x-auto">
@@ -305,12 +363,22 @@ import { MontantDirective } from '../shared/montant.directive';
                              révision qui écrase ce qu'elle révise fait
                              disparaître l'historique qu'on versionne
                              justement pour le garder. -->
-                        <select class="field" [id]="'f-' + f.name" [(ngModel)]="form[f.name]">
+                        <select
+                          class="field"
+                          [id]="'f-' + f.name"
+                          [disabled]="identiteIncomplete()"
+                          [(ngModel)]="form[f.name]"
+                        >
                           @for (v of versionChoices(); track v) {
                             <option [ngValue]="v">{{ v }}</option>
                           }
                         </select>
-                        @if (versionsPrises().length > 0) {
+                        @if (identiteIncomplete()) {
+                          <p class="mt-1 text-[11px] text-ink-faint">
+                            Renseignez d’abord {{ champsIdentite(spec) }}&nbsp;: les versions se
+                            comptent pour cette combinaison-là, pas pour la table entière.
+                          </p>
+                        } @else if (versionsPrises().length > 0) {
                           <p class="mt-1 text-[11px] text-ink-faint">
                             Déjà utilisées pour cette combinaison&nbsp;:
                             {{ versionsPrises().join(', ') }}
@@ -522,6 +590,25 @@ export class ParametersComponent implements OnInit {
    */
   protected readonly lignes = signal<Record<string, unknown>[] | null>(null);
   protected readonly lecture = signal<string | null>(null);
+
+  /**
+   * Pagination SERVEUR de la consultation.
+   *
+   * ⚠️ ELLE N'EST PAS COSMÉTIQUE : LA LECTURE SE COUPAIT À 500 LIGNES EN
+   *    SILENCE.
+   *
+   *    L'écran affichait « 500 ligne(s) » sans distinguer 500 d'« au moins
+   *    500 ». Les prix publiés et les cours de change franchissent ce seuil en
+   *    moins d'un an, et l'on aurait conclu qu'une ligne n'existe pas alors
+   *    qu'elle était au-delà de la coupure. Filtrer dans le navigateur n'y
+   *    aurait rien changé : les lignes manquantes n'y sont jamais arrivées.
+   */
+  protected readonly pageCourante = signal(1);
+  protected readonly taillePage = signal(25);
+  protected readonly totalLignes = signal(0);
+  protected readonly totalPages = signal(1);
+  protected recherche = '';
+  protected readonly taillesPage = [10, 25, 50, 100];
   protected readonly busy = signal(false);
   protected readonly errors = signal<string[]>([]);
   protected readonly saved = signal<string | null>(null);
@@ -551,6 +638,9 @@ export class ParametersComponent implements OnInit {
    */
   protected readonly versions = signal<{ libres: number[]; prises: number[] } | null>(null);
 
+  /** Vrai tant que les champs qui identifient la ligne ne sont pas tous choisis. */
+  protected readonly identiteIncomplete = signal(true);
+
   protected readonly parsedColumns = computed(() => Object.keys(this.parsed()[0] ?? {}));
 
   ngOnInit(): void {
@@ -566,6 +656,8 @@ export class ParametersComponent implements OnInit {
     this.report.set(null);
     this.parsed.set([]);
     this.versions.set(null);
+    this.pageCourante.set(1);
+    this.recherche = '';
     this.loadReferences(spec);
     this.refreshVersions();
     this.chargerLignes(spec);
@@ -726,6 +818,19 @@ export class ParametersComponent implements OnInit {
       }
     }
 
+    // ⚠️ SUR UNE DONNÉE HISTORISÉE, LA DATE DE VALIDITÉ NE SE REPREND PAS.
+    //
+    //    Le bouton rechargeait la ligne AVEC sa date d'entrée en vigueur.
+    //    Resoumettre sans y toucher heurtait la règle « une donnée historisée
+    //    ne se réécrit pas » — et le seul geste naturel après avoir cliqué sur
+    //    « repartir de là » est justement de modifier une valeur et de valider.
+    //
+    //    L'intention du bouton est de publier une NOUVELLE version, à une
+    //    nouvelle date. On propose donc celle du jour, qui reste modifiable.
+    if (spec.nature === 'historised' && spec.effectiveFrom) {
+      valeurs[spec.effectiveFrom] = new Date().toISOString().slice(0, 10);
+    }
+
     this.form = valeurs;
     this.reason = '';
     this.errors.set([]);
@@ -737,12 +842,24 @@ export class ParametersComponent implements OnInit {
   private chargerLignes(spec: ReferentialSpec): void {
     this.lignes.set(null);
     this.lecture.set(null);
-    this.api.lignesReferentiel(spec.key).subscribe({
-      next: (l) => this.lignes.set(l),
+    this.api
+      .lignesReferentiel(spec.key, {
+        page: this.pageCourante(),
+        pageSize: this.taillePage(),
+        search: this.recherche.trim() || undefined,
+      })
+      .subscribe({
+      next: (p) => {
+        this.lignes.set(p.items);
+        this.totalLignes.set(p.total);
+        this.totalPages.set(p.totalPages);
+      },
       // Une lecture refusée n’est pas une absence de données : le dire évite
       // de conclure que le réglage est vide alors qu’il ne l’est pas.
       error: () => {
         this.lignes.set([]);
+        this.totalLignes.set(0);
+        this.totalPages.set(1);
         this.lecture.set(
           'Ce réglage ne se relit pas depuis cet écran, ou votre profil n’y donne pas accès. Ce qui est enregistré reste en place.',
         );
@@ -750,9 +867,41 @@ export class ParametersComponent implements OnInit {
     });
   }
 
-  /** Numéros proposés. Repli sur 1 à 100 si la lecture n'a pas abouti. */
+  /** Une recherche, un changement de taille ou de page relit le serveur. */
+  protected chercher(q: string): void {
+    this.recherche = q;
+    this.pageCourante.set(1);
+    this.rafraichir();
+  }
+
+  protected allerA(p: number): void {
+    this.pageCourante.set(Math.min(Math.max(1, p), this.totalPages()));
+    this.rafraichir();
+  }
+
+  protected changerTaille(n: number): void {
+    this.taillePage.set(n);
+    this.pageCourante.set(1);
+    this.rafraichir();
+  }
+
+  /**
+   * Numéros proposés.
+   *
+   * Aucun tant que l'identité est incomplète : proposer une liste calculée sur
+   * la table entière reviendrait à écarter des numéros libres.
+   */
   protected versionChoices(): number[] {
+    if (this.identiteIncomplete()) return [];
     return this.versions()?.libres ?? Array.from({ length: 100 }, (_, i) => i + 1);
+  }
+
+  /** Les champs qui identifient la ligne, en toutes lettres. */
+  protected champsIdentite(spec: ReferentialSpec): string {
+    const noms = spec.identity
+      .filter((n) => spec.fields.find((f) => f.name === n)?.type !== 'version')
+      .map((n) => spec.fields.find((f) => f.name === n)?.label ?? n);
+    return noms.join(', ').toLowerCase();
   }
 
   protected versionsPrises(): number[] {
@@ -782,16 +931,29 @@ export class ParametersComponent implements OnInit {
       return;
     }
 
-    // Seuls les champs d'identité DÉJÀ renseignés sont transmis. Tant que le
-    // formulaire est incomplet, la liste porte sur ce qui est choisi — et non
-    // sur rien, ce qui laisserait croire que tous les numéros sont libres.
+    // ⚠️ TANT QUE L'IDENTITÉ EST INCOMPLÈTE, ON NE PROPOSE RIEN.
+    //
+    //    L'écran interrogeait dès l'ouverture, formulaire vide. Le serveur ne
+    //    retenant que les champs renseignés, la recherche portait alors sur
+    //    TOUTES les lignes : pour une prévision de vente, il rendait « version
+    //    1 déjà prise » et présélectionnait 2, alors que la version 1 est libre
+    //    pour toute combinaison neuve. On créait une version 2 sans version 1,
+    //    et l'historique commençait à deux sans que rien ne le dise.
+    //
+    //    La liste ne vaut donc que sur une identité COMPLÈTE. Avant cela, elle
+    //    reste vide et le champ affiche ce qu'il attend.
     const identite: Record<string, string> = {};
     for (const nom of spec.identity) {
       if (nom === champ.name) continue;
       const v = this.form[nom];
-      if (v === null || v === undefined || v === '') continue;
+      if (v === null || v === undefined || v === '') {
+        this.versions.set(null);
+        this.identiteIncomplete.set(true);
+        return;
+      }
       identite[nom] = String(v);
     }
+    this.identiteIncomplete.set(false);
 
     this.api.versionsLibres(spec.key, identite).subscribe({
       next: (r) => {

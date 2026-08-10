@@ -2,6 +2,7 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService, Partner } from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
+import { PaginationComponent } from '../shared/tableau';
 import { StatusBadgeComponent } from '../shared/status-badge.component';
 
 const TYPE_LABELS: Record<string, string> = {
@@ -21,7 +22,7 @@ const SEGMENT_LABELS: Record<string, string> = {
 @Component({
   selector: 'erp-partners',
   standalone: true,
-  imports: [FormsModule, IconComponent, StatusBadgeComponent],
+  imports: [FormsModule, IconComponent, StatusBadgeComponent, PaginationComponent],
   template: `
     <header class="mb-5">
       <h1 class="page-title">Tiers</h1>
@@ -88,12 +89,38 @@ const SEGMENT_LABELS: Record<string, string> = {
         </tbody>
       </table>
     </div>
+    <erp-pagination
+      [page]="page()"
+      [totalPages]="totalPages()"
+      [total]="total()"
+      libelle="tiers"
+      (allerA)="allerA($event)"
+    />
   `,
 })
 export class PartnersComponent implements OnInit {
   private readonly api = inject(ApiService);
 
   protected readonly rows = signal<Partner[]>([]);
+
+  /**
+   * Page demandée au serveur.
+   *
+   * ⚠️ L'ÉCRAN LISAIT LA PAGE 1 ET N'EN SORTAIT JAMAIS.
+   *
+   *    L'API est paginée depuis l'origine — cinquante lignes par page — mais
+   *    aucune commande n'était affichée et le total n'était pas lu. Au-delà de
+   *    la cinquantième ligne, les données existaient et restaient invisibles,
+   *    sans compteur ni message pour le dire.
+   */
+  protected readonly page = signal(1);
+  protected readonly totalPages = signal(1);
+
+  protected allerA(p: number): void {
+    this.page.set(p);
+    this.load();
+  }
+
   protected readonly total = signal(0);
   protected search = '';
 
@@ -118,9 +145,10 @@ export class PartnersComponent implements OnInit {
   }
 
   private load(): void {
-    this.api.partners(1, this.search.trim() || undefined).subscribe((page) => {
+    this.api.partners(this.page(), this.search.trim() || undefined).subscribe((page) => {
       this.rows.set(page.items);
       this.total.set(page.total);
+      this.totalPages.set(page.totalPages);
     });
   }
 }

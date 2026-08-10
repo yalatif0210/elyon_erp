@@ -15,6 +15,7 @@ import {
   HttpFailure,
 } from '../shared/action-panel.component';
 import { IconComponent } from '../shared/icon.component';
+import { PaginationComponent } from '../shared/tableau';
 import { grouper } from '../shared/format';
 import { MontantDirective } from '../shared/montant.directive';
 import { StatusBadgeComponent, StatusKind } from '../shared/status-badge.component';
@@ -59,6 +60,8 @@ const FILTERS: { label: string; status?: string }[] = [
     StatusBadgeComponent,
     ActionFeedbackComponent,
     MontantDirective,
+  
+    PaginationComponent,
   ],
   template: `
     <header class="mb-5">
@@ -318,6 +321,8 @@ const FILTERS: { label: string; status?: string }[] = [
         </tbody>
       </table>
     </div>
+    <erp-pagination [page]="page()" [totalPages]="totalPages()" [total]="total()"
+                    libelle="factures fournisseurs" (allerA)="allerA($event)" />
 
     <!-- ============ Rapprochement ============ -->
     <section class="card overflow-hidden">
@@ -389,6 +394,22 @@ export class SupplierInvoicesComponent implements OnInit {
   }
 
   protected readonly rows = signal<SupplierInvoiceRow[]>([]);
+
+  /**
+   * Page demandée au serveur.
+   *
+   * L'écran lisait la page 1 et n'en sortait jamais : au-delà de la
+   * cinquantième ligne, les données existaient sans s'afficher nulle part.
+   */
+  protected readonly page = signal(1);
+  protected readonly total = signal(0);
+  protected readonly totalPages = signal(1);
+
+  protected allerA(p: number): void {
+    this.page.set(p);
+    this.load();
+  }
+
   protected readonly reconciliation = signal<CostReconciliationRow[]>([]);
   protected readonly active = signal('');
   protected readonly filters = FILTERS;
@@ -592,7 +613,11 @@ export class SupplierInvoicesComponent implements OnInit {
         status: this.active() || undefined,
         search: this.search.trim() || undefined,
       })
-      .subscribe((page) => this.rows.set(page.items));
+      .subscribe((page) => {
+        this.rows.set(page.items);
+        this.total.set(page.total);
+        this.totalPages.set(page.totalPages);
+      });
   }
 }
 

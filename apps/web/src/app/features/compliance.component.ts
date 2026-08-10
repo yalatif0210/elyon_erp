@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService, ComplianceSubject, ExpiryItem } from '../core/api.service';
 import {
@@ -7,6 +7,7 @@ import {
   HttpFailure,
 } from '../shared/action-panel.component';
 import { IconComponent } from '../shared/icon.component';
+import { TableauPagine, TableauControlesComponent } from '../shared/tableau';
 import { StatusBadgeComponent } from '../shared/status-badge.component';
 import { TYPE_LABELS } from './dashboard.component';
 import { dateOnly, daysClass, remainingLabel } from '../shared/format';
@@ -35,7 +36,7 @@ const COMPLIANCE_TYPES: { code: string; label: string }[] = [
 @Component({
   selector: 'erp-compliance',
   standalone: true,
-  imports: [FormsModule, IconComponent, StatusBadgeComponent, ActionFeedbackComponent],
+  imports: [FormsModule, IconComponent, StatusBadgeComponent, ActionFeedbackComponent, TableauControlesComponent],
   template: `
     <header class="mb-6">
       <h1 class="page-title">Conformité des moyens</h1>
@@ -113,7 +114,9 @@ const COMPLIANCE_TYPES: { code: string; label: string }[] = [
       <span class="ml-auto text-[12px] text-ink-faint">{{ filtered().length }} résultat(s)</span>
     </div>
 
-    <div class="card overflow-x-auto">
+    <div class="card overflow-hidden">
+      <erp-tableau-controles [tableau]="tableauSujets" libelle="les porteurs" />
+      <div class="overflow-x-auto">
       <table class="table">
         <thead>
           <tr>
@@ -126,7 +129,7 @@ const COMPLIANCE_TYPES: { code: string; label: string }[] = [
           </tr>
         </thead>
         <tbody>
-          @for (row of filtered(); track row.subject_id) {
+          @for (row of tableauSujets.lignes(); track row.subject_id) {
             <tr>
               <td class="text-ink-muted">{{ kindLabel(row.subject_kind) }}</td>
               <td>
@@ -156,6 +159,7 @@ const COMPLIANCE_TYPES: { code: string; label: string }[] = [
         </tbody>
       </table>
     </div>
+    </div>
   `,
 })
 export class ComplianceComponent implements OnInit {
@@ -173,6 +177,20 @@ export class ComplianceComponent implements OnInit {
   protected newExpiryDate = '';
 
   protected readonly rows = signal<ComplianceSubject[]>([]);
+
+  /** Recherche et pagination des porteurs de pièces. */
+  protected readonly tableauSujets = new TableauPagine<ComplianceSubject>();
+
+  /**
+   * Le tableau suit le filtre existant.
+   *
+   * `filtered()` porte déjà le filtre par nature et par conformité : la
+   * recherche et la pagination viennent PAR-DESSUS, elles ne le remplacent
+   * pas. Les brancher sur la liste brute aurait fait réapparaître ce que le
+   * filtre venait d'écarter.
+   */
+  private readonly suitLeFiltre = effect(() => this.tableauSujets.définir(this.filtered()));
+
   protected readonly active = signal<'all' | 'blocked' | 'VEHICLE' | 'DRIVER' | 'CARRIER'>('all');
 
   protected readonly filters = [
@@ -241,7 +259,7 @@ export class ComplianceComponent implements OnInit {
 @Component({
   selector: 'erp-expiry',
   standalone: true,
-  imports: [FormsModule, IconComponent, StatusBadgeComponent],
+  imports: [FormsModule, IconComponent, StatusBadgeComponent, TableauControlesComponent],
   template: `
     <header class="mb-6">
       <h1 class="page-title">Échéancier réglementaire</h1>
@@ -269,7 +287,12 @@ export class ComplianceComponent implements OnInit {
       <span class="ml-auto text-[12px] text-ink-faint">{{ items().length }} pièce(s)</span>
     </div>
 
-    <div class="card overflow-x-auto">
+    <div class="card overflow-hidden">
+      <!-- Recherche et pagination : la liste couvre un horizon entier et
+           dépasse vite l'écran. Chercher une immatriculation à la molette
+           n'est pas une méthode. -->
+      <erp-tableau-controles [tableau]="tableau" libelle="les pièces" />
+      <div class="overflow-x-auto">
       <table class="table">
         <thead>
           <tr>
@@ -278,7 +301,7 @@ export class ComplianceComponent implements OnInit {
           </tr>
         </thead>
         <tbody>
-          @for (item of items(); track item.id) {
+          @for (item of tableau.lignes(); track item.id) {
             <tr>
               <td class="text-ink">{{ typeLabel(item.type) }}</td>
               <td class="font-mono text-[12px] text-ink-muted">{{ item.reference }}</td>
@@ -319,12 +342,29 @@ export class ComplianceComponent implements OnInit {
         </tbody>
       </table>
     </div>
+    </div>
   `,
 })
 export class ExpiryComponent implements OnInit {
   private readonly api = inject(ApiService);
 
   protected readonly items = signal<ExpiryItem[]>([]);
+
+  /**
+   * Pagination et recherche, côté navigateur.
+   *
+   * La liste est chargée en entier — c'est ce que veut l'écran, qui affiche un
+   * horizon complet. Ce qui manquait, c'était de pouvoir la parcourir et y
+   * chercher une référence sans faire défiler des centaines de lignes.
+   */
+  protected readonly tableau = new TableauPagine<ExpiryItem>();
+
+  /** Une seule porte d'entrée : le signal ET le tableau restent en phase. */
+  private remplir(rows: ExpiryItem[]): void {
+    this.items.set(rows);
+    this.tableau.définir(rows);
+  }
+
   protected horizon = 90;
   protected blockingOnly = false;
 
@@ -333,7 +373,7 @@ export class ExpiryComponent implements OnInit {
   }
 
   protected load(): void {
-    this.api.expiryWatch(Number(this.horizon), this.blockingOnly).subscribe((rows) => this.items.set(rows));
+    this.api.expiryWatch(Number(this.horizon), this.blockingOnly).subscribe((rows) => this.remplir(rows));
   }
 
   protected typeLabel(type: string): string {

@@ -8,6 +8,7 @@ import {
   HttpFailure,
 } from '../shared/action-panel.component';
 import { IconComponent } from '../shared/icon.component';
+import { PaginationComponent } from '../shared/tableau';
 
 interface DocumentRow {
   id: string;
@@ -49,7 +50,7 @@ const KINDS: Record<string, string> = {
 @Component({
   selector: 'erp-documents',
   standalone: true,
-  imports: [FormsModule, IconComponent, ActionFeedbackComponent],
+  imports: [FormsModule, IconComponent, ActionFeedbackComponent, PaginationComponent],
   template: `
     <header class="mb-5">
       <h1 class="page-title">Documents et signatures</h1>
@@ -163,6 +164,8 @@ const KINDS: Record<string, string> = {
         </tbody>
       </table>
     </div>
+    <erp-pagination [page]="page()" [totalPages]="totalPages()" [total]="total()"
+                    libelle="documents" (allerA)="allerA($event)" />
 
     <!-- ============ Signature ============ -->
     @if (signing(); as doc) {
@@ -259,6 +262,22 @@ export class DocumentsComponent implements OnInit {
   protected readonly auth = inject(AuthService);
 
   protected readonly rows = signal<DocumentRow[]>([]);
+
+  /**
+   * Page demandée au serveur.
+   *
+   * L'écran lisait la page 1 et n'en sortait jamais : au-delà de la
+   * cinquantième ligne, les données existaient sans s'afficher nulle part.
+   */
+  protected readonly page = signal(1);
+  protected readonly total = signal(0);
+  protected readonly totalPages = signal(1);
+
+  protected allerA(p: number): void {
+    this.page.set(p);
+    this.load();
+  }
+
   protected readonly signing = signal<DocumentRow | null>(null);
   protected readonly superseding = signal<DocumentRow | null>(null);
   protected readonly state = new ActionState();
@@ -378,6 +397,10 @@ export class DocumentsComponent implements OnInit {
   }
 
   private load(): void {
-    this.api.documents().subscribe((p) => this.rows.set(p.items as DocumentRow[]));
+    this.api.documents(this.page()).subscribe((p) => {
+      this.rows.set(p.items as DocumentRow[]);
+      this.total.set(p.total);
+      this.totalPages.set(p.totalPages);
+    });
   }
 }
