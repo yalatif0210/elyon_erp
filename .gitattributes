@@ -1,0 +1,5 @@
+# Les scripts exécutés dans les conteneurs Linux doivent garder des fins de
+# ligne LF quel que soit le système du poste qui les a extraits. Un shebang
+# `#!/bin/sh\r` est introuvable pour le noyau : le conteneur échoue à
+# l'exécuter, sans message clair (cf. docker/postgres/initdb/00-app-role.sh).
+*.sh text eol=lf
