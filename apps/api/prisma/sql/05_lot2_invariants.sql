@@ -753,6 +753,34 @@ BEGIN
                                   NEW.currency_code, NEW.uom::text, CURRENT_DATE);
 
   IF t IS NULL THEN
+    -- ⚠️ DEUX ABSENCES DIFFÉRENTES, DEUX RÉPONSES DIFFÉRENTES.
+    --
+    --    « Jamais configuré » et « coupé par paramétrage » (is_active = false,
+    --    § 1.1 bis) rendaient TOUS DEUX un ensemble vide côté
+    --    `resolve_margin_threshold` — le blocage de repli s'appliquait aux
+    --    deux indifféremment. Constaté à l'exécution (audit, axe A, S3) :
+    --    désactiver l'unique seuil d'un segment bloquait TOUTES ses
+    --    approbations au lieu de couper le contrôle, à l'inverse exact de ce
+    --    que l'écran de paramétrage promet (« coupe le seuil »).
+    --
+    --    Un seuil qui EXISTE mais qu'on a désactivé EXPRÈS est une décision ;
+    --    l'absence totale de ligne est un oubli. La première ne doit rien
+    --    bloquer, la seconde doit continuer à tout bloquer — c'est le
+    --    fail-safe d'origine, non remis en cause.
+    IF EXISTS (
+      SELECT 1
+        FROM margin_thresholds m
+       WHERE m.segment::text = NEW.segment::text
+         AND (m.product_id IS NULL OR m.product_id = NEW.product_id)
+         AND m.currency_code = NEW.currency_code
+         AND m.uom::text     = NEW.uom::text
+         AND m.effective_from <= CURRENT_DATE
+         AND (m.effective_to IS NULL OR m.effective_to >= CURRENT_DATE)
+         AND NOT m.is_active
+    ) THEN
+      RETURN NEW; -- Contrôle coupé par paramétrage : pas un oubli, on ne bloque pas.
+    END IF;
+
     RAISE EXCEPTION
       'Aucun seuil de marge configuré pour le segment % en %/%. Le deal % ne peut pas être approuvé tant que ce seuil n''existe pas.',
       NEW.segment, NEW.currency_code, NEW.uom, NEW.reference

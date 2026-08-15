@@ -186,6 +186,36 @@ services:
           memory: 128M
 
   # -------------------------------------------------------------------------
+  #  Portail client — application SÉPARÉE (SPECIFICATIONS.md § 1.1), rendu
+  #  Angular SSR/Node. Relaie lui-même /api vers l'API (server.ts) : même
+  #  principe de mono-origine côté navigateur que `web`, porté par Express
+  #  plutôt que nginx puisque le socle est déjà Node.
+  # -------------------------------------------------------------------------
+  portal:
+    <<: *hardening
+    build:
+      context: .
+      dockerfile: docker/portal.Dockerfile
+    environment:
+      PORT: 4000
+      API_INTERNAL_URL: http://api:3000
+    networks:
+      - edge
+    ports:
+      - "${PORTAL_PORT:-4300}:4000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    depends_on:
+      api:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+
+  # -------------------------------------------------------------------------
   #  Conteneur outillage — migrations, contraintes SQL, jeu de données.
   #  Seul service à se connecter avec erp_migrator. Il ne tourne jamais
   #  en continu : `docker compose --profile tools run --rm migrator`.

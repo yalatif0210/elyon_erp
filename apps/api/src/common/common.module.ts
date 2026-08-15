@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule } from '@nestjs/config';
 import { AuditService } from './audit/audit.service';
 import { AppConfig, EnvironmentVariables, validateEnv } from './config/env.config';
@@ -24,6 +25,13 @@ import { AstmService } from './volumes/astm.service';
       isGlobal: true,
       // La validation échoue au démarrage, jamais en production sous charge.
       validate: validateEnv,
+    }),
+    // File de jobs asynchrones (§ 1.1) — le worker tourne DANS ce même
+    // processus API : le monolithe modulaire (§ 1.2) n'a pas de second
+    // déployable à faire vivre pour autant.
+    BullModule.forRootAsync({
+      useFactory: (config: AppConfig) => ({ connection: config.redisConnection }),
+      inject: [AppConfig],
     }),
   ],
   providers: [

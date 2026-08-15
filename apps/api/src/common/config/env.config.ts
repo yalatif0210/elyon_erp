@@ -123,6 +123,23 @@ export class AppConfig {
     return this.env.REDIS_URL;
   }
 
+  /**
+   * Connexion Redis au format attendu par BullMQ — un objet, pas une URL.
+   *
+   * BullMQ exige `maxRetriesPerRequest: null` : ses commandes bloquantes
+   * (`BRPOPLPUSH` et consorts) attendent le temps qu'il faut, et une limite de
+   * tentatives leur ferait échouer une attente normale.
+   */
+  get redisConnection(): { host: string; port: number; password?: string; maxRetriesPerRequest: null } {
+    const url = new URL(this.env.REDIS_URL);
+    return {
+      host: url.hostname,
+      port: Number(url.port || 6379),
+      password: url.password || undefined,
+      maxRetriesPerRequest: null,
+    };
+  }
+
   get port(): number {
     return this.env.PORT;
   }

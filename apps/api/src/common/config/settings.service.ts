@@ -60,6 +60,34 @@ export class SettingsService {
   }
 
   /**
+   * Valeur textuelle brute — URL, clé, libellé. Une chaîne vide compte comme
+   * absente : `SystemSetting.value` ne distingue pas « vide » de « non
+   * configuré », et un secret vide ne doit jamais passer pour une valeur.
+   */
+  async string(key: string, fallback: string): Promise<string> {
+    const raw = await this.read(key);
+    return raw === null ? fallback : raw;
+  }
+
+  /**
+   * Valeur booléenne. Seuls `true`/`false` (insensible à la casse) sont
+   * reconnus — une valeur illisible retombe sur le défaut, tracée comme pour
+   * `number()` : un interrupteur qu'on n'arrive plus à lire ne doit pas
+   * basculer en silence.
+   */
+  async boolean(key: string, fallback: boolean): Promise<boolean> {
+    const raw = await this.read(key);
+    if (raw === null) return fallback;
+
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+
+    this.logger.warn(`Paramètre ${key} = « ${raw} » n'est ni true ni false — repli sur ${fallback}.`);
+    return fallback;
+  }
+
+  /**
    * Liste séparée par des virgules.
    *
    * ⚠️ UNE LISTE VIDE N'EST PAS UNE INTENTION, c'est une cellule effacée. La

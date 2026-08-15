@@ -46,6 +46,7 @@ thresholds AS (
            segment, minimum_margin, direct_floor, uom, currency_code
       FROM margin_thresholds
      WHERE product_id IS NULL
+       AND is_active
        AND effective_from <= CURRENT_DATE
        AND (effective_to IS NULL OR effective_to >= CURRENT_DATE)
      ORDER BY segment, currency_code, uom, effective_from DESC

@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output, computed, inject, signal } from '@angular/core';
+import { Component, EventEmitter, Input, OnDestroy, Output, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService, DealRow, DeviseOption, InvoiceRow } from '../core/api.service';
 import {
@@ -111,7 +111,7 @@ import { MontantDirective } from '../shared/montant.directive';
           }
         </div>
 
-        <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
           <div>
             <label class="label" for="regime">Mention imprimée</label>
             <select id="regime" class="field" [(ngModel)]="printedTaxRegime">
@@ -131,6 +131,22 @@ import { MontantDirective } from '../shared/montant.directive';
             </select>
             <p class="mt-1 text-[11px] text-ink-faint">
               Le taux employé est daté et conservé : la pièce reste reconstituable.
+            </p>
+          </div>
+          <div>
+            <label class="label" for="regl">Mode de règlement</label>
+            <select id="regl" class="field" [(ngModel)]="paymentMethod">
+              <option value="">Réglage par défaut</option>
+              <option value="TRANSFER">Virement</option>
+              <option value="DEFERRED">À terme</option>
+              <option value="MOBILE_MONEY">Mobile money</option>
+              <option value="CHECK">Chèque</option>
+              <option value="CARD">Carte</option>
+              <option value="CASH">Espèces</option>
+            </select>
+            <p class="mt-1 text-[11px] text-ink-faint">
+              Requis par la DGI pour toute facture normalisée. « Réglage par défaut » applique
+              FNE_DEFAULT_PAYMENT_METHOD si configuré.
             </p>
           </div>
         </div>
@@ -182,6 +198,8 @@ export class InvoiceActionsComponent {
   protected vatRatePct = 18;
   protected printedTaxRegime = 'TTC';
   protected simpleInvoiceReason = '';
+  /** Vide = laisse l'API appliquer FNE_DEFAULT_PAYMENT_METHOD. */
+  protected paymentMethod = '';
 
   constructor() {
     this.api.deals(1, {}).subscribe((p) => this.deals.set(p.items));
@@ -229,6 +247,7 @@ export class InvoiceActionsComponent {
         vatRatePct: this.isVatApplicable ? Number(this.vatRatePct) : undefined,
         printedTaxRegime: this.printedTaxRegime,
         simpleInvoiceReason: this.simpleInvoiceReason || undefined,
+        paymentMethod: this.paymentMethod || undefined,
       })
       .subscribe({
         next: (r) => {
@@ -294,7 +313,89 @@ export class InvoiceActionsComponent {
               Convertir en facture simple
             </button>
           }
+          @if (peutTransmettreAvoir()) {
+            <button class="btn-ghost" (click)="showAvoirForm.set(!showAvoirForm())" [disabled]="state.busy()">
+              Émettre un avoir
+            </button>
+          }
+          @if (peutReprendreFne()) {
+            <button class="btn-ghost" (click)="retryFne()" [disabled]="state.busy()">
+              Reprendre la transmission FNE
+            </button>
+          }
+          @if (invoice.status !== 'DRAFT') {
+            <button class="btn-ghost" (click)="generatePdf()" [disabled]="pdfBusy()">
+              {{ pdfBusy() ? 'Génération…' : 'Générer le PDF' }}
+            </button>
+          }
+          @if (peutAnnuler()) {
+            <button class="btn-ghost text-crit" (click)="showCancelForm.set(!showCancelForm())" [disabled]="state.busy()">
+              Annuler la pièce
+            </button>
+          }
         </div>
+
+        @if (showCancelForm()) {
+          <div class="mt-4 rounded-[3px] border border-crit/30 bg-crit-wash px-3 py-3">
+            <h3 class="mb-2 text-[13px] font-semibold text-crit">Annuler {{ invoice.number }}</h3>
+            <label class="label" for="cancel-reason">Motif (obligatoire)</label>
+            <input id="cancel-reason" class="field" [(ngModel)]="cancelReason" placeholder="Pourquoi cette pièce est annulée" />
+            <button class="btn-ghost mt-3 border-crit/50 text-crit" (click)="annuler()" [disabled]="state.busy()">
+              Confirmer l'annulation
+            </button>
+            <p class="mt-2 text-[11px] leading-relaxed text-ink-faint">
+              Fermée dès qu'un encaissement existe, même partiel : au-delà, seul un avoir corrige la
+              pièce. Une FNE déjà certifiée par la DGI ne s'annule pas non plus en interne.
+            </p>
+          </div>
+        }
+
+        @if (invoice.fneTransmission) {
+          <p class="mt-2 text-[11px] text-ink-faint">
+            FNE : {{ invoice.fneTransmission.status }}
+            @if (invoice.fneTransmission.fiscalReference) {
+              · réf. {{ invoice.fneTransmission.fiscalReference }}
+            }
+          </p>
+        }
+
+        @if (pdfStatus(); as pdf) {
+          <p class="mt-2 flex items-center gap-2 text-[11px]" [class]="pdf.state === 'failed' ? 'text-crit' : 'text-ink-faint'">
+            @switch (pdf.state) {
+              @case ('completed') {
+                PDF généré : {{ pdf.reference }}
+                <button class="link" (click)="telechargerPdf()" [disabled]="pdfDownloading()">
+                  {{ pdfDownloading() ? 'Téléchargement…' : 'Télécharger →' }}
+                </button>
+              }
+              @case ('failed') { Échec de la génération PDF : {{ pdf.error }} }
+              @default { Génération PDF en cours… }
+            }
+          </p>
+        }
+
+        @if (showAvoirForm()) {
+          <div class="mt-4 rounded-[3px] border border-rule px-3 py-3">
+            <h3 class="mb-2 text-[13px] font-semibold text-ink">Avoir sur {{ invoice.number }}</h3>
+            <div class="flex flex-wrap items-end gap-3">
+              <div>
+                <label class="label" for="av-vol">Volume corrigé</label>
+                <input id="av-vol" class="field w-32 text-right font-mono" erpMontant [(ngModel)]="avoirVolume" />
+              </div>
+              <div>
+                <label class="label" for="av-pu">Prix unitaire TTC</label>
+                <input id="av-pu" class="field w-32 text-right font-mono" [(ngModel)]="avoirUnitPrice" />
+              </div>
+              <button class="btn-primary" (click)="creerAvoir()" [disabled]="state.busy()">
+                Créer l’avoir
+              </button>
+            </div>
+            <p class="mt-2 text-[11px] leading-relaxed text-ink-faint">
+              Crée une pièce distincte (avoir) référençant {{ invoice.number }}, au brouillon. Elle
+              se corrige et s’émet séparément : un avoir qui dépasse ce qu’il corrige sera refusé.
+            </p>
+          </div>
+        }
 
         @if (invoice.type !== 'PROFORMA' && invoice.status !== 'DRAFT') {
           <div class="mt-5 border-t border-rule pt-4">
@@ -327,7 +428,7 @@ export class InvoiceActionsComponent {
     </section>
   `,
 })
-export class InvoiceLifecycleComponent {
+export class InvoiceLifecycleComponent implements OnDestroy {
   private readonly api = inject(ApiService);
 
   @Input({ required: true }) invoice!: InvoiceRow;
@@ -338,6 +439,167 @@ export class InvoiceLifecycleComponent {
   protected amount: number | null = null;
   protected valueDate = new Date().toISOString().slice(0, 10);
   protected bankReference = '';
+
+  protected readonly showAvoirForm = signal(false);
+  protected avoirVolume: number | null = null;
+  protected avoirUnitPrice: number | null = null;
+
+  protected readonly showCancelForm = signal(false);
+  protected cancelReason = '';
+
+  /** Fermée dès qu'un encaissement existe — même partiel (§ arbitrage 15/08). */
+  protected peutAnnuler(): boolean {
+    return (
+      this.invoice.status !== 'DRAFT' &&
+      this.invoice.status !== 'CANCELLED' &&
+      Number(this.invoice.paidAmount) === 0
+    );
+  }
+
+  protected annuler(): void {
+    if (this.state.busy()) return;
+    if (!this.cancelReason.trim()) {
+      this.state.error.set('Le motif d’annulation est requis.');
+      return;
+    }
+    this.state.start();
+    this.api.cancelInvoice(this.invoice.id, this.cancelReason).subscribe({
+      next: () => {
+        this.state.succeed('Pièce annulée.');
+        this.showCancelForm.set(false);
+        this.cancelReason = '';
+        this.changed.emit();
+      },
+      error: (e: HttpFailure) => this.state.fail(e),
+    });
+  }
+
+  protected readonly pdfStatus = signal<{
+    state: string;
+    reference?: string;
+    documentId?: string;
+    error?: string;
+  } | null>(null);
+  protected readonly pdfDownloading = signal(false);
+  private pdfPoll?: ReturnType<typeof setTimeout>;
+
+  protected pdfBusy(): boolean {
+    const s = this.pdfStatus();
+    return !!s && s.state !== 'completed' && s.state !== 'failed';
+  }
+
+  /**
+   * Génération PDF (§ 1.1) — mise en file côté API, jamais rendue en ligne.
+   * Le bouton lance le job puis interroge son état toutes les 1,5 s : pas de
+   * WebSocket ici, la génération se compte en centaines de millisecondes,
+   * pas en minutes.
+   */
+  protected generatePdf(): void {
+    if (this.pdfBusy()) return;
+    this.pdfStatus.set({ state: 'queued' });
+    this.api.queueInvoicePdf(this.invoice.id).subscribe({
+      next: ({ jobId }) => this.pollPdf(jobId),
+      error: () => this.pdfStatus.set({ state: 'failed', error: 'Mise en file impossible.' }),
+    });
+  }
+
+  private pollPdf(jobId: string): void {
+    clearTimeout(this.pdfPoll);
+    this.api.documentPdfJobStatus(jobId).subscribe({
+      next: (job) => {
+        if (job.state === 'completed') {
+          this.pdfStatus.set({
+            state: 'completed',
+            reference: job.result?.reference,
+            documentId: job.result?.documentId,
+          });
+          this.changed.emit();
+        } else if (job.state === 'failed') {
+          this.pdfStatus.set({ state: 'failed', error: job.failedReason ?? 'Erreur inconnue.' });
+        } else {
+          this.pdfStatus.set({ state: job.state });
+          this.pdfPoll = setTimeout(() => this.pollPdf(jobId), 1500);
+        }
+      },
+      error: () => this.pdfStatus.set({ state: 'failed', error: 'Suivi de la tâche impossible.' }),
+    });
+  }
+
+  protected telechargerPdf(): void {
+    const documentId = this.pdfStatus()?.documentId;
+    if (!documentId || this.pdfDownloading()) return;
+    this.pdfDownloading.set(true);
+    this.api.downloadDocument(documentId).subscribe({
+      next: (blob) => {
+        this.pdfDownloading.set(false);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${this.pdfStatus()?.reference ?? documentId}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => {
+        this.pdfDownloading.set(false);
+        this.pdfStatus.set({ state: 'failed', error: 'Téléchargement impossible.' });
+      },
+    });
+  }
+
+  ngOnDestroy(): void {
+    clearTimeout(this.pdfPoll);
+  }
+
+  /** Statuts pour lesquels une nouvelle tentative de transmission a un sens
+   *  — une pièce déjà acceptée ou sans objet n'a rien à reprendre. */
+  private static readonly FNE_RETRYABLE = new Set(['PENDING_TRANSMISSION', 'TO_CORRECT', 'REJECTED']);
+
+  protected peutReprendreFne(): boolean {
+    const statut = this.invoice.fneTransmission?.status;
+    return !!statut && InvoiceLifecycleComponent.FNE_RETRYABLE.has(statut);
+  }
+
+  /** Un avoir ne se rapporte qu'à une pièce définitive déjà émise. */
+  protected peutTransmettreAvoir(): boolean {
+    return this.invoice.type !== 'PROFORMA' && this.invoice.type !== 'CREDIT_NOTE' && this.invoice.status !== 'DRAFT';
+  }
+
+  protected retryFne(): void {
+    if (this.state.busy()) return;
+    this.state.start();
+    this.api.retryFneTransmission(this.invoice.id).subscribe({
+      next: () => {
+        this.state.succeed('Transmission FNE relancée.');
+        this.changed.emit();
+      },
+      error: (e: HttpFailure) => this.state.fail(e),
+    });
+  }
+
+  protected creerAvoir(): void {
+    if (this.state.busy()) return;
+    this.state.start();
+    this.api
+      .createInvoice({
+        dealId: this.invoice.deal.id,
+        type: 'CREDIT_NOTE',
+        correctedInvoiceId: this.invoice.id,
+        billedVolume: Number(this.avoirVolume ?? this.invoice.billedVolume),
+        uom: this.invoice.uom,
+        unitPrice: Number(this.avoirUnitPrice ?? this.invoice.unitPrice),
+        currencyCode: this.invoice.currencyCode,
+      })
+      .subscribe({
+        next: (r) => {
+          this.state.succeed(`Avoir ${r.number} créé au brouillon.`);
+          this.showAvoirForm.set(false);
+          this.avoirVolume = null;
+          this.avoirUnitPrice = null;
+          this.changed.emit();
+        },
+        error: (e: HttpFailure) => this.state.fail(e),
+      });
+  }
 
   protected due(): number {
     return Number(this.invoice.totalAmount) - Number(this.invoice.paidAmount);
@@ -368,10 +630,10 @@ export class InvoiceLifecycleComponent {
     this.state.start();
     this.api
       .convertProforma(this.invoice.id, {
-        dealId: this.invoice.deal.reference,
+        dealId: this.invoice.deal.id,
         type,
         billedVolume: Number(this.invoice.billedVolume),
-        uom: 'L',
+        uom: this.invoice.uom,
         unitPrice: Number(this.invoice.unitPrice),
         currencyCode: this.invoice.currencyCode,
       })

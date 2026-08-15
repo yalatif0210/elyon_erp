@@ -371,6 +371,26 @@ export const REFERENTIALS: ReferentialSpec[] = [
   },
 
   // =========================================================================
+  //  Pays — FERMÉ (arbitrage du 15/08). Liste des pays d'activité réels, pas
+  //  la liste ISO complète : Elyon n'opère pas partout.
+  // =========================================================================
+  {
+    key: 'countries',
+    label: 'Pays',
+    model: 'country',
+    nature: 'mutable',
+    writeRoles: [UserRole.DG, UserRole.CCOO],
+    identity: ['code'],
+    caution:
+      'Liste fermée aux pays où Elyon a réellement une activité ou une contrepartie — pas la liste ISO complète. En ajouter un ici l’ouvre partout où le pays se choisit (tiers, sites) ; en retirer un que des tiers existants portent encore le rend introuvable pour un nouveau tiers sans le rendre invalide pour les anciens.',
+    fields: [
+      { name: 'code', label: 'Code ISO', type: 'string', required: true, help: 'Deux lettres : CI, BF, ML…' },
+      { name: 'name', label: 'Nom', type: 'string', required: true, help: 'ex. « Côte d’Ivoire »' },
+      { name: 'isActive', label: 'Actif', type: 'boolean' },
+    ],
+  },
+
+  // =========================================================================
   //  Taux de change — HISTORISÉ.
   // =========================================================================
   {
@@ -473,6 +493,12 @@ export const REFERENTIALS: ReferentialSpec[] = [
       { name: 'uom', label: 'Unité', type: 'enum', required: true, values: UOMS, valueLabels: FR.UnitOfMeasure },
       { name: 'effectiveFrom', label: 'En vigueur depuis', type: 'date', required: true },
       { name: 'effectiveTo', label: 'Jusqu’au', type: 'date' },
+      {
+        name: 'isActive',
+        label: 'Actif',
+        type: 'boolean',
+        help: 'Coupe le seuil sans le dater expiré — pour le réactiver sans nouvelle ligne. Un seuil inactif n’est jamais résolu, quelle que soit sa fenêtre de validité.',
+      },
     ],
   },
 
@@ -501,6 +527,12 @@ export const REFERENTIALS: ReferentialSpec[] = [
       { name: 'franchiseUom', label: 'Unité de franchise', type: 'enum', values: UOMS, valueLabels: FR.UnitOfMeasure },
       { name: 'effectiveFrom', label: 'En vigueur depuis', type: 'date', required: true },
       { name: 'effectiveTo', label: 'Jusqu’au', type: 'date' },
+      {
+        name: 'isActive',
+        label: 'Actif',
+        type: 'boolean',
+        help: 'Coupe la grille sans la dater expirée — pour la réactiver sans nouvelle ligne. Une grille inactive n’est jamais résolue, quelle que soit sa fenêtre de validité.',
+      },
     ],
   },
 
@@ -670,7 +702,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         values: values(PartnerType), valueLabels: FR.PartnerType,
         help: 'Un fret ne se rattache qu’à un TRANSPORTEUR, un prix d’achat qu’à un FOURNISSEUR, et c’est vérifié',
       },
-      { name: 'countryCode', label: 'Pays', type: 'string', required: true, help: 'Code à deux lettres, ex. CI pour la Côte d’Ivoire, BF, ML, SN' },
+      { name: 'countryCode', label: 'Pays', type: 'reference', refTable: 'countries', refKey: 'code', required: true, help: 'Liste fermée aux pays d’activité — voir le référentiel Pays.' },
       {
         name: 'segment',
         label: 'Segment',
@@ -681,6 +713,12 @@ export const REFERENTIALS: ReferentialSpec[] = [
       { name: 'taxpayerAccountNumber', label: 'Compte contribuable', type: 'string' },
       { name: 'rccmNumber', label: 'RCCM', type: 'string' },
       { name: 'taxRegime', label: 'Régime fiscal', type: 'string' },
+      {
+        name: 'isGovernmentInstitution',
+        label: 'Institution gouvernementale',
+        type: 'boolean',
+        help: 'Régie, collectivité, entreprise publique — détermine le gabarit B2G à la transmission FNE, distinct de B2B/B2C/B2F.',
+      },
       {
         name: 'isVatExempt',
         label: 'Exonéré de TVA',
@@ -1073,7 +1111,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
       },
       { name: 'addressLine', label: 'Adresse', type: 'string', help: 'ex. « Zone portuaire de Vridi, boulevard de Petit Bassam »' },
       { name: 'city', label: 'Ville', type: 'string', help: 'ex. Abidjan, San Pédro, Bouaké' },
-      { name: 'countryCode', label: 'Pays', type: 'string', required: true, help: 'Code à deux lettres, ex. CI pour la Côte d’Ivoire, BF, ML, SN' },
+      { name: 'countryCode', label: 'Pays', type: 'reference', refTable: 'countries', refKey: 'code', required: true, help: 'Liste fermée aux pays d’activité — voir le référentiel Pays.' },
       { name: 'latitude', label: 'Latitude', type: 'number', help: 'En degrés décimaux, ex. 5,2540 pour Abidjan' },
       { name: 'longitude', label: 'Longitude', type: 'number', help: 'En degrés décimaux, ex. -3,9860 pour Abidjan' },
       {

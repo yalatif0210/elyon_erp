@@ -213,11 +213,11 @@ devez être refusé.
 Ce sont des **décisions d'entreprise**, pas des défauts techniques. Le système fait ce
 qu'on lui a dit ; reste à savoir si c'est ce que vous voulez.
 
-**1. Un commercial voit les affaires de ses collègues, prix et marges compris.**
-La liste des affaires n'applique **aucun filtre de propriétaire** — vérifié dans le code,
-pas supposé. Chaque commercial voit donc le prix de vente et la marge de tous les autres.
-Dans beaucoup de maisons de négoce, c'est exclu. Dites-moi si chacun ne doit voir que les
-siennes.
+**1. ~~Un commercial voit les affaires de ses collègues, prix et marges compris.~~ TRANCHÉ — corrigé.**
+La liste des affaires applique désormais un filtre par propriétaire pour le rôle
+commercial (`deals.controller.ts`, vérifié dans le code) : chacun ne voit que ses propres
+affaires, prix et marges compris. Corrigé le 08/08/2026 (commit `6e22e0a`), en même temps
+que le masquage des marges au coordinateur logistique ci-dessous.
 
 **2. Le coordinateur logistique et l'assistante lisent les affaires**, donc les prix de
 vente et les marges estimées. Défendable — le logisticien doit savoir ce qu'il transporte —

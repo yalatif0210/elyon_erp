@@ -452,6 +452,8 @@ model Currency {
   salesForecastsRef SalesForecast[]
 
   crmOpportunities CrmOpportunity[] @relation("CrmOpportunityCurrency")
+
+  vehicleMaintenanceEvents VehicleMaintenanceEvent[]
 }
 
 /// Historique des taux de change. Un taux n'est JAMAIS écrasé : on insère une
@@ -552,13 +554,17 @@ model User {
   correctiveActions HseCorrectiveAction[] @relation("ActionOwner")
   ullageAcknowledged MeasurementRecord[] @relation("UllageAcknowledger")
   measurementsEntered MeasurementRecord[] @relation("MeasurementRecorderUser")
+  invoicesCreated Invoice[] @relation("InvoiceCreator")
   invoicesIssued Invoice[] @relation("InvoiceIssuer")
+  invoicesCancelled Invoice[] @relation("InvoiceCanceller")
   simpleInvoiceDecisions Invoice[] @relation("SimpleInvoiceDecider")
   paymentsRecorded Payment[] @relation("PaymentRecorder")
   supplierInvoicesRecorded SupplierInvoice[] @relation("SupplierInvoiceRecorder")
   guaranteesRecorded2 Guarantee[] @relation("GuaranteeRecorder")
   documentsGenerated GeneratedDocument[] @relation("DocumentGenerator")
   signatures Signature[] @relation("SignatureUser")
+  vehicleMaintenanceEventsRecorded VehicleMaintenanceEvent[]
+  dunningActionsRecorded DunningAction[]
 
   @@index([role, isActive])
   @@map("users")
@@ -615,9 +621,59 @@ model PortalUser {
 
   // --- Relations inverses du lot 2 ---
   dealAcceptances Deal[] @relation("DealAcceptedBy")
+  quotationRequests QuotationRequest[]
 
   @@index([partnerId, isActive])
   @@map("portal_users")
+}
+
+enum QuotationRequestStatus {
+  NEW
+  IN_REVIEW
+  CONVERTED
+  DECLINED
+
+  @@map("quotation_request_status")
+}
+
+/// Demande de cotation déposée depuis le portail client (§ 13, module 0).
+///
+/// Volontairement LÉGER : un client ne chiffre rien, ne négocie rien, ne
+/// voit ni prix ni marge. Il exprime un besoin ; c'est un commercial qui le
+/// transforme en `Deal` — avec le prix, les conditions et les contrôles que
+/// cela suppose. Rien dans SPECIFICATIONS.md ne décrit ce modèle en détail
+/// (§13 ne donne que l'intitulé fonctionnel) : le périmètre ci-dessus est
+/// le plus étroit qui couvre « demande de quotation » sans l'outrepasser.
+model QuotationRequest {
+  id String @id @default(uuid()) @db.Uuid
+
+  partnerId String  @map("partner_id") @db.Uuid
+  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  submittedByPortalUserId String     @map("submitted_by_portal_user_id") @db.Uuid
+  submittedByPortalUser   PortalUser @relation(fields: [submittedByPortalUserId], references: [id], onDelete: Restrict)
+
+  productId String  @map("product_id") @db.Uuid
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  desiredVolume       Decimal       @map("desired_volume") @db.Decimal(18, 6)
+  uom                 UnitOfMeasure
+  desiredDeliveryDate DateTime?     @map("desired_delivery_date") @db.Date
+  message             String?       @db.VarChar(2000)
+
+  status QuotationRequestStatus @default(NEW)
+
+  /// Renseigné quand un commercial en fait une affaire — la demande reste,
+  /// elle ne se transforme pas en silence.
+  convertedDealId String? @unique @map("converted_deal_id") @db.Uuid
+  convertedDeal   Deal?   @relation(fields: [convertedDealId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([partnerId, status])
+  @@index([status, createdAt])
+  @@map("quotation_requests")
 }
 
 /// Compte terrain — agent d'opération ou contrôleur HSE.
@@ -793,12 +849,29 @@ model Delegation {
 //  TIERS
 // ============================================================================
 
+/// Référentiel pays FERMÉ (arbitrage du 15/08) — « pays d'activité seulement »,
+/// pas la liste ISO complète : Elyon n'opère pas partout, et une liste
+/// ouverte à 249 entrées noierait les quelques pays qui comptent vraiment
+/// dans un import Excel ou un menu déroulant.
+model Country {
+  code String @id @db.Char(2) // ISO 3166-1 alpha-2
+  name String @db.VarChar(80)
+
+  isActive Boolean @default(true) @map("is_active")
+
+  partners Partner[]
+  sites    Site[]
+
+  @@map("countries")
+}
+
 model Partner {
   id          String      @id @default(uuid()) @db.Uuid
   code        String      @unique @db.VarChar(24)
   legalName   String      @map("legal_name") @db.VarChar(200)
   type        PartnerType
   countryCode String      @map("country_code") @db.Char(2) // ISO 3166-1 alpha-2
+  country     Country     @relation(fields: [countryCode], references: [code], onDelete: Restrict)
 
   /// Segment commercial — clients uniquement. Donne le DÉFAUT de formule
   /// de prix et de régime documentaire, jamais la règle (§ 5.1).
@@ -815,6 +888,10 @@ model Partner {
   /// Régime documentaire et fiscal — champ obligatoire du § 9.4,
   /// surchargeable au niveau du Deal (lot 2).
   documentaryRegime DocumentaryRegime @default(PROFORMA_THEN_FNE) @map("documentary_regime")
+
+  /// Institution publique (régie, collectivité, entreprise publique) — commande
+  /// le gabarit B2G à la transmission FNE (§ 9.5), distinct de B2B/B2C/B2F.
+  isGovernmentInstitution Boolean @default(false) @map("is_government_institution")
 
   // --- Risque crédit et trésorerie (§ 5.4, § 14.6) ---
   /// Exprimée en devise pivot. Le contrôle crédit ne compare jamais deux devises.
@@ -887,6 +964,7 @@ model Partner {
   carrierTariffs CarrierTariff[] @relation("CarrierTariffPartner")
 
   crmOpportunities CrmOpportunity[]
+  quotationRequests QuotationRequest[]
 }
 
 /// Site de livraison ou d'enlèvement. Porte les informations que l'application
@@ -920,6 +998,7 @@ model Site {
   addressLine String? @map("address_line") @db.VarChar(255)
   city        String? @db.VarChar(120)
   countryCode String  @map("country_code") @db.Char(2)
+  country     Country @relation(fields: [countryCode], references: [code], onDelete: Restrict)
 
   latitude  Decimal? @db.Decimal(10, 7)
   longitude Decimal? @db.Decimal(10, 7)
@@ -1174,6 +1253,7 @@ model Product {
   salesForecasts SalesForecast[]
 
   crmOpportunities CrmOpportunity[]
+  quotationRequests QuotationRequest[]
 }
 
 // ============================================================================
@@ -1458,6 +1538,10 @@ model MarginThreshold {
   effectiveFrom DateTime  @map("effective_from") @db.Date
   effectiveTo   DateTime? @map("effective_to") @db.Date
 
+  /// Coupure indépendante de la date de validité (§ 1.1 bis) : un seuil peut
+  /// être suspendu sans être réputé expiré, et réactivé sans nouvelle ligne.
+  isActive Boolean @default(true) @map("is_active")
+
   authorId String? @map("author_id") @db.Uuid
   author   User?   @relation("MarginThresholdAuthor", fields: [authorId], references: [id], onDelete: SetNull)
 
@@ -1505,6 +1589,10 @@ model UllageTolerance {
 
   effectiveFrom DateTime  @map("effective_from") @db.Date
   effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  /// Coupure indépendante de la date de validité (§ 1.1 bis) : une grille peut
+  /// être suspendue sans être réputée expirée, et réactivée sans nouvelle ligne.
+  isActive Boolean @default(true) @map("is_active")
 
   authorId String? @map("author_id") @db.Uuid
   author   User?   @relation("UllageToleranceAuthor", fields: [authorId], references: [id], onDelete: SetNull)
@@ -1560,10 +1648,51 @@ model Vehicle {
 
   // --- Relations inverses du lot 2 ---
   assignments OperationAssignment[]
+  /// Maintenance (§ 13 module 7) — une barge en est un objet au même titre
+  /// qu'un camion ou un navire ; le modèle n'est pas dupliqué pour elle.
+  maintenanceEvents VehicleMaintenanceEvent[]
 
   @@index([carrierId, isActive])
   @@index([isCompliant, isActive])
   @@map("vehicles")
+}
+
+enum VehicleMaintenanceType {
+  PREVENTIVE
+  CORRECTIVE
+  REGULATORY // Contrôle technique, certification périodique.
+
+  @@map("vehicle_maintenance_type")
+}
+
+/// Maintenance d'un moyen (§ 13 module 7 : « objet de maintenance »).
+/// Générique à tout `Vehicle`, barge comprise (`type = BUNKER_BARGE`) — un
+/// second modèle dédié dupliquerait immatriculation, conformité, capacité.
+model VehicleMaintenanceEvent {
+  id        String  @id @default(uuid()) @db.Uuid
+  vehicleId String  @map("vehicle_id") @db.Uuid
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  type        VehicleMaintenanceType
+  description String                 @db.VarChar(1000)
+
+  cost         Decimal  @default(0) @db.Decimal(18, 4)
+  currencyCode String   @map("currency_code") @db.Char(3)
+  currency     Currency @relation(fields: [currencyCode], references: [code], onDelete: Restrict)
+
+  performedAt DateTime  @map("performed_at") @db.Date
+  /// Prochaine échéance — révision programmée, contrôle technique à renouveler.
+  nextDueAt   DateTime? @map("next_due_at") @db.Date
+  performedBy String?   @map("performed_by") @db.VarChar(160)
+
+  recordedById String? @map("recorded_by_id") @db.Uuid
+  recordedBy   User?   @relation(fields: [recordedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([vehicleId, performedAt(sort: Desc)])
+  @@index([nextDueAt])
+  @@map("vehicle_maintenance_events")
 }
 
 /// Chauffeur. N'est PAS un utilisateur du système (§ 2) : il relève de la
@@ -2147,6 +2276,19 @@ enum InvoiceStatus {
   @@map("invoice_status")
 }
 
+/// Mode de règlement déclaré à la FNE (§ 9.5) — vocabulaire imposé par la
+/// DGI, pas une liste ouverte : ajouter une valeur casserait la transmission.
+enum InvoicePaymentMethod {
+  CASH
+  CARD
+  CHECK
+  MOBILE_MONEY
+  TRANSFER
+  DEFERRED
+
+  @@map("invoice_payment_method")
+}
+
 /// Cycle de vie fiscal de la FNE (§ 9.5).
 enum FneStatus {
   NOT_APPLICABLE
@@ -2429,6 +2571,7 @@ model Deal {
   @@map("deals")
 
   crmOpportunity CrmOpportunity?
+  quotationRequest QuotationRequest?
 }
 
 /// Journal des transitions du Deal. Append-only : c'est la preuve du
@@ -3293,6 +3436,11 @@ model Invoice {
   partnerId String  @map("partner_id") @db.Uuid
   partner   Partner @relation("InvoicePartner", fields: [partnerId], references: [id], onDelete: Restrict)
 
+  /// Qui a saisi la pièce — séparation des tâches (§ 1.4) : cette personne ne
+  /// peut pas être celle qui en enregistre le règlement.
+  createdById String? @map("created_by_id") @db.Uuid
+  createdBy   User?   @relation("InvoiceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
   /// Avoir : référence la pièce qu'il corrige.
   correctedInvoiceId String?   @map("corrected_invoice_id") @db.Uuid
   correctedInvoice   Invoice?  @relation("InvoiceCorrection", fields: [correctedInvoiceId], references: [id], onDelete: Restrict)
@@ -3368,6 +3516,9 @@ model Invoice {
   fiscalCountryCode     String  @default("CI") @map("fiscal_country_code") @db.Char(2)
   taxCode               String? @map("tax_code") @db.VarChar(24)
   vatExemptionReference String? @map("vat_exemption_reference") @db.VarChar(120)
+  /// Mode de règlement déclaré — requis par la DGI pour toute FNE transmise
+  /// (§ 9.5). Saisi à l'édition, comme le volume et le prix.
+  paymentMethod InvoicePaymentMethod? @map("payment_method")
 
   /// Décision INTERNE de recourir à la facture simple (§ 9.3) : un acte humain
   /// qualifié, avec décideur, motif et horodatage — non une règle automatique.
@@ -3386,18 +3537,66 @@ model Invoice {
   issuedBy   User?     @relation("InvoiceIssuer", fields: [issuedById], references: [id], onDelete: SetNull)
   issuedAt   DateTime? @map("issued_at") @db.Timestamptz(3)
 
+  /// Annulation directe (arbitrage du 15/08) — seule voie ouverte pour une
+  /// pièce n'ayant JAMAIS reçu d'encaissement. Dès qu'un règlement existe,
+  /// même partiel, seul l'avoir corrige : annuler effacerait un encaissement
+  /// réel sans laisser de trace de ce qu'il couvrait.
+  cancelledById String?   @map("cancelled_by_id") @db.Uuid
+  cancelledBy   User?     @relation("InvoiceCanceller", fields: [cancelledById], references: [id], onDelete: SetNull)
+  cancelledAt   DateTime? @map("cancelled_at") @db.Timestamptz(3)
+  cancellationReason String? @map("cancellation_reason") @db.VarChar(1000)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   fneTransmission    FneTransmission?
   payments           Payment[]
   generatedDocuments GeneratedDocument[]
+  dunningActions     DunningAction[]
 
   @@index([dealId, type])
   @@index([partnerId, status])
   @@index([dueDate, status]) // Échéancier / aging list
   @@index([type, status])
   @@map("invoices")
+}
+
+enum DunningMethod {
+  PHONE
+  EMAIL
+  LETTER
+  VISIT
+  OTHER
+
+  @@map("dunning_method")
+}
+
+/// Relance client (§ 3.3, § 14.6, § 16 : « facturées non encaissées »).
+///
+/// ⚠️ MANUEL, PAS AUTOMATIQUE — ET C'EST DÉLIBÉRÉ.
+///
+///    SPECIFICATIONS.md ne décrit aucun palier d'escalade, aucun canal
+///    d'envoi automatisé, aucun délai déclencheur : inventer une politique
+///    de relance que personne n'a validée serait improviser une règle de
+///    gestion, pas la construire. Ce modèle trace l'ACTION humaine — qui a
+///    relancé, comment, quand, pourquoi — sans prétendre l'automatiser.
+model DunningAction {
+  id        String  @id @default(uuid()) @db.Uuid
+  invoiceId String  @map("invoice_id") @db.Uuid
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  method DunningMethod
+  notes  String        @db.VarChar(1000)
+
+  contactedAt DateTime @map("contacted_at") @db.Timestamptz(3)
+
+  recordedById String @map("recorded_by_id") @db.Uuid
+  recordedBy   User   @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([invoiceId, contactedAt(sort: Desc)])
+  @@map("dunning_actions")
 }
 
 /// Cycle de vie fiscal de la facture normalisée (§ 9.5).

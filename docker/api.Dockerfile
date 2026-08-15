@@ -40,12 +40,21 @@ RUN npx prisma generate && npm run build
 FROM node:${NODE_VERSION} AS runtime
 
 # tini : PID 1 correct, propagation des signaux, pas de processus zombie.
-RUN apk add --no-cache tini=~0.19 \
+#
+# Chromium (paquet Alpine, pas le binaire téléchargé par Puppeteer — celui-ci
+# est lié à la glibc et ne fonctionne pas sous musl) : moteur headless de la
+# génération PDF (§ 1.1, prisma-exception.filter voisin en atteste ailleurs).
+# `--no-sandbox` est requis : le bac à sable propre de Chromium exige des
+# privilèges que `cap_drop: ALL` (docker-compose.yml) retire justement — la
+# frontière de sécurité devient le conteneur lui-même, pas Chromium.
+RUN apk add --no-cache tini=~0.19 chromium nss freetype harfbuzz ca-certificates ttf-freefont \
  && rm -rf /var/cache/apk/*
 
 ENV NODE_ENV=production \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
-    PORT=3000
+    PORT=3000 \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 WORKDIR /app
 

@@ -75,6 +75,33 @@ async function main(): Promise<void> {
   console.log(`  ✓ ${currencies.length} devises — pivot ${PIVOT}, locale ${LOCAL} (0 décimale, arrimée EUR)`);
 
   // =========================================================================
+  //  1 bis. RÉFÉRENTIEL PAYS — FERMÉ (arbitrage du 15/08)
+  //
+  //  Pays d'activité réels, pas la liste ISO complète : la Côte d'Ivoire, ses
+  //  voisins commerciaux enclavés qui dépendent du port d'Abidjan pour leurs
+  //  importations d'hydrocarbures, et la Suisse — déjà portée par une
+  //  contrepartie existante avant ce référentiel (négoce pétrolier, la place
+  //  de Genève est une contrepartie courante).
+  // =========================================================================
+  const countries = [
+    { code: 'CI', name: 'Côte d’Ivoire' },
+    { code: 'BF', name: 'Burkina Faso' },
+    { code: 'ML', name: 'Mali' },
+    { code: 'NE', name: 'Niger' },
+    { code: 'SN', name: 'Sénégal' },
+    { code: 'GH', name: 'Ghana' },
+    { code: 'GN', name: 'Guinée' },
+    { code: 'LR', name: 'Liberia' },
+    { code: 'TG', name: 'Togo' },
+    { code: 'BJ', name: 'Bénin' },
+    { code: 'CH', name: 'Suisse' },
+  ];
+  for (const c of countries) {
+    await prisma.country.upsert({ where: { code: c.code }, update: {}, create: c });
+  }
+  console.log(`  ✓ ${countries.length} pays — liste fermée aux pays d’activité`);
+
+  // =========================================================================
   //  2. PARAMÈTRES SYSTÈME
   // =========================================================================
   const settings = [
@@ -102,6 +129,16 @@ async function main(): Promise<void> {
     { key: 'LOGIN_RATE_PER_MINUTE', value: '30', valueType: 'number', description: 'Tentatives de connexion tolérées par minute et par ADRESSE IP. Ne protège pas un compte désigné (c\'est le rôle du verrouillage ci-dessus) mais l\'abus volumétrique. NE PREND EFFET QU\'AU REDÉMARRAGE DE L\'API. Attention : tout un bureau partage une seule sortie internet, donc un seul compteur.' },
     { key: 'API_RATE_PER_MINUTE', value: '120', valueType: 'number', description: 'Requêtes tolérées par minute et par adresse IP sur l\'ensemble de l\'API. NE PREND EFFET QU\'AU REDÉMARRAGE DE L\'API. Trop bas, un écran de pilotage qui rafraîchit ses tuiles bloque son propre utilisateur ; une valeur inférieure à 1 est ignorée, sans quoi l\'API se fermerait à tous.' },
     { key: 'TOTP_REQUIRED_ROLES', value: 'DG,FINANCE_CFO,ACCOUNTANT,IT_ADMIN', valueType: 'string', description: 'Rôles internes pour lesquels le second facteur est obligatoire, séparés par des virgules (§ 1.4). Un rôle mal orthographié est ignoré — et le rôle qu\'on croyait couvert ne l\'est plus. Vider la liste ne désactive pas la 2FA : le système revient à cette liste par défaut.' },
+
+    // --- Interfaçage FNE / DGI (§ 9.5) ------------------------------------
+    { key: 'FNE_API_BASE_URL', value: 'http://54.247.95.108/ws', valueType: 'string', description: 'URL de la plateforme FNE — celle de l\'environnement de TEST par défaut (procédure DGI, mai 2025). À remplacer par l\'URL de production transmise par la DGI après validation des spécimens de factures.' },
+    { key: 'FNE_API_KEY', value: '', valueType: 'string', description: 'Clé API (jeton Bearer) fournie par la DGI dans l\'onglet « Paramétrage » de l\'espace FNE de l\'entreprise, après validation de l\'inscription. Vide = transmission impossible, quel que soit FISCAL_NORMALIZED_INVOICING.' },
+    { key: 'FNE_POINT_OF_SALE', value: '', valueType: 'string', description: 'Identifiant du point de vente tel qu\'enregistré sur l\'espace FNE d\'Elyon (pas une donnée du client). Requis par la DGI sur chaque facture transmise.' },
+    { key: 'FNE_ESTABLISHMENT', value: '', valueType: 'string', description: 'Nom de l\'établissement tel qu\'enregistré sur l\'espace FNE d\'Elyon (pas une donnée du client). Requis par la DGI sur chaque facture transmise.' },
+    { key: 'FNE_DEFAULT_PAYMENT_METHOD', value: '', valueType: 'string', description: 'Mode de règlement pris par défaut à l\'édition d\'une facture si aucun n\'est saisi sur la pièce — une valeur parmi CASH, CARD, CHECK, MOBILE_MONEY, TRANSFER, DEFERRED (vocabulaire imposé par la DGI). Une pièce peut toujours porter un mode différent du défaut. Vide = à saisir systématiquement, aucune FNE ne se transmet sans lui.' },
+
+    // --- Documents (§ 12) --------------------------------------------------
+    { key: 'DOCUMENT_VERIFY_BASE_URL', value: '', valueType: 'string', description: 'Domaine public depuis lequel le lien de vérification imprimé sur le QR code des pièces (proforma, facture, avoir) sera joignable — ex. https://erp.elyon-trading.example. Vide = le lien reste relatif et n\'est vérifiable que depuis le réseau interne.' },
   ];
   for (const s of settings) {
     await prisma.systemSetting.upsert({ where: { key: s.key }, update: {}, create: s });

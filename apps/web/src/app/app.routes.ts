@@ -139,6 +139,14 @@ export const routes: Routes = [
         path: 'affaires',
         loadComponent: () => import('./features/deals.component').then((m) => m.DealsComponent),
       },
+      // Déclarée AVANT affaires/:id : le routeur retient la première route
+      // qui correspond, et :id avalerait « nouvelle » comme un identifiant.
+      {
+        path: 'affaires/nouvelle',
+        canActivate: [roleGuard('SALES_REP', 'CCOO')],
+        loadComponent: () =>
+          import('./features/deal-create.component').then((m) => m.DealCreateComponent),
+      },
       {
         path: 'affaires/:id',
         loadComponent: () =>
@@ -220,15 +228,38 @@ export const routes: Routes = [
           import('./features/supervision.component').then((m) => m.SupervisionComponent),
       },
       {
+        path: 'journal-audit',
+        canActivate: [roleGuard('DG', 'IT_ADMIN')],
+        loadComponent: () =>
+          import('./features/audit-log.component').then((m) => m.AuditLogComponent),
+      },
+      {
         path: 'crm',
         canActivate: [roleGuard('DG', 'CCOO', 'SALES_REP', 'FINANCE_CFO', 'ASSISTANT_DG')],
         loadComponent: () => import('./features/crm.component').then((m) => m.CrmComponent),
+      },
+      {
+        path: 'demandes-de-cotation',
+        canActivate: [roleGuard('DG', 'CCOO', 'SALES_REP', 'ASSISTANT_DG')],
+        loadComponent: () =>
+          import('./features/quotations.component').then((m) => m.QuotationsComponent),
       },
       {
         path: 'pilotage',
         canActivate: [roleGuard('DG', 'FINANCE_CFO', 'CCOO', 'ACCOUNTANT', 'LOGISTICS_COORD')],
         loadComponent: () =>
           import('./features/pilotage.component').then((m) => m.PilotageComponent),
+      },
+      {
+        path: 'barge',
+        canActivate: [roleGuard('DG', 'CCOO', 'FINANCE_CFO', 'LOGISTICS_COORD')],
+        loadComponent: () => import('./features/barge.component').then((m) => m.BargeComponent),
+      },
+      {
+        path: 'recouvrement',
+        canActivate: [roleGuard('DG', 'FINANCE_CFO', 'ACCOUNTANT')],
+        loadComponent: () =>
+          import('./features/collections.component').then((m) => m.CollectionsComponent),
       },
       {
         path: 'parametrage',

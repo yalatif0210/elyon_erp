@@ -2,8 +2,10 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Injectable,
+  Logger,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -16,6 +18,7 @@ import {
   AuditAction,
   DiscountMode,
   FneStatus,
+  InvoicePaymentMethod,
   InvoiceStatus,
   InvoiceType,
   TaxRegime,
@@ -38,6 +41,8 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import { InjectQueue } from '@nestjs/bullmq';
+import type { Queue } from 'bullmq';
 import { AuditService } from '../common/audit/audit.service';
 import { Realm, RequireRealm, Roles } from '../common/auth/realm';
 import { Page, PaginationQuery, paginate } from '../common/http/pagination.dto';
@@ -46,6 +51,8 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { ReferenceService } from '../common/reference/reference.service';
 import { computeDiscount } from '../sales/deals.controller';
 import { extractVat, round4, roundTo } from '../common/money/money';
+import { FneClientService } from './fne-client.service';
+import type { InvoicePdfJob } from '../documents/pdf.processor';
 
 // ===========================================================================
 //  DTO
@@ -80,6 +87,10 @@ class CreateInvoiceDto {
   /** Devise d'impression, au choix de l'éditeur (§ 9.2). */
   @IsOptional() @IsString() @Length(3, 3) documentCurrencyCode?: string;
 
+  /** Requis par la DGI sur toute FNE transmise (§ 9.5). Sans effet sur les
+   *  autres types de pièce. */
+  @IsOptional() @IsEnum(InvoicePaymentMethod) paymentMethod?: InvoicePaymentMethod;
+
   /** Proforma d'origine, lorsque la pièce en est issue. */
   @IsOptional() @IsUUID() sourceProformaId?: string;
   /** Pièce corrigée — obligatoire pour un avoir. */
@@ -93,6 +104,10 @@ class IssueInvoiceDto {
   @IsOptional() @IsISO8601() issueDate?: string;
   /** À défaut, calculée depuis les conditions de paiement du client. */
   @IsOptional() @IsISO8601() dueDate?: string;
+}
+
+class CancelInvoiceDto {
+  @IsString() @MinLength(10) @MaxLength(1000) reason!: string;
 }
 
 class PaymentDto {
@@ -124,12 +139,40 @@ const NUMBER_SCOPE: Record<InvoiceType, string> = {
 
 @Injectable()
 export class InvoicesService {
+  private readonly logger = new Logger(InvoicesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly reference: ReferenceService,
     private readonly settings: SettingsService,
+    private readonly fneClient: FneClientService,
+    @InjectQueue('documents') private readonly documentsQueue: Queue<InvoicePdfJob>,
   ) {}
+
+  /**
+   * Met en file la génération du PDF — jamais rendue en ligne (§ 1.1) : voir
+   * l'en-tête de `DocumentsPdfProcessor`. Une pièce au brouillon n'a ni date
+   * d'émission ni échéance définitives ; son PDF attendrait l'émission.
+   */
+  async queuePdf(id: string, actorId: string): Promise<{ jobId: string }> {
+    const invoice = await this.prisma.invoice.findUniqueOrThrow({
+      where: { id },
+      select: { status: true, number: true },
+    });
+    if (invoice.status === InvoiceStatus.DRAFT) {
+      throw new BadRequestException(
+        `${invoice.number} est au brouillon : émettre la pièce avant de générer son PDF.`,
+      );
+    }
+
+    const job = await this.documentsQueue.add(
+      'invoice',
+      { type: 'invoice', invoiceId: id, actorId },
+      { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
+    );
+    return { jobId: job.id! };
+  }
 
   async list(query: InvoiceQuery): Promise<Page<unknown>> {
     const where = {
@@ -149,7 +192,7 @@ export class InvoicesService {
         orderBy: { createdAt: 'desc' },
         include: {
           partner: { select: { code: true, legalName: true } },
-          deal: { select: { reference: true } },
+          deal: { select: { id: true, reference: true } },
           fneTransmission: { select: { status: true, fiscalReference: true } },
         },
       }),
@@ -297,6 +340,7 @@ export class InvoicesService {
         status: InvoiceStatus.DRAFT,
         dealId: dto.dealId,
         partnerId: deal.clientId,
+        createdById: actorId,
         sourceProformaId: dto.sourceProformaId ?? null,
         correctedInvoiceId: dto.correctedInvoiceId ?? null,
 
@@ -338,6 +382,10 @@ export class InvoicesService {
         vatRatePct: vatRatePct.toFixed(3),
         printedTaxRegime: dto.printedTaxRegime ?? TaxRegime.TTC,
         vatExemptionReference: dto.vatExemptionReference ?? null,
+        // Un mode explicitement fourni reste prioritaire — même règle que le
+        // taux de TVA ci-dessus. Le défaut est un réglage, pas une déduction :
+        // rien dans la commande ne dit COMMENT le client va payer.
+        paymentMethod: dto.paymentMethod ?? (await this.defaultPaymentMethod()),
 
         ...(dto.type === InvoiceType.SIMPLE && dto.simpleInvoiceReason
           ? {
@@ -376,6 +424,7 @@ export class InvoicesService {
         id: true,
         type: true,
         status: true,
+        correctedInvoiceId: true,
         partner: { select: { paymentTermsDays: true } },
       },
     });
@@ -402,13 +451,37 @@ export class InvoicesService {
       },
     });
 
-    // La FNE entre dans le cycle fiscal dès son émission (§ 9.5).
-    if (invoice.type === InvoiceType.FNE) {
+    // La FNE entre dans le cycle fiscal dès son émission (§ 9.5). Un avoir
+    // sur une pièce FNE relève du même cycle : la DGI le certifie par un
+    // second appel (refund), distinct de celui d'une facture (sign).
+    const correctsFne =
+      invoice.type === InvoiceType.CREDIT_NOTE && invoice.correctedInvoiceId
+        ? (
+            await this.prisma.invoice.findUnique({
+              where: { id: invoice.correctedInvoiceId },
+              select: { type: true },
+            })
+          )?.type === InvoiceType.FNE
+        : false;
+
+    if (invoice.type === InvoiceType.FNE || correctsFne) {
       await this.prisma.fneTransmission.upsert({
         where: { invoiceId: id },
         update: { status: FneStatus.PENDING_TRANSMISSION },
         create: { invoiceId: id, status: FneStatus.PENDING_TRANSMISSION },
       });
+
+      // Best-effort : ne fait jamais échouer l'émission de la pièce. Voir
+      // l'en-tête de FneClientService.
+      try {
+        if (invoice.type === InvoiceType.FNE) {
+          await this.fneClient.certifySale(id, actorId);
+        } else {
+          await this.fneClient.certifyCreditNote(id, actorId);
+        }
+      } catch (e) {
+        this.logger.warn(`Transmission FNE de ${id} interrompue par une erreur imprévue : ${(e as Error).message}`);
+      }
     }
 
     await this.audit.record({
@@ -461,6 +534,7 @@ export class InvoicesService {
         vatExemptionReference:
           dto.vatExemptionReference ?? proforma.vatExemptionReference ?? undefined,
         documentCurrencyCode: dto.documentCurrencyCode ?? proforma.documentCurrencyCode,
+        paymentMethod: dto.paymentMethod ?? proforma.paymentMethod ?? undefined,
         sourceProformaId: proforma.id,
         simpleInvoiceReason: dto.simpleInvoiceReason,
       },
@@ -482,12 +556,23 @@ export class InvoicesService {
         // Le cours FIGÉ à l'émission : c'est lui qui convertit l'encaissement,
         // pas celui du jour.
         fxRateToPivot: true,
+        createdById: true,
       },
     });
 
     if (invoice.type === InvoiceType.PROFORMA) {
       throw new BadRequestException(
         'Une proforma ne porte pas d’encaissement : elle ne crée aucune créance (§ 9.3).',
+      );
+    }
+
+    // ⚠️ CORRIGÉ (audit, axe C, S1) — séparation des tâches. Celui qui a créé
+    // la facture ne peut pas être celui qui en enregistre l'encaissement :
+    // sans ce garde-fou, une pièce fictive et son encaissement pouvaient
+    // sortir de la même main, sans second regard.
+    if (invoice.createdById && invoice.createdById === actorId) {
+      throw new ForbiddenException(
+        'Séparation des tâches : la personne qui a créé cette facture ne peut pas en enregistrer l’encaissement. Un autre compte doit le faire.',
       );
     }
 
@@ -553,6 +638,95 @@ export class InvoicesService {
     });
 
     return payment;
+  }
+
+  /**
+   * Reprise manuelle d'une transmission FNE restée en attente ou à corriger.
+   * La file de tâches (`22_file_de_taches.sql`, tâche `FNE_NON_TRANSMISE`)
+   * signale ces pièces ; ce point d'entrée est ce sur quoi elle débouche.
+   */
+  async retryFne(id: string, actorId: string) {
+    const invoice = await this.prisma.invoice.findUniqueOrThrow({
+      where: { id },
+      select: { fneTransmission: { select: { status: true } } },
+    });
+    if (!invoice.fneTransmission) {
+      throw new BadRequestException('Cette pièce n’est pas engagée dans le cycle FNE.');
+    }
+    if (invoice.fneTransmission.status === FneStatus.ACCEPTED) {
+      throw new BadRequestException('Cette pièce est déjà certifiée par la DGI.');
+    }
+
+    await this.fneClient.retry(id, actorId);
+    return this.prisma.invoice.findUniqueOrThrow({ where: { id }, include: { fneTransmission: true } });
+  }
+
+  /**
+   * Annulation directe d'une pièce émise par erreur (arbitrage du 15/08).
+   *
+   * ⚠️ FERMÉE DÈS QU'UN ENCAISSEMENT EXISTE, MÊME PARTIEL.
+   *
+   *    Annuler une pièce déjà réglée effacerait la créance sans effacer
+   *    l'argent reçu : le paiement resterait sans pièce à rapprocher. Seul
+   *    l'avoir corrige une pièce encaissée — il laisse la trace que
+   *    l'annulation directe ne laisserait pas.
+   *
+   *    Une FNE déjà ACCEPTÉE par la DGI ne s'annule pas davantage en
+   *    interne : elle est opposable côté DGI, l'avoir est la seule
+   *    correction qui reste cohérente des deux côtés.
+   */
+  async cancel(id: string, dto: CancelInvoiceDto, actorId: string) {
+    const invoice = await this.prisma.invoice.findUniqueOrThrow({
+      where: { id },
+      select: {
+        number: true,
+        status: true,
+        type: true,
+        paidAmount: true,
+        fneTransmission: { select: { status: true } },
+      },
+    });
+
+    if (invoice.status === InvoiceStatus.CANCELLED) {
+      throw new BadRequestException(`${invoice.number} est déjà annulée.`);
+    }
+    if (invoice.status === InvoiceStatus.DRAFT) {
+      throw new BadRequestException(
+        `${invoice.number} est au brouillon : elle n’a jamais été émise, rien à annuler formellement.`,
+      );
+    }
+    if (Number(invoice.paidAmount) > 0) {
+      throw new BadRequestException(
+        `${invoice.number} porte un encaissement : seul un avoir peut la corriger, une annulation directe effacerait le paiement reçu sans laisser de trace.`,
+      );
+    }
+    if (invoice.type === InvoiceType.FNE && invoice.fneTransmission?.status === FneStatus.ACCEPTED) {
+      throw new BadRequestException(
+        `${invoice.number} est certifiée par la DGI : seul un avoir la corrige, une annulation interne ne l’efface pas côté fiscal.`,
+      );
+    }
+
+    const updated = await this.prisma.invoice.update({
+      where: { id },
+      data: {
+        status: InvoiceStatus.CANCELLED,
+        cancelledById: actorId,
+        cancelledAt: new Date(),
+        cancellationReason: dto.reason,
+      },
+    });
+
+    await this.audit.record({
+      actorType: ActorType.INTERNAL_USER,
+      actorId,
+      action: AuditAction.STATUS_CHANGE,
+      entityType: 'Invoice',
+      entityId: id,
+      before: { status: invoice.status },
+      after: { status: InvoiceStatus.CANCELLED, reason: dto.reason },
+    });
+
+    return updated;
   }
 
   // --- Règles transverses ---------------------------------------------------
@@ -651,6 +825,26 @@ export class InvoicesService {
     }
   }
 
+  /**
+   * Repli de `FNE_DEFAULT_PAYMENT_METHOD` — jamais une valeur au hasard. Une
+   * clé vide, absente ou mal orthographiée dans le réglage vaut ABSENCE de
+   * défaut : la pièce reste sans mode de règlement, à saisir explicitement,
+   * plutôt que d'en hériter un que personne n'a choisi.
+   */
+  private async defaultPaymentMethod(): Promise<InvoicePaymentMethod | null> {
+    const raw = await this.settings.string('FNE_DEFAULT_PAYMENT_METHOD', '');
+    if (!raw) return null;
+
+    const value = raw.trim().toUpperCase() as InvoicePaymentMethod;
+    if (!Object.values(InvoicePaymentMethod).includes(value)) {
+      this.logger.warn(
+        `FNE_DEFAULT_PAYMENT_METHOD = « ${raw} » n’est pas une valeur reconnue — aucun défaut appliqué.`,
+      );
+      return null;
+    }
+    return value;
+  }
+
   private async decimalPlaces(currencyCode: string): Promise<number> {
     const currency = await this.prisma.currency.findUniqueOrThrow({
       where: { code: currencyCode },
@@ -724,6 +918,28 @@ export class InvoicesController {
     @Req() req: { auth: { sub: string } },
   ) {
     return this.service.issue(id, dto, req.auth.sub);
+  }
+
+  @Patch(':id/fne/retry')
+  @Roles(UserRole.CCOO, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT)
+  retryFne(@Param('id', ParseUUIDPipe) id: string, @Req() req: { auth: { sub: string } }) {
+    return this.service.retryFne(id, req.auth.sub);
+  }
+
+  @Post(':id/pdf')
+  @Roles(UserRole.CCOO, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT)
+  queuePdf(@Param('id', ParseUUIDPipe) id: string, @Req() req: { auth: { sub: string } }) {
+    return this.service.queuePdf(id, req.auth.sub);
+  }
+
+  @Patch(':id/cancel')
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT)
+  cancel(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CancelInvoiceDto,
+    @Req() req: { auth: { sub: string } },
+  ) {
+    return this.service.cancel(id, dto, req.auth.sub);
   }
 
   @Post(':id/payments')

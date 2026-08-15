@@ -44,6 +44,12 @@ const NAV: NavGroup[] = [
         icon: 'search',
         roles: ['DG', 'FINANCE_CFO', 'CCOO', 'ACCOUNTANT', 'IT_ADMIN'],
       },
+      {
+        label: 'Recouvrement',
+        path: '/recouvrement',
+        icon: 'alert-triangle',
+        roles: ['DG', 'FINANCE_CFO', 'ACCOUNTANT'],
+      },
     ],
   },
   {
@@ -57,6 +63,12 @@ const NAV: NavGroup[] = [
         icon: 'search',
         roles: ['DG', 'CCOO', 'SALES_REP', 'FINANCE_CFO', 'ASSISTANT_DG'],
       },
+      {
+        label: 'Demandes de cotation',
+        path: '/demandes-de-cotation',
+        icon: 'clipboard-check',
+        roles: ['DG', 'CCOO', 'SALES_REP', 'ASSISTANT_DG'],
+      },
       { label: 'Affaires', path: '/affaires', icon: 'briefcase' },
       { label: 'Opérations', path: '/operations', icon: 'truck' },
       { label: 'Facturation', path: '/facturation', icon: 'receipt' },
@@ -67,6 +79,12 @@ const NAV: NavGroup[] = [
         path: '/achats',
         icon: 'briefcase',
         roles: ['DG', 'FINANCE_CFO', 'ACCOUNTANT', 'CCOO', 'LOGISTICS_COORD'],
+      },
+      {
+        label: 'Barge',
+        path: '/barge',
+        icon: 'truck',
+        roles: ['DG', 'CCOO', 'FINANCE_CFO', 'LOGISTICS_COORD'],
       },
     ],
   },
@@ -84,6 +102,12 @@ const NAV: NavGroup[] = [
       },
       { label: 'Référentiels', path: '/referentiels', icon: 'layers' },
       { label: 'Paramétrage', path: '/parametrage', icon: 'clipboard-check' },
+      {
+        label: 'Journal d’audit',
+        path: '/journal-audit',
+        icon: 'file-text',
+        roles: ['DG', 'IT_ADMIN'],
+      },
     ],
   },
 ];

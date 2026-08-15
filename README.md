@@ -12,10 +12,10 @@ exploitation de barge et opérations terrain. **Côte d'Ivoire** · pivot **USD*
 | Lot | Contenu | État |
 | :--- | :--- | :--- |
 | **1 — Fondations** | Socle Docker, référentiels complets, conformité transport, seuils, dérogations, audit · API à trois réalms · **console Angular** | ✅ **Livré et recetté** (18/18) |
-| 2 — Cœur commercial & exécution | Contrat/Deal/Opération, 4 formules de prix, 3 verrous, HSE, relevés, facturation, FNE | À venir |
-| 3a — Terrain mobile | Application tablette hors connexion | À venir |
-| 3b — B2B & Retail | Activation des deux segments | À venir |
-| 4 — Barge, CRM, pilotage | Prévision, point mort, BFR | À venir |
+| 2 — Cœur commercial & exécution | Contrat/Deal/Opération, prix et marge, 3 verrous, HSE, relevés, facturation, transmission FNE | ✅ **Livré et recetté** (194/194) — transmission FNE implémentée le 15/08 ; en attente de l'inscription DGI pour la production |
+| 3a — Terrain mobile | Application tablette hors connexion | ✅ **Livré et recetté** (194/194) |
+| 3b — B2B & Retail | Segments commerciaux | ✅ Couverts par le moteur de prix unique (§5), pas de formule séparée à activer |
+| 4 — Barge, CRM, pilotage | Prévision, point mort, BFR, CRM | ⚠️ **Partiel** — CRM et pilotage financier livrés ; module barge (actif, maintenance, compte d'exploitation) absent |
 
 ---
 

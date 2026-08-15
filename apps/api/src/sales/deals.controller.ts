@@ -16,6 +16,7 @@ import {
   ActorType,
   AuditAction,
   CommercialSegment,
+  ContractStatus,
   CostBasis,
   DealStatus,
   DiscountMode,
@@ -185,6 +186,29 @@ export class DealsService {
     private readonly reference: ReferenceService,
     private readonly settings: SettingsService,
   ) {}
+
+  /**
+   * Contrats-cadres — pour renseigner le rattachement optionnel à la
+   * création d'une affaire.
+   *
+   * ⚠️ NE PASSE PAS PAR LE REGISTRE DE RÉFÉRENTIELS.
+   *
+   *    La lecture générique (`/referentials/contracts`) dérive ses rôles de
+   *    qui peut ÉCRIRE le référentiel — SALES_REP n'y figure pas, et c'est
+   *    volontaire (§ commentaire de `rolesDeLecture`, fuite déjà corrigée une
+   *    fois). Un commercial doit pourtant pouvoir choisir le contrat-cadre de
+   *    l'affaire qu'il crée : plutôt que d'élargir ce mécanisme partagé par
+   *    vingt-huit référentiels pour un seul besoin, cette lecture est dédiée
+   *    et réduite au strict nécessaire — sans les conditions commerciales
+   *    complètes que la fiche contrat porte par ailleurs.
+   */
+  contractsPourCreation() {
+    return this.prisma.contract.findMany({
+      where: { status: ContractStatus.ACTIVE },
+      select: { id: true, reference: true, title: true, clientId: true, segment: true, currencyCode: true },
+      orderBy: { reference: 'asc' },
+    });
+  }
 
   /**
    * Barème applicable à un poste, dans le contexte de l'affaire.
@@ -406,17 +430,23 @@ export class DealsService {
    * du prix validé, cohérence du produit, bande de tolérance, et retrait de
    * l'approbation en cas de modification ultérieure.
    */
-  async attachSupplierPrice(id: string, dto: AttachSupplierPriceDto, actorId: string) {
+  async attachSupplierPrice(
+    id: string,
+    dto: AttachSupplierPriceDto,
+    actorId: string,
+    role?: UserRole,
+  ) {
     const sp = await this.prisma.supplierPrice.findUniqueOrThrow({
       where: { id: dto.supplierPriceId },
       select: { unitPrice: true, supplier: { select: { legalName: true } } },
     });
 
-    const retained = dto.unitPurchasePrice ?? Number(sp.unitPrice);
     const deal = await this.prisma.deal.findUniqueOrThrow({
       where: { id },
-      select: { contractedVolume: true },
+      select: { contractedVolume: true, ownerId: true },
     });
+    DealsService.verifierPropriete(role, actorId, deal.ownerId);
+    const retained = dto.unitPurchasePrice ?? Number(sp.unitPrice);
 
     await this.prisma.deal.update({
       where: { id },
@@ -461,6 +491,29 @@ export class DealsService {
   /** Un commercial ne voit que les affaires dont il est propriétaire. */
   private static filtrePropriete(role?: UserRole, actorId?: string) {
     return role === UserRole.SALES_REP && actorId ? { ownerId: actorId } : {};
+  }
+
+  /**
+   * Même règle, posée une seule fois pour toute ROUTE D'ÉCRITURE.
+   *
+   * ⚠️ CORRIGÉ (audit, axe C, S1) — `setCostLines`, `attachSupplierPrice` et
+   *    `submitForRisk` n'appliquaient PAS ce contrôle, contrairement à la
+   *    lecture (`findOne`) qui le porte depuis le 08/08 : un commercial
+   *    pouvait chiffrer les coûts, choisir le fournisseur ou soumettre au
+   *    risque l'affaire d'un collègue, simplement en connaissant son
+   *    identifiant. `filtrePropriete` protège la LISTE, ce contrôle protège
+   *    l'ACCÈS DIRECT — les deux sont nécessaires, ni l'un ni l'autre ne
+   *    suffit seul.
+   */
+  private static verifierPropriete(
+    role: UserRole | undefined,
+    actorId: string | undefined,
+    ownerId: string | null,
+    suite: string = 'n’agit que sur les siennes',
+  ): void {
+    if (role === UserRole.SALES_REP && actorId && ownerId !== actorId) {
+      throw new ForbiddenException(`Cette affaire appartient à un autre commercial. Chacun ${suite}.`);
+    }
   }
 
   /**
@@ -554,23 +607,50 @@ export class DealsService {
           orderBy: { costPost: { displayOrder: 'asc' } },
         },
         operations: { select: { id: true, reference: true, status: true, plannedVolume: true } },
-        invoices: { select: { id: true, number: true, type: true, status: true, totalAmount: true } },
-        supplierInvoices: { select: { id: true, reference: true, status: true, amount: true, prepaidAt: true, settledAt: true } },
+        invoices: {
+          select: {
+            id: true,
+            number: true,
+            type: true,
+            status: true,
+            totalAmount: true,
+            currencyCode: true,
+            generatedDocuments: {
+              where: { isSealed: true },
+              select: { id: true, reference: true },
+              take: 1,
+              orderBy: { generatedAt: 'desc' },
+            },
+          },
+        },
+        supplierInvoices: {
+          select: {
+            id: true,
+            reference: true,
+            status: true,
+            amount: true,
+            currencyCode: true,
+            supplier: { select: { code: true, legalName: true } },
+            prepaidAt: true,
+            settledAt: true,
+          },
+        },
         statusTransitions: { orderBy: { createdAt: 'desc' }, take: 20 },
       },
     });
 
-    if (role === UserRole.SALES_REP && actorId && deal.ownerId !== actorId) {
-      throw new ForbiddenException(
-        'Cette affaire appartient à un autre commercial. Chacun ne consulte que les siennes.',
-      );
-    }
+    DealsService.verifierPropriete(role, actorId, deal.ownerId, 'ne consulte que les siennes');
 
     // Le coordinateur logistique reçoit l'affaire sans sa chaîne de marge : ni
     // le détail du calcul, ni le verdict de seuil, ni les lignes de coût — qui
     // reconstitueraient la marge à elles seules.
     if (!DealsService.voitLesMarges(role)) {
-      const { costLines: _costLines, supplierPrice: _supplierPrice, ...reste } = deal;
+      // ⚠️ `supplierInvoices.amount` EST UN PRIX D'ACHAT — masqué au même
+      //    titre que `costLines`/`supplierPrice` : le revenu (`invoices`) est
+      //    déjà visible, un coût d'achat visible à côté livrerait la marge
+      //    par simple soustraction, ce que ce filtre existe précisément pour
+      //    empêcher (§ 5.4).
+      const { costLines: _costLines, supplierPrice: _supplierPrice, supplierInvoices: _supplierInvoices, ...reste } = deal;
       return DealsService.masqueMarges(reste as Record<string, unknown>);
     }
 
@@ -668,9 +748,9 @@ export class DealsService {
   }
 
   /** Soumet l'affaire au contrôle du risque. */
-  async submitForRisk(id: string, actorId: string) {
+  async submitForRisk(id: string, actorId: string, role?: UserRole) {
     await this.recomputeMargins(id);
-    return this.transition(id, DealStatus.PENDING_RISK, actorId, 'Soumis au contrôle du risque');
+    return this.transition(id, DealStatus.PENDING_RISK, actorId, 'Soumis au contrôle du risque', role);
   }
 
   /**
@@ -744,7 +824,7 @@ export class DealsService {
    * entier. Empiler des lignes successives laisserait des reliquats invisibles
    * qui gonfleraient les charges sans que personne ne comprenne d'où.
    */
-  async setCostLines(id: string, lines: DealCostLineDto[], actorId: string) {
+  async setCostLines(id: string, lines: DealCostLineDto[], actorId: string, role?: UserRole) {
     const deal = await this.prisma.deal.findUniqueOrThrow({
       where: { id },
       select: {
@@ -753,8 +833,10 @@ export class DealsService {
         transportMode: true,
         productId: true,
         contractedVolume: true,
+        ownerId: true,
       },
     });
+    DealsService.verifierPropriete(role, actorId, deal.ownerId);
 
     const materialised = await Promise.all(
       lines.map((l) => this.materialise(l, deal, Number(deal.contractedVolume))),
@@ -791,8 +873,9 @@ export class DealsService {
     return this.margin.recompute(id);
   }
 
-  private async transition(id: string, to: DealStatus, actorId: string, reason: string) {
-    const current = await this.prisma.deal.findUniqueOrThrow({ where: { id }, select: { status: true } });
+  private async transition(id: string, to: DealStatus, actorId: string, reason: string, role?: UserRole) {
+    const current = await this.prisma.deal.findUniqueOrThrow({ where: { id }, select: { status: true, ownerId: true } });
+    DealsService.verifierPropriete(role, actorId, current.ownerId);
     const updated = await this.prisma.deal.update({ where: { id }, data: { status: to } });
     await this.prisma.dealStatusTransition.create({
       data: {
@@ -843,6 +926,14 @@ export class DealsController {
     return this.service.list(query, req.auth.role, req.auth.sub);
   }
 
+  // Déclarée AVANT :id : sinon le routeur retient `:id` en premier et
+  // "lookups" heurte le ParseUUIDPipe au lieu d'atteindre cette route.
+  @Get('lookups/contracts')
+  @Roles(UserRole.SALES_REP, UserRole.CCOO)
+  contractsPourCreation() {
+    return this.service.contractsPourCreation();
+  }
+
   @Get(':id')
   @Roles(UserRole.DG, UserRole.CCOO, UserRole.SALES_REP, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT, UserRole.LOGISTICS_COORD)
   findOne(
@@ -860,8 +951,8 @@ export class DealsController {
 
   @Patch(':id/submit')
   @Roles(UserRole.SALES_REP, UserRole.CCOO)
-  submit(@Param('id', ParseUUIDPipe) id: string, @Req() req: { auth: { sub: string } }) {
-    return this.service.submitForRisk(id, req.auth.sub);
+  submit(@Param('id', ParseUUIDPipe) id: string, @Req() req: { auth: { sub: string; role?: UserRole } }) {
+    return this.service.submitForRisk(id, req.auth.sub, req.auth.role);
   }
 
   /** Approbation financière — CFO, ou DG en dérogation. */
@@ -899,9 +990,9 @@ export class DealsController {
   attachSupplierPrice(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AttachSupplierPriceDto,
-    @Req() req: { auth: { sub: string } },
+    @Req() req: { auth: { sub: string; role?: UserRole } },
   ) {
-    return this.service.attachSupplierPrice(id, dto, req.auth.sub);
+    return this.service.attachSupplierPrice(id, dto, req.auth.sub, req.auth.role);
   }
 
   /**
@@ -920,9 +1011,9 @@ export class DealsController {
   setCostLines(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: { costLines: DealCostLineDto[] },
-    @Req() req: { auth: { sub: string } },
+    @Req() req: { auth: { sub: string; role?: UserRole } },
   ) {
-    return this.service.setCostLines(id, dto.costLines ?? [], req.auth.sub);
+    return this.service.setCostLines(id, dto.costLines ?? [], req.auth.sub, req.auth.role);
   }
 
   @Patch(':id/recompute')

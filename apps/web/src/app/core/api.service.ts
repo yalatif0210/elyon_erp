@@ -2,6 +2,30 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 
+export interface AuditLogRow {
+  id: string;
+  actorType: 'INTERNAL_USER' | 'PORTAL_USER' | 'FIELD_USER' | 'SYSTEM';
+  actorId: string | null;
+  actorName: string | null;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  beforeState: unknown;
+  afterState: unknown;
+  ipAddress: string | null;
+  createdAt: string;
+}
+
+export interface AuditLogFilters {
+  actorType?: string;
+  actorId?: string;
+  action?: string;
+  entityType?: string;
+  entityId?: string;
+  from?: string;
+  to?: string;
+}
+
 export interface Page<T> {
   items: T[];
   page: number;
@@ -130,6 +154,35 @@ export interface ThresholdVerdict {
   message: string;
 }
 
+/** Corps du POST /deals — calqué sur `CreateDealDto` (§ 5.4). */
+export interface CreateDealInput {
+  contractId?: string;
+  clientId: string;
+  siteId?: string;
+  productId: string;
+  segment: string;
+  contractedVolume: number;
+  uom: string;
+  transportMode: string;
+  deliveryLocation: string;
+  targetDeliveryDate?: string;
+  currencyCode: string;
+  unitSalePrice: number;
+  discountMode?: string;
+  discountValue?: number;
+}
+
+export interface ContractRow {
+  id: string;
+  reference: string;
+  clientId: string;
+  title: string;
+  status: string;
+  segment: string;
+  paymentTermsDays: number | null;
+  currencyCode: string;
+}
+
 export interface DealDetail extends DealRow {
   deliveryLocation: string;
   targetDeliveryDate: string | null;
@@ -148,7 +201,27 @@ export interface DealDetail extends DealRow {
   dgApprovedBy: { fullName: string; role: string } | null;
   costLines: DealCostLine[];
   operations: { id: string; reference: string; status: string; plannedVolume: string }[];
-  invoices: { id: string; number: string; type: string; status: string; totalAmount: string }[];
+  invoices: {
+    id: string;
+    number: string | null;
+    type: string;
+    status: string;
+    totalAmount: string;
+    currencyCode: string;
+    generatedDocuments: { id: string; reference: string }[];
+  }[];
+  /** Absent pour LOGISTICS_COORD — un prix d'achat visible livrerait la marge
+   *  par soustraction avec les factures client, déjà visibles (§ 5.4). */
+  supplierInvoices?: {
+    id: string;
+    reference: string;
+    status: string;
+    amount: string;
+    currencyCode: string;
+    supplier: { code: string; legalName: string };
+    prepaidAt: string | null;
+    settledAt: string | null;
+  }[];
   margin: MarginBreakdown;
   thresholds: ThresholdVerdict;
 }
@@ -290,7 +363,9 @@ export interface InvoiceRow {
   type: string;
   status: string;
   billedVolume: string;
+  uom: string;
   unitPrice: string;
+  paymentMethod: string | null;
   totalAmount: string;
   vatAmount: string;
   paidAmount: string;
@@ -302,7 +377,7 @@ export interface InvoiceRow {
   issueDate: string | null;
   dueDate: string | null;
   partner: { code: string; legalName: string };
-  deal: { reference: string };
+  deal: { id: string; reference: string };
   fneTransmission: { status: string; fiscalReference: string | null } | null;
 }
 
@@ -456,6 +531,85 @@ export interface CreditExposureRow {
   exposure_pivot: string;
   available_credit_pivot: string;
   utilisation_pct: string | null;
+}
+
+export interface BargePnLRow {
+  vehicleId: string;
+  registration: string;
+  brandModel: string | null;
+  isActive: boolean;
+  isCompliant: boolean;
+  voyages: number;
+  /** Par unité (L, M3, MT, BBL) : elles ne s'additionnent pas entre elles. */
+  volumeParUnite: Record<string, number>;
+  pivotCurrency: string;
+  revenuePivot: number;
+  operatingCostPivot: number;
+  maintenanceCostPivot: number;
+  marginPivot: number;
+  maintenanceEventCount: number;
+  nextMaintenanceDue: string | null;
+}
+
+export interface VehicleMaintenanceRow {
+  id: string;
+  vehicleId: string;
+  type: 'PREVENTIVE' | 'CORRECTIVE' | 'REGULATORY';
+  description: string;
+  cost: string;
+  currencyCode: string;
+  performedAt: string;
+  nextDueAt: string | null;
+  performedBy: string | null;
+  recordedBy: { fullName: string } | null;
+  createdAt: string;
+}
+
+export interface AgedReceivableLine {
+  invoiceId: string;
+  number: string;
+  status: string;
+  dueDate: string | null;
+  currencyCode: string;
+  outstanding: number;
+  outstandingPivot: number;
+  partner: { id: string; code: string; legalName: string };
+  dunningCount: number;
+  bucket: 'A_VENIR' | 'J1_30' | 'J31_60' | 'J61_90' | 'J90_PLUS' | 'SANS_ECHEANCE';
+  daysOverdue: number | null;
+}
+
+export interface AgedReceivables {
+  lines: AgedReceivableLine[];
+  byPartner: {
+    partner: { id: string; code: string; legalName: string };
+    buckets: Record<'A_VENIR' | 'J1_30' | 'J31_60' | 'J61_90' | 'J90_PLUS' | 'SANS_ECHEANCE', number>;
+    total: number;
+  }[];
+}
+
+export interface DunningActionRow {
+  id: string;
+  invoiceId: string;
+  method: 'PHONE' | 'EMAIL' | 'LETTER' | 'VISIT' | 'OTHER';
+  notes: string;
+  contactedAt: string;
+  recordedBy: { fullName: string } | null;
+  createdAt: string;
+}
+
+export interface QuotationRequestInternalRow {
+  id: string;
+  desiredVolume: string;
+  uom: string;
+  desiredDeliveryDate: string | null;
+  message: string | null;
+  status: 'NEW' | 'IN_REVIEW' | 'CONVERTED' | 'DECLINED';
+  createdAt: string;
+  partner: { code: string; legalName: string };
+  product: { code: string; name: string };
+  submittedByPortalUser: { fullName: string; email: string };
+  convertedDeal: { id: string; reference: string } | null;
 }
 
 export interface OutstandingAdvanceRow {
@@ -986,10 +1140,21 @@ export class ApiService {
 
   // --- Référentiels --------------------------------------------------------
 
-  partners(page = 1, search?: string): Observable<Page<Partner>> {
+  partners(page = 1, search?: string, type?: string): Observable<Page<Partner>> {
     let params = new HttpParams().set('page', page).set('pageSize', 50);
     if (search) params = params.set('search', search);
+    if (type) params = params.set('type', type);
     return this.http.get<Page<Partner>>(`${this.base}/referentials/partners`, { params });
+  }
+
+  /**
+   * Contrats-cadres actifs — un contrat peut porter plusieurs affaires (§ 5.1).
+   * Lecture dédiée à la création d'affaire, pas le référentiel générique : le
+   * commercial peut créer une affaire sans avoir le droit de lire la fiche
+   * contrat complète (`/referentials/contracts`, réservée DG/CCOO/CFO).
+   */
+  contracts(): Observable<ContractRow[]> {
+    return this.http.get<ContractRow[]>(`${this.base}/deals/lookups/contracts`);
   }
 
   currencies(): Observable<unknown[]> {
@@ -1040,6 +1205,16 @@ export class ApiService {
 
   deal(id: string): Observable<DealDetail> {
     return this.http.get<DealDetail>(`${this.base}/deals/${id}`);
+  }
+
+  /**
+   * Création d'affaire — champs de base uniquement (SPECIFICATIONS.md § 5.4).
+   * Le chiffrage des coûts et le rattachement d'un prix fournisseur se font
+   * ENSUITE, depuis la fiche affaire (`erp-deal-costing`, `erp-deal-actions`) :
+   * ils exigent un `dealId` existant, la création ne peut pas les porter.
+   */
+  createDeal(dto: CreateDealInput): Observable<DealRow> {
+    return this.http.post<DealRow>(`${this.base}/deals`, dto);
   }
 
   costPosts2(): Observable<CostPostRow[]> {
@@ -1217,6 +1392,41 @@ export class ApiService {
     return this.http.patch(`${this.base}/invoices/${id}/issue`, { dueDate });
   }
 
+  /** Annulation directe — fermée dès qu'un encaissement existe (§ arbitrage 15/08). */
+  cancelInvoice(id: string, reason: string): Observable<unknown> {
+    return this.http.patch(`${this.base}/invoices/${id}/cancel`, { reason });
+  }
+
+  /** Reprise d'une transmission FNE restée en attente ou à corriger. */
+  retryFneTransmission(id: string): Observable<unknown> {
+    return this.http.patch(`${this.base}/invoices/${id}/fne/retry`, {});
+  }
+
+  /** Met en file la génération du PDF (§ 1.1) — jamais rendue en ligne. */
+  queueInvoicePdf(id: string): Observable<{ jobId: string }> {
+    return this.http.post<{ jobId: string }>(`${this.base}/invoices/${id}/pdf`, {});
+  }
+
+  documentPdfJobStatus(jobId: string): Observable<{
+    state: string;
+    attemptsMade: number;
+    failedReason: string | null;
+    result: { documentId: string; reference: string } | null;
+  }> {
+    return this.http.get<{
+      state: string;
+      attemptsMade: number;
+      failedReason: string | null;
+      result: { documentId: string; reference: string } | null;
+    }>(`${this.base}/documents/jobs/${jobId}`);
+  }
+
+  /** En `blob` et non en `<a href>` nu : le jeton porté par l'intercepteur
+   *  est un en-tête `Authorization`, que la navigation native ne pose jamais. */
+  downloadDocument(documentId: string): Observable<Blob> {
+    return this.http.get(`${this.base}/documents/${documentId}/download`, { responseType: 'blob' });
+  }
+
   recordInvoicePayment(
     id: string,
     body: { amount: number; currencyCode: string; valueDate: string; bankReference?: string },
@@ -1327,8 +1537,62 @@ export class ApiService {
     return this.http.get<InvariantBreach[]>(`${this.base}/supervision/invariants`);
   }
 
+  // --- Barge (§ 13 module 7) ------------------------------------------------
+
+  bargePnL(): Observable<BargePnLRow[]> {
+    return this.http.get<BargePnLRow[]>(`${this.base}/supervision/barges`);
+  }
+
+  vehicleMaintenance(vehicleId: string): Observable<VehicleMaintenanceRow[]> {
+    return this.http.get<VehicleMaintenanceRow[]>(`${this.base}/vehicles/${vehicleId}/maintenance`);
+  }
+
+  recordMaintenance(vehicleId: string, body: Record<string, unknown>): Observable<unknown> {
+    return this.http.post(`${this.base}/vehicles/${vehicleId}/maintenance`, body);
+  }
+
+  // --- Recouvrement (§ 3.3, § 14.6) -----------------------------------------
+
+  agedReceivables(): Observable<AgedReceivables> {
+    return this.http.get<AgedReceivables>(`${this.base}/supervision/aged-receivables`);
+  }
+
+  dunningHistory(invoiceId: string): Observable<DunningActionRow[]> {
+    return this.http.get<DunningActionRow[]>(`${this.base}/invoices/${invoiceId}/dunning`);
+  }
+
+  recordDunning(invoiceId: string, body: Record<string, unknown>): Observable<unknown> {
+    return this.http.post(`${this.base}/invoices/${invoiceId}/dunning`, body);
+  }
+
   parametresRequis(): Observable<ParametreRequis[]> {
     return this.http.get<ParametreRequis[]>(`${this.base}/supervision/parametres-requis`);
+  }
+
+  // --- Journal d'audit (§ 1.4) — DG / IT_ADMIN uniquement --------------------
+
+  auditLog(filters: AuditLogFilters = {}, page = 1): Observable<Page<AuditLogRow>> {
+    let params = new HttpParams().set('page', page).set('pageSize', 50);
+    for (const [k, v] of Object.entries(filters)) {
+      if (v) params = params.set(k, v);
+    }
+    return this.http.get<Page<AuditLogRow>>(`${this.base}/audit-log`, { params });
+  }
+
+  // --- Demandes de cotation (portail → commercial) --------------------------
+
+  quotations(status?: string): Observable<QuotationRequestInternalRow[]> {
+    let params = new HttpParams();
+    if (status) params = params.set('status', status);
+    return this.http.get<QuotationRequestInternalRow[]>(`${this.base}/quotations`, { params });
+  }
+
+  markQuotationInReview(id: string): Observable<unknown> {
+    return this.http.patch(`${this.base}/quotations/${id}/en-etude`, {});
+  }
+
+  declineQuotation(id: string, reason: string): Observable<unknown> {
+    return this.http.patch(`${this.base}/quotations/${id}/decliner`, { reason });
   }
 
   // --- Pilotage financier (§ 14.3, § 14.5, § 14.6) -------------------------

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Injectable,
   Param,
@@ -213,8 +214,19 @@ export class SupplierInvoicesService {
         prepaidAmount: true,
         currencyCode: true,
         settledAt: true,
+        recordedById: true,
       },
     });
+
+    // ⚠️ CORRIGÉ (audit, axe C, S1) — séparation des tâches. Celui qui a saisi
+    // la facture fournisseur ne peut pas être celui qui en déclenche le
+    // règlement : sans ce garde-fou, une pièce fictive et son paiement
+    // pouvaient sortir de la même main, sans second regard.
+    if (invoice.recordedById === actorId) {
+      throw new ForbiddenException(
+        'Séparation des tâches : la personne qui a saisi cette facture fournisseur ne peut pas en enregistrer le règlement. Un autre compte doit le faire.',
+      );
+    }
 
     const paid = round4(Number(invoice.paidAmount) + dto.amount);
     if (paid > Number(invoice.amount) + 0.01) {

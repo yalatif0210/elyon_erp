@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Injectable,
   NotFoundException,
   Param,
@@ -11,6 +12,7 @@ import {
   Post,
   Query,
   Req,
+  StreamableFile,
 } from '@nestjs/common';
 import {
   ActorType,
@@ -35,12 +37,15 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import { InjectQueue } from '@nestjs/bullmq';
+import type { Queue } from 'bullmq';
 import { AuditService } from '../common/audit/audit.service';
-import { FieldRoles, Realm, RequireRealm, Roles } from '../common/auth/realm';
+import { FieldRoles, Public, Realm, RequireRealm, Roles } from '../common/auth/realm';
 import { Page, PaginationQuery, paginate } from '../common/http/pagination.dto';
 import { FieldActor, FieldScopeService } from '../field/field-scope.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ReferenceService } from '../common/reference/reference.service';
+import { StorageService } from '../common/storage/storage.service';
 
 // ===========================================================================
 //  DTO
@@ -126,6 +131,7 @@ export class DocumentsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly reference: ReferenceService,
+    private readonly storage: StorageService,
   ) {}
 
   async list(query: DocumentQuery): Promise<Page<unknown>> {
@@ -179,8 +185,37 @@ export class DocumentsService {
     });
   }
 
-  /** Enregistre une pièce produite. Non scellée : elle reste rectifiable. */
-  async register(dto: RegisterDocumentDto, actorId: string) {
+  /**
+   * Binaire d'une pièce SCELLÉE — une pièce encore mutable n'a pas de contenu
+   * qu'on puisse promettre stable à qui le reçoit.
+   *
+   * `extraWhere` porte le cloisonnement de l'appelant (ex. portail : la pièce
+   * doit se rattacher à une facture du tiers du jeton) — c'est au contrôleur
+   * de le fournir, jamais à ce service de deviner qui appelle.
+   */
+  async download(id: string, extraWhere: Prisma.GeneratedDocumentWhereInput = {}) {
+    const doc = await this.prisma.generatedDocument.findFirst({
+      where: { id, isSealed: true, ...extraWhere },
+      select: { storageKey: true, mimeType: true, sizeBytes: true, reference: true },
+    });
+    if (!doc) throw new NotFoundException('Pièce introuvable.');
+    if (!(await this.storage.exists(doc.storageKey))) {
+      throw new NotFoundException(
+        'La référence existe mais le fichier est absent du stockage — à signaler.',
+      );
+    }
+    return { doc, flux: this.storage.read(doc.storageKey) };
+  }
+
+  /**
+   * Enregistre une pièce produite. Non scellée : elle reste rectifiable.
+   *
+   * `precomputedToken` sert au générateur PDF (`DocumentsPdfProcessor`) : le
+   * jeton doit être connu AVANT le rendu pour être imprimé dans le QR code du
+   * document lui-même — l'enregistrement ne peut pas en fournir un nouveau
+   * après coup, le PDF serait déjà figé avec le mauvais jeton dedans.
+   */
+  async register(dto: RegisterDocumentDto, actorId: string, precomputedToken?: string) {
     if (!dto.dealId && !dto.operationId && !dto.invoiceId) {
       throw new BadRequestException(
         'Une pièce doit être rattachée à une affaire, une opération ou une facture — sans quoi elle est introuvable le jour où on la cherche.',
@@ -198,7 +233,7 @@ export class DocumentsService {
         mimeType: dto.mimeType ?? 'application/pdf',
         sizeBytes: BigInt(Math.round(dto.sizeBytes)),
         sha256: dto.sha256,
-        authenticityToken: randomBytes(24).toString('hex'),
+        authenticityToken: precomputedToken ?? randomBytes(24).toString('hex'),
         generatedById: actorId,
       },
     });
@@ -409,7 +444,31 @@ export class DocumentsService {
 @Controller('api/internal/documents')
 @RequireRealm(Realm.INTERNAL)
 export class DocumentsController {
-  constructor(private readonly service: DocumentsService) {}
+  constructor(
+    private readonly service: DocumentsService,
+    @InjectQueue('documents') private readonly documentsQueue: Queue,
+  ) {}
+
+  /** Suivi d'une génération PDF mise en file (§ 1.1). */
+  @Get('jobs/:jobId')
+  @Roles(
+    UserRole.DG,
+    UserRole.CCOO,
+    UserRole.FINANCE_CFO,
+    UserRole.ACCOUNTANT,
+    UserRole.LOGISTICS_COORD,
+  )
+  async jobStatus(@Param('jobId') jobId: string) {
+    const job = await this.documentsQueue.getJob(jobId);
+    if (!job) throw new NotFoundException('Tâche de génération introuvable : peut-être déjà purgée.');
+    const state = await job.getState();
+    return {
+      state,
+      attemptsMade: job.attemptsMade,
+      failedReason: job.failedReason ?? null,
+      result: state === 'completed' ? job.returnvalue : null,
+    };
+  }
 
   @Get()
   @Roles(
@@ -424,15 +483,20 @@ export class DocumentsController {
     return this.service.list(query);
   }
 
+  /**
+   * ⚠️ CORRIGÉ — CETTE ROUTE ÉTAIT DÉCRITE COMME PUBLIQUE ET NE L'ÉTAIT PAS.
+   *
+   *    Le commentaire de `DocumentsService.verify` dit depuis toujours
+   *    « route PUBLIQUE par destination » : un client, un assureur ou un
+   *    auditeur qui scanne le QR code d'un papier n'a — et ne doit pas avoir —
+   *    de compte interne. Elle héritait pourtant du réalm `INTERNAL` et d'une
+   *    liste de rôles posés sur la classe et la méthode : quiconque scannait
+   *    le QR code sans jeton interne valide recevait un 401, jamais la
+   *    vérification promise. Seul un usage interne, jamais testé pour de vrai
+   *    depuis un papier, ne l'aurait révélé.
+   */
   @Get('verify/:token')
-  @Roles(
-    UserRole.DG,
-    UserRole.CCOO,
-    UserRole.FINANCE_CFO,
-    UserRole.ACCOUNTANT,
-    UserRole.LOGISTICS_COORD,
-    UserRole.ASSISTANT_DG,
-  )
+  @Public()
   verify(@Param('token') token: string) {
     return this.service.verify(token);
   }
@@ -447,6 +511,24 @@ export class DocumentsController {
   )
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.findOne(id);
+  }
+
+  @Get(':id/download')
+  @Roles(
+    UserRole.DG,
+    UserRole.CCOO,
+    UserRole.FINANCE_CFO,
+    UserRole.ACCOUNTANT,
+    UserRole.LOGISTICS_COORD,
+  )
+  @Header('Cache-Control', 'private, max-age=3600')
+  async download(@Param('id', ParseUUIDPipe) id: string) {
+    const { doc, flux } = await this.service.download(id);
+    return new StreamableFile(flux as never, {
+      type: doc.mimeType,
+      length: Number(doc.sizeBytes),
+      disposition: `attachment; filename="${doc.reference}.pdf"`,
+    });
   }
 
   @Post()

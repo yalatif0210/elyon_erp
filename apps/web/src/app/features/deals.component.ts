@@ -2,6 +2,7 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService, DealDetail, DealRow } from '../core/api.service';
+import { AuthService } from '../core/auth.service';
 import { IconComponent } from '../shared/icon.component';
 import { PaginationComponent } from '../shared/tableau';
 import { grouper } from '../shared/format';
@@ -52,6 +53,12 @@ export function dealStatus(code: string): { label: string; kind: StatusKind } {
         <h1 class="page-title">Affaires</h1>
         <p class="page-sub">Du chiffrage à la facturation : marge et seuils</p>
       </div>
+      @if (auth.hasRole('SALES_REP', 'CCOO')) {
+        <a routerLink="/affaires/nouvelle" class="btn-primary">
+          <erp-icon name="plus" [size]="14" />
+          Nouvelle affaire
+        </a>
+      }
     </header>
 
     <div class="mb-4 flex flex-wrap items-center gap-2">
@@ -143,6 +150,7 @@ export function dealStatus(code: string): { label: string; kind: StatusKind } {
 })
 export class DealsComponent implements OnInit {
   private readonly api = inject(ApiService);
+  protected readonly auth = inject(AuthService);
 
   protected readonly rows = signal<DealRow[]>([]);
 
@@ -228,6 +236,13 @@ export class DealsComponent implements OnInit {
       });
   }
 }
+
+const INVOICE_TYPE_LABEL: Record<string, string> = {
+  PROFORMA: 'Proforma',
+  SIMPLE: 'Facture simple',
+  FNE: 'Facture normalisée (FNE)',
+  CREDIT_NOTE: 'Avoir',
+};
 
 /**
  * Détail d'une affaire.
@@ -447,12 +462,12 @@ export class DealsComponent implements OnInit {
             </dl>
           </section>
 
-          <!-- ============ Suites ============ -->
+          <!-- ============ Opérations ============ -->
           <section class="card overflow-hidden">
-            <div class="card-header"><h2 class="card-title">Opérations et pièces</h2></div>
-            @if (d.operations.length === 0 && d.invoices.length === 0) {
+            <div class="card-header"><h2 class="card-title">Opérations</h2></div>
+            @if (d.operations.length === 0) {
               <p class="empty">
-                Aucune opération ni pièce.<br />
+                Aucune opération.<br />
                 Le verrou financier interdit toute opération sur une affaire non approuvée.
               </p>
             } @else {
@@ -471,17 +486,95 @@ export class DealsComponent implements OnInit {
                       <td class="text-right text-ink-soft">{{ op.status }}</td>
                     </tr>
                   }
+                </tbody>
+              </table>
+            }
+          </section>
+
+          <!-- ============ Dossier financier ============
+               Le dossier d'affaire ne s'arrête pas à l'exécution : proformas,
+               factures client (simple/FNE) et avoirs vivent tous dans la même
+               table invoices, distingués par leur type, pas de vue séparée
+               à synchroniser. Une affaire clôturée reste donc consultable ici
+               avec toutes ses pièces, tant que le dossier existe. -->
+          <section class="card mt-5 overflow-hidden">
+            <div class="card-header"><h2 class="card-title">Facturation client</h2></div>
+            @if (d.invoices.length === 0) {
+              <p class="empty">Aucune pièce émise pour le moment.</p>
+            } @else {
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Pièce</th>
+                    <th>Type</th>
+                    <th>Statut</th>
+                    <th class="num">Montant</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
                   @for (inv of d.invoices; track inv.id) {
                     <tr>
-                      <td><span class="ref">{{ inv.number }}</span></td>
-                      <td class="num font-mono text-ink-soft">{{ money(inv.totalAmount) }}</td>
-                      <td class="text-right text-ink-soft">{{ inv.type }}</td>
+                      <td><span class="ref">{{ inv.number ?? '-' }}</span></td>
+                      <td class="text-ink-soft">{{ invoiceTypeLabel(inv.type) }}</td>
+                      <td class="text-ink-soft">{{ inv.status }}</td>
+                      <td class="num font-mono text-ink-soft">{{ money(inv.totalAmount) }} {{ inv.currencyCode }}</td>
+                      <td>
+                        @if (inv.generatedDocuments.length > 0) {
+                          <button
+                            class="btn-ghost !h-7 !px-2.5 text-[12px]"
+                            (click)="telechargerDocument(inv.generatedDocuments[0].id, inv.generatedDocuments[0].reference)"
+                            [disabled]="telechargement() === inv.generatedDocuments[0].id"
+                          >
+                            <erp-icon name="file-text" [size]="12" />
+                            {{ telechargement() === inv.generatedDocuments[0].id ? '…' : 'PDF' }}
+                          </button>
+                        }
+                      </td>
                     </tr>
                   }
                 </tbody>
               </table>
             }
           </section>
+
+          <!-- Absente pour LOGISTICS_COORD : un prix d'achat visible à côté
+               du chiffre d'affaires livrerait la marge par soustraction. -->
+          @if (d.supplierInvoices) {
+            <section class="card mt-5 overflow-hidden">
+              <div class="card-header"><h2 class="card-title">Factures fournisseurs</h2></div>
+              @if (d.supplierInvoices.length === 0) {
+                <p class="empty">Aucune facture fournisseur rattachée.</p>
+              } @else {
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Référence</th>
+                      <th>Fournisseur</th>
+                      <th>Statut</th>
+                      <th class="num">Montant</th>
+                      <th>Apurée le</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (si of d.supplierInvoices; track si.id) {
+                      <tr>
+                        <td><span class="ref">{{ si.reference }}</span></td>
+                        <td class="text-ink-soft">{{ si.supplier.legalName }}</td>
+                        <td class="text-ink-soft">{{ si.status }}</td>
+                        <td class="num font-mono text-ink-soft">{{ money(si.amount) }} {{ si.currencyCode }}</td>
+                        <td class="font-mono text-[12px] text-ink-soft">{{ si.settledAt ? day(si.settledAt) : '-' }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+              <p class="px-[15px] pb-3 text-[11px] text-ink-faint">
+                Pièce scannée : pas encore de dépôt de fichier pour les factures fournisseurs — la
+                référence et le montant sont saisis, l'original reste hors système à ce jour.
+              </p>
+            </section>
+          }
         </div>
       </div>
     } @else {
@@ -494,6 +587,7 @@ export class DealDetailComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
 
   protected readonly deal = signal<DealDetail | null>(null);
+  protected readonly telechargement = signal<string | null>(null);
 
   ngOnInit(): void {
     this.reload();
@@ -523,6 +617,27 @@ export class DealDetailComponent implements OnInit {
 
   protected day(iso: string): string {
     return iso.slice(0, 10);
+  }
+
+  protected invoiceTypeLabel(type: string): string {
+    return INVOICE_TYPE_LABEL[type] ?? type;
+  }
+
+  protected telechargerDocument(documentId: string, reference: string): void {
+    if (this.telechargement()) return;
+    this.telechargement.set(documentId);
+    this.api.downloadDocument(documentId).subscribe({
+      next: (blob) => {
+        this.telechargement.set(null);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${reference}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => this.telechargement.set(null),
+    });
   }
 
   protected volume(d: DealDetail): string {

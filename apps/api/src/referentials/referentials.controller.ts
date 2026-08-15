@@ -389,6 +389,7 @@ export class ReferentialsService {
           taxRegime: true,
           isVatExempt: true,
           vatExemptionReference: true,
+          isGovernmentInstitution: true,
           paymentTermsDays: true,
           supplierTermsDays: true,
           isActive: true,

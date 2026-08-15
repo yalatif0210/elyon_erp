@@ -248,6 +248,7 @@ BEGIN
        AND (m.product_id IS NULL OR m.product_id = p_product_id)
        AND m.currency_code = p_currency
        AND m.uom::text     = p_uom
+       AND m.is_active
        AND m.effective_from <= p_on
        AND (m.effective_to IS NULL OR m.effective_to >= p_on)
      ORDER BY (m.product_id IS NOT NULL) DESC, m.effective_from DESC
@@ -287,6 +288,7 @@ BEGIN
      WHERE (u.segment IS NULL        OR u.segment::text = p_segment)
        AND (u.transport_mode IS NULL OR u.transport_mode::text = p_transport_mode)
        AND (u.product_id IS NULL     OR u.product_id = p_product_id)
+       AND u.is_active
        AND u.effective_from <= p_on
        AND (u.effective_to IS NULL OR u.effective_to >= p_on)
      ORDER BY (u.product_id IS NOT NULL)::int

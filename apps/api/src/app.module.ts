@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -16,6 +17,8 @@ import {
   FieldDocumentsController,
   FieldDocumentsService,
 } from './documents/documents.controller';
+import { PdfRendererService } from './documents/pdf-renderer.service';
+import { DocumentsPdfProcessor } from './documents/pdf.processor';
 import {
   FieldOperationsController,
   FieldOperationsService,
@@ -30,6 +33,8 @@ import { FieldSyncController, FieldSyncService } from './field/field-sync.contro
 import { HealthController } from './health/health.controller';
 import { FieldHseController, HseController, HseService } from './hse/hse.controller';
 import { InvoicesController, InvoicesService } from './invoicing/invoices.controller';
+import { FneClientService } from './invoicing/fne-client.service';
+import { CollectionsController, CollectionsService } from './invoicing/collections.controller';
 import { OperationsController, OperationsService } from './operations/operations.controller';
 import {
   SupplierInvoicesController,
@@ -48,14 +53,25 @@ import {
   ReferentialsController,
   ReferentialsService,
 } from './referentials/referentials.controller';
+import { PortalController, PortalService } from './portal/portal.controller';
+import { AuditLogController, AuditLogService } from './common/audit/audit-log.controller';
+import { QuotationsController, QuotationsService } from './sales/quotations.controller';
+import {
+  BargeService,
+  BargeSupervisionController,
+  VehicleMaintenanceController,
+} from './transport/barge.controller';
 
 /**
  * Racine du monolithe modulaire (SPECIFICATIONS.md § 1.2).
  *
  * LOT 1 — socle, référentiels, conformité, dérogations.
- * LOT 2 — deals et chaîne de marge, opérations, HSE, facturation, registre
- *         fournisseurs, documents et signatures, pilotage.
- *         Restent à venir : fiscal (transmission FNE réelle) · field · portal.
+ * LOT 2 — deals et chaîne de marge, opérations, HSE, facturation (dont la
+ *         transmission FNE réelle et la génération PDF), registre
+ *         fournisseurs, documents et signatures, pilotage, terrain mobile,
+ *         barge (maintenance et compte d'exploitation), recouvrement,
+ *         portail client (API — pas d'application frontale dédiée, voir
+ *         portal.controller.ts).
  *
  * Les guards sont montés GLOBALEMENT : une route nouvelle est authentifiée par
  * défaut et doit se déclarer explicitement publique. L'inverse — ouvrir par
@@ -80,6 +96,11 @@ import {
       },
     }),
     AuthModule,
+    // Génération PDF (§ 1.1, § 12) — déclenchée par un job, jamais rendue en
+    // ligne dans la requête HTTP : Chromium headless prend plusieurs
+    // centaines de millisecondes, une durée qu'une requête d'émission de
+    // facture n'a pas à porter.
+    BullModule.registerQueue({ name: 'documents' }),
   ],
   controllers: [
     HealthController,
@@ -101,6 +122,12 @@ import {
     FieldDocumentsController,
     CrmController,
     SupervisionController,
+    VehicleMaintenanceController,
+    BargeSupervisionController,
+    CollectionsController,
+    PortalController,
+    QuotationsController,
+    AuditLogController,
   ],
   providers: [
     ReferentialsService,
@@ -116,11 +143,19 @@ import {
     FieldAttachmentsService,
     FieldScopeService,
     InvoicesService,
+    FneClientService,
     SupplierInvoicesService,
     DocumentsService,
     FieldDocumentsService,
+    PdfRendererService,
+    DocumentsPdfProcessor,
     CrmService,
     SupervisionService,
+    BargeService,
+    CollectionsService,
+    PortalService,
+    QuotationsService,
+    AuditLogService,
     { provide: APP_GUARD, useClass: LocalizedThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     // Traduit les refus d'invariants de la base en 422 intelligibles :
