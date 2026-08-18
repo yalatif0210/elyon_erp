@@ -25,6 +25,7 @@ import {
 } from '@prisma/client';
 import { FieldRoles, Realm, RequireRealm } from '../common/auth/realm';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { FieldScopeService } from './field-scope.service';
 
 // ===========================================================================
 //  VUE TERRAIN — OBJET DE TRANSPORT DÉDIÉ (SPECIFICATIONS.md § 10.3)
@@ -359,7 +360,10 @@ interface FieldActor {
 
 @Injectable()
 export class FieldOperationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly perimetre: FieldScopeService,
+  ) {}
 
   /**
    * Périmètre de l'agent, exprimé en clause `WHERE`.
@@ -385,8 +389,10 @@ export class FieldOperationsService {
    * `?agentId=` transformerait le cloisonnement en suggestion.
    */
   async list(actor: FieldActor): Promise<FieldOperationSummary[]> {
+    // Suppléance HSE comprise (§ 3.4) : voir `FieldScopeService.effectiveActor`.
+    const effectif = await this.perimetre.effectiveActor(actor);
     const rows = await this.prisma.operation.findMany({
-      where: { ...this.scope(actor), status: { in: FIELD_ACTIVE_STATUSES } },
+      where: { ...this.scope(effectif), status: { in: FIELD_ACTIVE_STATUSES } },
       orderBy: [{ plannedLoadingDate: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }],
       take: FIELD_LIST_CAP,
       select: {
@@ -437,8 +443,9 @@ export class FieldOperationsService {
 
   /** Détail d'une opération, dans la vue terrain et rien d'autre. */
   async findOne(id: string, actor: FieldActor): Promise<FieldOperationDetail> {
+    const effectif = await this.perimetre.effectiveActor(actor);
     const operation = await this.prisma.operation.findFirst({
-      where: { id, ...this.scope(actor) },
+      where: { id, ...this.scope(effectif) },
       select: {
         id: true,
         reference: true,

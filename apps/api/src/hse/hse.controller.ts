@@ -489,9 +489,18 @@ export class FieldHseController {
     return this.service.recordItem(itemId, dto, req.auth.sub);
   }
 
-  /** Le CONTRÔLEUR HSE valide — et lui seul. */
+  /**
+   * Le CONTRÔLEUR HSE valide — ou son suppléant en cours de délégation (§ 3.4).
+   *
+   * `FIELD_AGENT` figure dans la liste POUR NE PAS BLOQUER LE SUPPLÉANT AU
+   * PORTAIL : son rôle déclaré reste agent, seule une délégation active lui
+   * ouvre cette route. Le tri réel — contrôleur de plein droit, suppléant
+   * opposable, ou ni l'un ni l'autre — se fait en base
+   * (`enforce_hse_separation_of_duties`, § 37), pas ici : un agent qui tente
+   * sans délégation reçoit le refus circonstancié du trigger, pas un 403 nu.
+   */
   @Patch('checks/:checkId/validate')
-  @FieldRoles(FieldRole.HSE_CONTROLLER)
+  @FieldRoles(FieldRole.HSE_CONTROLLER, FieldRole.FIELD_AGENT)
   async validate(
     @Param('checkId', ParseUUIDPipe) checkId: string,
     @Body() dto: ValidateCheckDto,

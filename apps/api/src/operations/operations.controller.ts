@@ -134,6 +134,10 @@ export class TransitionDto {
   @IsOptional() @IsString() @MaxLength(1000) reason?: string;
 }
 
+class AttachHseDerogationDto {
+  @IsUUID() derogationId!: string;
+}
+
 class CostLineDto {
   @IsUUID() costPostId!: string;
   @IsOptional() @IsString() @MaxLength(255) description?: string;
@@ -575,6 +579,47 @@ export class OperationsService {
       entityId: operationId,
       before: { status: current.status },
       after: { status: dto.to },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Rattache une dérogation HSE_BLOCKING_OVERRIDE à l'opération — LE SEUL
+   * moyen de lever un verrou HSE que rien, sur le terrain, ne peut satisfaire
+   * (§ 11.2).
+   *
+   * ⚠️ CORRIGÉ — `hseDerogationId` N'ÉTAIT ÉCRIT NULLE PART.
+   *
+   *    Le trigger `enforce_hse_gate_before_loading` (§ 05) sait depuis
+   *    toujours lever le verrou sur une dérogation opposable — c'est même la
+   *    branche par laquelle il commence. Mais aucun code applicatif n'écrivait
+   *    jamais cette colonne : une opération bloquée par un point HSE
+   *    réellement irrattrapable (équipement manquant qu'on ne peut pas faire
+   *    apparaître sur site) n'avait AUCUNE issue. Pas de repli, pas de geste
+   *    de rattrapage — le seul chemin prévu par la base restait inatteignable.
+   *
+   *    Rien n'est validé ICI à dessein : la dérogation doit exister (créée au
+   *    préalable via `POST /derogations`, type HSE_BLOCKING_OVERRIDE), et
+   *    c'est le TRIGGER, au prochain changement de statut, qui décidera si
+   *    elle est réellement opposable — actif, non révoquée, non expirée, et
+   *    posée sur cette opération précise si elle désigne un sujet. Dupliquer
+   *    ce contrôle ici lui donnerait une seconde version, vouée à diverger.
+   */
+  async attachHseDerogation(operationId: string, derogationId: string, actorId: string) {
+    const updated = await this.prisma.operation.update({
+      where: { id: operationId },
+      data: { hseDerogationId: derogationId },
+      select: { id: true, reference: true, hseDerogationId: true },
+    });
+
+    await this.audit.record({
+      actorType: ActorType.INTERNAL_USER,
+      actorId,
+      action: AuditAction.OVERRIDE,
+      entityType: 'Operation',
+      entityId: operationId,
+      after: { hseDerogationId: derogationId },
     });
 
     return updated;
@@ -1084,6 +1129,22 @@ export class OperationsController {
     @Req() req: { auth: { sub: string } },
   ) {
     return this.service.transition(id, dto, req.auth.sub);
+  }
+
+  /**
+   * Rattache la dérogation qui lève un verrou HSE autrement définitif
+   * (§ 11.2). La dérogation elle-même se crée au registre
+   * (`POST /derogations`, DG/DAF/CCOO) — cette route ne fait que la joindre à
+   * l'opération.
+   */
+  @Patch(':id/hse-derogation')
+  @Roles(UserRole.LOGISTICS_COORD, UserRole.CCOO, UserRole.DG)
+  attachHseDerogation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AttachHseDerogationDto,
+    @Req() req: { auth: { sub: string } },
+  ) {
+    return this.service.attachHseDerogation(id, dto.derogationId, req.auth.sub);
   }
 
   @Post(':id/cost-lines')

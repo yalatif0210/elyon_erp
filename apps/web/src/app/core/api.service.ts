@@ -1247,6 +1247,30 @@ export class ApiService {
     return this.http.post<Derogation>(`${this.base}/derogations`, body);
   }
 
+  // --- Suppléance du contrôleur HSE (§ 3.4) --------------------------------
+  //
+  // ⚠️ CORRIGÉ — NI LA ROUTE NI L'ÉCRAN N'EXISTAIENT. Voir le commentaire de
+  //    `DelegationService` (derogations.controller.ts) pour les trois
+  //    endroits qui devaient bouger ensemble pour que la suppléance ait un
+  //    effet réel, pas seulement une ligne de registre.
+
+  fieldUsersForDelegation(): Observable<
+    { id: string; fullName: string; email: string; role: string }[]
+  > {
+    return this.http.get<{ id: string; fullName: string; email: string; role: string }[]>(
+      `${this.base}/delegations/field-users`,
+    );
+  }
+
+  createDelegation(body: {
+    delegateFieldUserId: string;
+    reason: string;
+    startsAt: string;
+    endsAt: string;
+  }): Observable<unknown> {
+    return this.http.post(`${this.base}/delegations`, body);
+  }
+
   // --- Référentiels --------------------------------------------------------
 
   partners(page = 1, search?: string, type?: string): Observable<Page<Partner>> {
@@ -1461,6 +1485,17 @@ export class ApiService {
       `${this.base}/operations/${operationId}/site-requirements/${requirementId}/acknowledge`,
       { note },
     );
+  }
+
+  /**
+   * Rattache la dérogation qui lève un verrou HSE autrement définitif
+   * (§ 11.2). Voir `erp-derogation-inline` pour l'octroi de la dérogation
+   * elle-même.
+   */
+  attachHseDerogation(operationId: string, derogationId: string): Observable<unknown> {
+    return this.http.patch(`${this.base}/operations/${operationId}/hse-derogation`, {
+      derogationId,
+    });
   }
 
   assignMeans(

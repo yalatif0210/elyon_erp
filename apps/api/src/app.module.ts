@@ -3,7 +3,12 @@ import { BullModule } from '@nestjs/bullmq';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { DerogationController, DerogationService } from './admin/derogations.controller';
+import {
+  DelegationController,
+  DelegationService,
+  DerogationController,
+  DerogationService,
+} from './admin/derogations.controller';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './common/auth/jwt-auth.guard';
 import { ScreenAccessController } from './common/auth/screen-access.controller';
@@ -109,6 +114,7 @@ import {
     ParametersController,
     ComplianceController,
     DerogationController,
+    DelegationController,
     DealsController,
     OperationsController,
     HseController,
@@ -136,6 +142,7 @@ import {
     ParametersService,
     ComplianceService,
     DerogationService,
+    DelegationService,
     DealsService,
     MarginService,
     OperationsService,

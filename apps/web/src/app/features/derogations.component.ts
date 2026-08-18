@@ -25,20 +25,20 @@ const TYPE_LABELS: Record<string, string> = {
  * requis — vérifié en base de toute façon (`trg_derogation_authority`), ceci
  * n'est qu'un confort d'affichage qui évite un refus prévisible.
  *
- * ⚠️ `HSE_BLOCKING_OVERRIDE` ET `HSE_DELEGATION` SONT VOLONTAIREMENT ABSENTS.
+ * ⚠️ `HSE_DELEGATION` RESTE VOLONTAIREMENT ABSENTE D'ICI.
  *
- *    Aucun code applicatif ne les rattache à quoi que ce soit :
- *    `Operation.hseDerogationId` n'est écrit nulle part, et la création d'une
- *    suppléance HSE ne pose jamais la dérogation qui devrait l'accompagner.
- *    Les proposer ici produirait une dérogation enregistrée mais SANS EFFET —
- *    pire qu'une case manquante, une fausse impression d'avoir agi. Ce
- *    formulaire ne couvre donc que les types qu'une action de l'application
- *    sait effectivement invoquer (§ 11.2) : approbation d'affaire (marge,
- *    prix d'achat, encours), affectation de moyens, acquittement d'écart.
+ *    Pas parce qu'elle serait sans effet — elle en a un, désormais (§ 3.4,
+ *    voir `DelegationService`) — mais parce qu'elle ne se limite pas à une
+ *    dérogation : elle est TOUJOURS accompagnée d'une `Delegation` (le
+ *    suppléant, la fenêtre de dates), que ce formulaire générique ne sait pas
+ *    saisir. Elle a son propre encart plus bas, seul chemin qui pose les deux
+ *    ensemble. `HSE_BLOCKING_OVERRIDE`, elle, ne demande qu'un motif et un
+ *    sujet — elle a toute sa place ici.
  */
 const TYPES_ACCORDABLES: { type: string; roles: string[] }[] = [
   { type: 'MARGIN_BELOW_DIRECT_FLOOR', roles: ['DG'] },
   { type: 'TRANSPORT_NON_COMPLIANCE', roles: ['DG'] },
+  { type: 'HSE_BLOCKING_OVERRIDE', roles: ['DG', 'FINANCE_CFO', 'CCOO'] },
   { type: 'PURCHASE_PRICE_VARIANCE', roles: ['DG', 'FINANCE_CFO', 'CCOO'] },
   { type: 'CREDIT_LIMIT_OVERRIDE', roles: ['DG', 'FINANCE_CFO', 'CCOO'] },
   { type: 'ULLAGE_ACKNOWLEDGEMENT', roles: ['DG', 'FINANCE_CFO', 'CCOO'] },
@@ -149,6 +149,88 @@ const TYPES_ACCORDABLES: { type: string; roles: string[] }[] = [
             {{ creBusy() ? 'Envoi…' : 'Accorder' }}
           </button>
         </div>
+      </section>
+    }
+
+    <!-- ============ Suppléance du contrôleur HSE (§ 3.4) ============
+         ⚠️ CORRIGÉ — NI LA SUPPLÉANCE NI SON EFFET N'EXISTAIENT. Voir
+            DelegationService (derogations.controller.ts) pour les trois
+            endroits qui devaient bouger ensemble. -->
+    @if (isDg()) {
+      <section class="card mb-5">
+        <div class="card-header">
+          <h2 class="card-title">Suppléance du contrôleur HSE</h2>
+          <button class="btn-ghost" (click)="toggleDelegation()">
+            {{ showDelegation() ? 'Fermer' : 'Nommer un suppléant' }}
+          </button>
+        </div>
+        @if (showDelegation()) {
+          <div class="card-body">
+            <p class="mb-3 text-[12px] leading-relaxed text-ink-faint">
+              Le suppléant reste un agent terrain sur sa fiche — seule la fenêtre ci-dessous lui
+              donne, le temps qu'elle dure, les prérogatives du contrôleur HSE : voir les
+              checklists en attente d'un autre agent, et les valider à sa place.
+            </p>
+            @if (delegError()) {
+              <div
+                class="mb-3 flex items-start gap-2 rounded-[3px] bg-crit-wash px-3 py-2
+                       text-[13px] text-crit"
+                role="alert"
+              >
+                <erp-icon name="alert-triangle" [size]="14" class="mt-0.5 shrink-0" />
+                <span>{{ delegError() }}</span>
+              </div>
+            }
+            @if (delegDone()) {
+              <p
+                class="mb-3 flex items-center gap-2 rounded-[3px] bg-ok-wash px-3 py-2
+                       text-[13px] text-ok"
+                role="status"
+              >
+                <erp-icon name="check-circle" [size]="14" />
+                {{ delegDone() }}
+              </p>
+            }
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label class="label" for="deleg-agent">Agent suppléant</label>
+                <select id="deleg-agent" class="field" [(ngModel)]="delegAgentId">
+                  <option value="">Choisir</option>
+                  @for (a of agentsTerrain(); track a.id) {
+                    <option [value]="a.id">{{ a.fullName }} · {{ a.email }}</option>
+                  }
+                </select>
+              </div>
+              <div></div>
+              <div>
+                <label class="label" for="deleg-debut">Début</label>
+                <input id="deleg-debut" type="datetime-local" class="field" [(ngModel)]="delegStartsAt" />
+              </div>
+              <div>
+                <label class="label" for="deleg-fin">Fin</label>
+                <input id="deleg-fin" type="datetime-local" class="field" [(ngModel)]="delegEndsAt" />
+              </div>
+              <div class="md:col-span-2">
+                <label class="label" for="deleg-motif">Motif</label>
+                <textarea
+                  id="deleg-motif"
+                  class="field"
+                  rows="2"
+                  maxlength="1000"
+                  placeholder="Congé, formation, indisponibilité — 10 caractères minimum"
+                  [(ngModel)]="delegReason"
+                ></textarea>
+              </div>
+            </div>
+            <button
+              class="btn-primary mt-3"
+              [disabled]="delegBusy() || !delegComplet()"
+              (click)="creerDelegation()"
+            >
+              {{ delegBusy() ? 'Envoi…' : 'Nommer' }}
+            </button>
+          </div>
+        }
       </section>
     }
 
@@ -325,8 +407,65 @@ export class DerogationsComponent implements OnInit {
   protected readonly pending = signal<Derogation[]>([]);
   protected readonly total = signal(0);
 
+  // --- Suppléance du contrôleur HSE ----------------------------------------
+  protected readonly showDelegation = signal(false);
+  protected readonly agentsTerrain = signal<{ id: string; fullName: string; email: string }[]>([]);
+  protected readonly delegBusy = signal(false);
+  protected readonly delegError = signal<string | null>(null);
+  protected readonly delegDone = signal<string | null>(null);
+  protected delegAgentId = '';
+  protected delegStartsAt = '';
+  protected delegEndsAt = '';
+  protected delegReason = '';
+
   ngOnInit(): void {
     this.load();
+    if (this.isDg()) {
+      this.api.fieldUsersForDelegation().subscribe((rows) => this.agentsTerrain.set(rows));
+    }
+  }
+
+  protected toggleDelegation(): void {
+    this.showDelegation.set(!this.showDelegation());
+  }
+
+  protected delegComplet(): boolean {
+    return (
+      this.delegAgentId !== '' &&
+      this.delegStartsAt !== '' &&
+      this.delegEndsAt !== '' &&
+      this.delegEndsAt > this.delegStartsAt &&
+      this.delegReason.trim().length >= 10
+    );
+  }
+
+  protected creerDelegation(): void {
+    if (this.delegBusy() || !this.delegComplet()) return;
+    this.delegBusy.set(true);
+    this.delegError.set(null);
+    this.delegDone.set(null);
+    this.api
+      .createDelegation({
+        delegateFieldUserId: this.delegAgentId,
+        reason: this.delegReason.trim(),
+        startsAt: new Date(this.delegStartsAt).toISOString(),
+        endsAt: new Date(this.delegEndsAt).toISOString(),
+      })
+      .subscribe({
+        next: () => {
+          this.delegBusy.set(false);
+          this.delegDone.set('Suppléance accordée.');
+          this.delegAgentId = '';
+          this.delegStartsAt = '';
+          this.delegEndsAt = '';
+          this.delegReason = '';
+          this.load();
+        },
+        error: (e: HttpFailure) => {
+          this.delegBusy.set(false);
+          this.delegError.set(failureMessage(e, 'Suppléance refusée.'));
+        },
+      });
   }
 
   protected readonly dateOnly = dateOnly;

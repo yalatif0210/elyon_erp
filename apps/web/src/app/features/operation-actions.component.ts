@@ -283,6 +283,25 @@ const NEXT_STEPS: { to: string; label: string }[] = [
           <span>{{ gate.message }}</span>
         </div>
 
+        <!-- ============ Dérogation HSE_BLOCKING_OVERRIDE (§ 11.2) ============
+             ⚠️ CORRIGÉ — hseDerogationId n'était écrit nulle part : un point
+                bloquant réellement irrattrapable sur site (équipement absent
+                qu'on ne peut pas faire apparaître) n'avait AUCUNE issue. Le
+                trigger sait depuis toujours lever le verrou sur une dérogation
+                opposable — il lui manquait un geste pour la recevoir. -->
+        @if (!gate.open && !gate.byDerogation && peutLeverVerrouHse()) {
+          <div class="mb-3">
+            <erp-derogation-inline
+              type="HSE_BLOCKING_OVERRIDE"
+              subjectType="Operation"
+              [subjectId]="operation.reference"
+              [subjectLabel]="operation.reference"
+              titre="Aucun rattrapage possible sur site : lever le verrou par dérogation"
+              (accorde)="leverVerrouHse($event)"
+            />
+          </div>
+        }
+
         <div class="flex flex-wrap gap-2">
           @for (s of steps; track s.to) {
             <button
@@ -563,6 +582,23 @@ export class OperationActionsComponent {
 
   protected isDg(): boolean {
     return this.auth.role() === 'DG';
+  }
+
+  /** Qui peut lever le verrou HSE par dérogation — même liste que la route serveur. */
+  protected peutLeverVerrouHse(): boolean {
+    const r = this.auth.role();
+    return r === 'DG' || r === 'CCOO';
+  }
+
+  protected leverVerrouHse(derogationId: string): void {
+    this.state.start();
+    this.api.attachHseDerogation(this.operation.id, derogationId).subscribe({
+      next: () => {
+        this.state.succeed('Dérogation rattachée : le verrou HSE est levé.');
+        this.changed.emit();
+      },
+      error: (e: HttpFailure) => this.state.fail(e),
+    });
   }
 
   /** Le premier moyen SÉLECTIONNÉ qui n'est pas conforme, désigné par son libellé. */

@@ -94,6 +94,9 @@ const SQL_FILES = [
   // Verrou de clôture : lit generated_documents, qui existe déjà côté Prisma —
   // aucune dépendance d'ordre avec les fichiers précédents.
   '36_cloture_operation.sql',
+  // Remplace la fonction du trigger de séparation des tâches HSE posé par 05 :
+  // APRÈS lui, qui la définit une première fois.
+  '37_suppleance_hse_delegation.sql',
   // La file de tâches lit TOUTES les vues précédentes : elle vient en dernier.
   '22_file_de_taches.sql',
   // Paramètres requis : AVANT 15, dont deux règles d'invariant les lisent.
