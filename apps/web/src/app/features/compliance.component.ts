@@ -1,6 +1,6 @@
 import { Component, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ApiService, ComplianceSubject, ExpiryItem } from '../core/api.service';
+import { ApiService, ComplianceRecordDetail, ComplianceSubject, ExpiryItem } from '../core/api.service';
 import {
   ActionFeedbackComponent,
   ActionState,
@@ -302,7 +302,7 @@ export class ComplianceComponent implements OnInit {
         </thead>
         <tbody>
           @for (item of tableau.lignes(); track item.id) {
-            <tr>
+            <tr class="cursor-pointer hover:bg-gray-50" (click)="basculer(item.id)">
               <td class="text-ink">{{ typeLabel(item.type) }}</td>
               <td class="font-mono text-[12px] text-ink-muted">{{ item.reference }}</td>
               <td class="text-ink-soft">
@@ -332,6 +332,40 @@ export class ComplianceComponent implements OnInit {
                 }
               </td>
             </tr>
+            <!-- ⚠️ CORRIGÉ — GET /compliance/records/:id N'AVAIT AUCUN
+                 APPELANT : la liste ne montrait ni l'organisme émetteur, ni la
+                 date d'émission, ni la pièce numérisée elle-même. -->
+            @if (ouvert() === item.id) {
+              <tr>
+                <td colspan="7" class="bg-gray-50 px-4 py-3">
+                  @if (detail(); as d) {
+                    <dl class="grid grid-cols-2 gap-x-6 gap-y-1.5 text-[12px] md:grid-cols-4">
+                      <div><dt class="text-ink-faint">Organisme émetteur</dt><dd class="text-ink">{{ d.issuingBody ?? '-' }}</dd></div>
+                      <div><dt class="text-ink-faint">Émise le</dt><dd class="text-ink">{{ dateOnly(d.issueDate) }}</dd></div>
+                      <div><dt class="text-ink-faint">Enregistrée pour</dt>
+                        <dd class="text-ink">
+                          {{ d.partner?.legalName ?? d.vehicle?.registration ?? d.driver?.fullName ?? '-' }}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt class="text-ink-faint">Pièce numérisée</dt>
+                        <dd>
+                          @if (d.document) {
+                            <button type="button" class="link" (click)="voirDocument(d.id)">
+                              {{ d.document.title }} ↗
+                            </button>
+                          } @else {
+                            <span class="text-ink-faint">Aucune pièce jointe</span>
+                          }
+                        </dd>
+                      </div>
+                    </dl>
+                  } @else {
+                    <p class="text-[12px] text-ink-faint">Chargement…</p>
+                  }
+                </td>
+              </tr>
+            }
           } @empty {
             <tr>
               <td colspan="7" class="empty">
@@ -368,8 +402,28 @@ export class ExpiryComponent implements OnInit {
   protected horizon = 90;
   protected blockingOnly = false;
 
+  protected readonly ouvert = signal<string | null>(null);
+  protected readonly detail = signal<ComplianceRecordDetail | null>(null);
+
   ngOnInit(): void {
     this.load();
+  }
+
+  protected basculer(id: string): void {
+    if (this.ouvert() === id) {
+      this.ouvert.set(null);
+      return;
+    }
+    this.ouvert.set(id);
+    this.detail.set(null);
+    this.api.complianceRecord(id).subscribe((d) => this.detail.set(d));
+  }
+
+  protected voirDocument(recordId: string): void {
+    this.api.complianceDocumentBlob(recordId).subscribe((blob) => {
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    });
   }
 
   protected load(): void {

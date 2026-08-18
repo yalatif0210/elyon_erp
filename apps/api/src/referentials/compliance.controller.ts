@@ -2,12 +2,15 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Injectable,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
   Query,
   Req,
+  StreamableFile,
 } from '@nestjs/common';
 import {
   ActorType,
@@ -18,6 +21,7 @@ import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { SettingsService } from '../common/config/settings.service';
 import { AuditService } from '../common/audit/audit.service';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { StorageService } from '../common/storage/storage.service';
 
 /**
  * Conformité des tiers, véhicules et chauffeurs (SPECIFICATIONS.md § 6.4).
@@ -84,6 +88,7 @@ export class ComplianceService {
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
+    private readonly storage: StorageService,
   ) {}
 
   /** État de conformité consolidé — vue v_transport_compliance. */
@@ -173,6 +178,28 @@ export class ComplianceService {
   }
 
   /**
+   * Pièce numérisée derrière un enregistrement de conformité.
+   *
+   * ⚠️ CORRIGÉ — `GET records/:id` RENDAIT DÉJÀ `document.storageKey`, SANS
+   *    AUCUNE ROUTE POUR ALLER LE LIRE. Le détail d'un enregistrement de
+   *    conformité savait dire QUEL document l'atteste, jamais MONTRER ce
+   *    document — l'agrément, l'assurance ou le contrôle technique lui-même.
+   */
+  async downloadDocument(id: string) {
+    const record = await this.prisma.complianceRecord.findUnique({
+      where: { id },
+      select: { document: { select: { title: true, storageKey: true, mimeType: true, sizeBytes: true } } },
+    });
+    if (!record?.document) {
+      throw new NotFoundException('Aucune pièce numérisée rattachée à cet enregistrement.');
+    }
+    if (!(await this.storage.exists(record.document.storageKey))) {
+      throw new NotFoundException('La pièce est référencée mais le fichier est absent du stockage.');
+    }
+    return { doc: record.document, flux: this.storage.read(record.document.storageKey) };
+  }
+
+  /**
    * Préavis d'alerte sur les pièces à échéance (§ 6.6).
    *
    * Passe par le service de paramétrage plutôt que par une lecture directe :
@@ -220,5 +247,17 @@ export class ComplianceController {
   @Roles(UserRole.DG, UserRole.CCOO, UserRole.LOGISTICS_COORD, UserRole.ASSISTANT_DG)
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.findOne(id);
+  }
+
+  @Get('records/:id/document')
+  @Roles(UserRole.DG, UserRole.CCOO, UserRole.LOGISTICS_COORD, UserRole.ASSISTANT_DG)
+  @Header('Cache-Control', 'private, max-age=3600')
+  async downloadDocument(@Param('id', ParseUUIDPipe) id: string) {
+    const { doc, flux } = await this.service.downloadDocument(id);
+    return new StreamableFile(flux as never, {
+      type: doc.mimeType,
+      length: Number(doc.sizeBytes),
+      disposition: 'inline',
+    });
   }
 }

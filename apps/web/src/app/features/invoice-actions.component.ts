@@ -1,6 +1,17 @@
-import { Component, EventEmitter, Input, OnDestroy, Output, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  EventEmitter,
+  Input,
+  OnChanges,
+  OnDestroy,
+  Output,
+  SimpleChanges,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ApiService, DealRow, DeviseOption, InvoiceRow } from '../core/api.service';
+import { ApiService, DealRow, DeviseOption, InvoiceDetail, InvoiceRow } from '../core/api.service';
 import {
   ActionFeedbackComponent,
   ActionState,
@@ -507,11 +518,62 @@ export class InvoiceActionsComponent {
             ne se transmet pas au dispositif fiscal.
           </p>
         }
+
+        <!-- ============ Historique et filiation (§ 9) ============
+             ⚠️ CORRIGÉ — GET /invoices/:id N'AVAIT AUCUN APPELANT. paidAmount
+                donnait un total, jamais le détail par règlement — le premier
+                besoin d'un comptable sur une pièce partiellement réglée ou
+                contestée. -->
+        @if (detail(); as d) {
+          <div class="mt-5 border-t border-rule pt-4">
+            <h3 class="mb-2 text-[13px] font-semibold text-ink">Historique</h3>
+            @if (d.payments.length > 0) {
+              <table class="table">
+                <thead>
+                  <tr><th>Date de valeur</th><th class="num">Montant</th><th>Référence bancaire</th></tr>
+                </thead>
+                <tbody>
+                  @for (p of d.payments; track p.id) {
+                    <tr>
+                      <td class="text-ink-soft">{{ p.valueDate.slice(0, 10) }}</td>
+                      <td class="num font-mono text-ink">{{ money(+p.amount) }} {{ p.currencyCode }}</td>
+                      <td class="text-ink-faint">{{ p.bankReference ?? '-' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            } @else {
+              <p class="text-[12px] text-ink-faint">Aucun règlement enregistré.</p>
+            }
+
+            @if (d.creditNotes.length > 0 || d.sourceProforma || d.correctedInvoice || d.issuedBy) {
+              <dl class="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-[12px] md:grid-cols-4">
+                @if (d.sourceProforma) {
+                  <div><dt class="text-ink-faint">Née de la proforma</dt><dd class="font-mono text-ink">{{ d.sourceProforma.number }}</dd></div>
+                }
+                @if (d.correctedInvoice) {
+                  <div><dt class="text-ink-faint">Corrige</dt><dd class="font-mono text-ink">{{ d.correctedInvoice.number }}</dd></div>
+                }
+                @if (d.creditNotes.length > 0) {
+                  <div>
+                    <dt class="text-ink-faint">Avoir(s)</dt>
+                    <dd class="font-mono text-ink">
+                      @for (c of d.creditNotes; track c.id) { {{ c.number }} }
+                    </dd>
+                  </div>
+                }
+                @if (d.issuedBy) {
+                  <div><dt class="text-ink-faint">Émise par</dt><dd class="text-ink">{{ d.issuedBy.fullName }}</dd></div>
+                }
+              </dl>
+            }
+          </div>
+        }
       </div>
     </section>
   `,
 })
-export class InvoiceLifecycleComponent implements OnDestroy {
+export class InvoiceLifecycleComponent implements OnChanges, OnDestroy {
   private readonly api = inject(ApiService);
 
   @Input({ required: true }) invoice!: InvoiceRow;
@@ -519,6 +581,18 @@ export class InvoiceLifecycleComponent implements OnDestroy {
   @Output() readonly deleted = new EventEmitter<void>();
 
   protected readonly state = new ActionState();
+  protected readonly detail = signal<InvoiceDetail | null>(null);
+
+  ngOnChanges(changes: SimpleChanges): void {
+    // Rechargé à chaque changement de pièce ET après une action (le même
+    // `invoice.id` revient avec un objet neuf après `changed.emit()` côté
+    // parent) — sans quoi un règlement fraîchement enregistré n'apparaîtrait
+    // pas dans l'historique avant de rouvrir la pièce.
+    if (changes['invoice']) {
+      this.detail.set(null);
+      this.api.invoiceDetail(this.invoice.id).subscribe((d) => this.detail.set(d));
+    }
+  }
 
   protected amount: number | null = null;
   protected valueDate = new Date().toISOString().slice(0, 10);

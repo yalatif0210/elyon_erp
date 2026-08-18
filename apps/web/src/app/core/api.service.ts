@@ -76,6 +76,28 @@ export interface ExpiryItem {
   owner_id: string;
 }
 
+/**
+ * Détail d'un enregistrement de conformité (§ 6.4).
+ *
+ * ⚠️ CORRIGÉ — `GET /compliance/records/:id` n'avait aucun appelant : la liste
+ *    de l'échéancier ne montre ni l'organisme émetteur ni la date d'émission,
+ *    et ne donne aucun accès à la pièce numérisée elle-même.
+ */
+export interface ComplianceRecordDetail {
+  id: string;
+  type: string;
+  reference: string;
+  issuingBody: string | null;
+  issueDate: string;
+  expiryDate: string | null;
+  status: string;
+  isBlocking: boolean;
+  partner: { code: string; legalName: string } | null;
+  vehicle: { registration: string; brandModel: string | null } | null;
+  driver: { fullName: string; employeeNumber: string | null } | null;
+  document: { id: string; title: string } | null;
+}
+
 export interface Derogation {
   id: string;
   type: string;
@@ -447,6 +469,32 @@ export interface InvoiceRow {
   partner: { code: string; legalName: string };
   deal: { id: string; reference: string };
   fneTransmission: { status: string; fiscalReference: string | null } | null;
+}
+
+/**
+ * Détail complet d'une facture — historique de règlement et filiation
+ * (§ 9). Distinct d'`InvoiceRow` : la liste ne porte qu'un `paidAmount`
+ * agrégé, jamais le détail par règlement, ni les avoirs qui s'y rattachent,
+ * ni qui a émis ou décidé la pièce.
+ *
+ * ⚠️ CORRIGÉ — `GET /invoices/:id` N'AVAIT AUCUN APPELANT : pour toute
+ *    facture partiellement réglée ou contestée, un comptable n'avait aucun
+ *    moyen de voir le détail des règlements déjà reçus.
+ */
+export interface InvoiceDetail extends InvoiceRow {
+  sourceProforma: { id: string; number: string } | null;
+  correctedInvoice: { id: string; number: string } | null;
+  creditNotes: { id: string; number: string; totalAmount: string }[];
+  payments: {
+    id: string;
+    amount: string;
+    currencyCode: string;
+    valueDate: string;
+    bankReference: string | null;
+    notes: string | null;
+  }[];
+  issuedBy: { fullName: string; role: string } | null;
+  simpleInvoiceDecidedBy: { fullName: string; role: string } | null;
 }
 
 /** Poste de coût du référentiel, tel que proposé au chiffrage. */
@@ -1213,6 +1261,18 @@ export class ApiService {
     return this.http.get<ExpiryItem[]>(`${this.base}/compliance/expiry-watch`, { params });
   }
 
+  complianceRecord(id: string): Observable<ComplianceRecordDetail> {
+    return this.http.get<ComplianceRecordDetail>(`${this.base}/compliance/records/${id}`);
+  }
+
+  /** En `blob` : la pièce numérisée se regarde, l'en-tête d'autorisation ne
+   *  traverse jamais un simple `<a href>`. */
+  complianceDocumentBlob(recordId: string): Observable<Blob> {
+    return this.http.get(`${this.base}/compliance/records/${recordId}/document`, {
+      responseType: 'blob',
+    });
+  }
+
   // --- Dérogations (§ 11.4) ------------------------------------------------
 
   derogations(page = 1, pageSize = 50): Observable<Page<Derogation>> {
@@ -1555,6 +1615,10 @@ export class ApiService {
 
   createInvoice(body: Record<string, unknown>): Observable<{ id: string; number: string }> {
     return this.http.post<{ id: string; number: string }>(`${this.base}/invoices`, body);
+  }
+
+  invoiceDetail(id: string): Observable<InvoiceDetail> {
+    return this.http.get<InvoiceDetail>(`${this.base}/invoices/${id}`);
   }
 
   /** Suppression d'une pièce encore au brouillon (seul statut supprimable). */
