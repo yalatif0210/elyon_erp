@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 
 /**
@@ -107,6 +107,16 @@ export class StorageService {
   /** Flux de lecture — le fichier n'est jamais chargé entier en mémoire. */
   read(storageKey: string): NodeJS.ReadableStream {
     return createReadStream(this.absolu(storageKey));
+  }
+
+  /**
+   * Contenu entier, en mémoire — réservé aux usages qui en ont réellement
+   * besoin, comme l'incrustation d'une photo dans un PDF généré côté serveur
+   * (`QRCode.toDataURL` suit le même principe). Tout le reste doit passer par
+   * `read()`.
+   */
+  async readBuffer(storageKey: string): Promise<Buffer> {
+    return readFile(this.absolu(storageKey));
   }
 
   /**

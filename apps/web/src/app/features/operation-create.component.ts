@@ -451,7 +451,10 @@ export class OperationCreateComponent implements OnInit {
             id: s.id,
             label: `${partner.legalName} · ${s.name}${s.city ? ' (' + s.city + ')' : ''}`,
             // Les exigences viennent du LIEU que ce rattachement désigne.
-            exigences: s.deliverySite?.requirements ?? [],
+            // ⚠️ CORRIGÉ — `deliverySite` n'existe pas côté serveur (`site`) :
+            //    cette liste était TOUJOURS vide, le bandeau ne s'affichait
+            //    jamais (§ api.service.ts).
+            exigences: s.site?.requirements ?? [],
           })),
         ),
       );
@@ -479,7 +482,9 @@ export class OperationCreateComponent implements OnInit {
       this.segment.set(d.segment);
       this.plannedVolume = Number(d.contractedVolume);
       this.uom = d.uom;
-      this.transportMode = d.transportMode;
+      // Nul pour une affaire sur produit service (barge) : rien à reprendre,
+      // l'opération porte alors son propre mode de transport.
+      if (d.transportMode) this.transportMode = d.transportMode;
       if (!this.destinationLocation) this.destinationLocation = d.deliveryLocation;
       this.loadTypes(d.segment);
     });

@@ -441,7 +441,19 @@ export const REFERENTIALS: ReferentialSpec[] = [
     fields: [
       { name: 'code', label: 'Code', type: 'string', required: true, help: 'Sans espace ni accent, ex. GASOIL, SUPER_91, FUEL_180' },
       { name: 'name', label: 'Désignation', type: 'string', required: true, help: 'Le nom lu à l’écran et imprimé sur les pièces, ex. « Gasoil 50 ppm », « Fuel oil 180 CST »' },
-      { name: 'referenceDensity15', label: 'Densité à 15 °C', type: 'number', required: true, decimals: 6 },
+      {
+        name: 'isService',
+        label: 'Produit service',
+        type: 'boolean',
+        help: 'Prestation (ex. barge) plutôt que produit physique : aucune densité, une affaire qui le retient n’exige ni transport ni volume.',
+      },
+      {
+        name: 'referenceDensity15',
+        label: 'Densité à 15 °C',
+        type: 'number',
+        decimals: 6,
+        help: 'Requise pour un produit physique — sans objet pour un produit service.',
+      },
       { name: 'defaultUom', label: 'Unité par défaut', type: 'enum', required: true, values: UOMS, valueLabels: FR.UnitOfMeasure },
       { name: 'viscosityCst', label: 'Viscosité (cSt)', type: 'number', decimals: 3 },
       { name: 'flashPointC', label: 'Point éclair (°C)', type: 'number', decimals: 2 },

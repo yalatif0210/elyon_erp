@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { authGuard, roleGuard } from './core/auth.guard';
+import { authGuard, roleGuard, screenGuard } from './core/auth.guard';
 import { fieldGuard } from './core/field.guard';
 
 /**
@@ -13,6 +13,14 @@ export const routes: Routes = [
   {
     path: 'connexion',
     loadComponent: () => import('./features/login.component').then((m) => m.LoginComponent),
+  },
+
+  // Vérification publique d'un document par QR code (§ 12.2) - hors session,
+  // aucun `authGuard` : quiconque scanne un papier n'a pas de compte interne.
+  {
+    path: 'verification/:token',
+    loadComponent: () =>
+      import('./features/verify-document.component').then((m) => m.VerifyDocumentComponent),
   },
 
   // =========================================================================
@@ -95,6 +103,22 @@ export const routes: Routes = [
             (m) => m.TerrainStatusComponent,
           ),
       },
+      {
+        path: 'operation/:id/cloture',
+        loadComponent: () =>
+          import('./features/terrain/terrain-cloture.component').then(
+            (m) => m.TerrainClotureComponent,
+          ),
+      },
+      // Symétrique de `mot-de-passe` : un compte signalé pour un second
+      // facteur obligatoire doit pouvoir l'activer sans quitter la tablette.
+      {
+        path: 'second-facteur',
+        loadComponent: () =>
+          import('./features/terrain/terrain-totp.component').then(
+            (m) => m.TerrainTotpComponent,
+          ),
+      },
       // La file est l'écran auquel mène le compteur du bandeau. Sans elle, ce
       // compteur est un chiffre sans recours : l'agent voit « 3 refusés » et
       // n'a aucun moyen de savoir lesquels, ni pourquoi.
@@ -123,11 +147,13 @@ export const routes: Routes = [
       { path: '', redirectTo: 'tableau-de-bord', pathMatch: 'full' },
       {
         path: 'tableau-de-bord',
+        canActivate: [screenGuard('tableau-de-bord')],
         loadComponent: () =>
           import('./features/dashboard.component').then((m) => m.DashboardComponent),
       },
       {
         path: 'mes-taches',
+        canActivate: [screenGuard('mes-taches')],
         loadComponent: () => import('./features/taches.component').then((m) => m.TachesComponent),
       },
       {
@@ -137,6 +163,7 @@ export const routes: Routes = [
       // --- Lot 2 : chaîne commerciale et exécution ---
       {
         path: 'affaires',
+        canActivate: [screenGuard('affaires')],
         loadComponent: () => import('./features/deals.component').then((m) => m.DealsComponent),
       },
       // Déclarée AVANT affaires/:id : le routeur retient la première route
@@ -149,11 +176,13 @@ export const routes: Routes = [
       },
       {
         path: 'affaires/:id',
+        canActivate: [screenGuard('affaires')],
         loadComponent: () =>
           import('./features/deals.component').then((m) => m.DealDetailComponent),
       },
       {
         path: 'operations',
+        canActivate: [screenGuard('operations')],
         loadComponent: () =>
           import('./features/operations.component').then((m) => m.OperationsComponent),
       },
@@ -171,16 +200,19 @@ export const routes: Routes = [
       },
       {
         path: 'operations/:id',
+        canActivate: [screenGuard('operations')],
         loadComponent: () =>
           import('./features/operations.component').then((m) => m.OperationDetailComponent),
       },
       {
         path: 'facturation',
+        canActivate: [screenGuard('facturation')],
         loadComponent: () =>
           import('./features/invoices.component').then((m) => m.InvoicesComponent),
       },
       {
         path: 'achats',
+        canActivate: [screenGuard('achats')],
         loadComponent: () =>
           import('./features/supplier-invoices.component').then(
             (m) => m.SupplierInvoicesComponent,
@@ -188,32 +220,36 @@ export const routes: Routes = [
       },
       {
         path: 'hse',
+        canActivate: [screenGuard('hse')],
         loadComponent: () => import('./features/hse.component').then((m) => m.HseComponent),
       },
       {
         path: 'documents',
+        canActivate: [screenGuard('documents')],
         loadComponent: () =>
           import('./features/documents.component').then((m) => m.DocumentsComponent),
       },
       {
         path: 'conformite',
+        canActivate: [screenGuard('conformite')],
         loadComponent: () =>
           import('./features/compliance.component').then((m) => m.ComplianceComponent),
       },
       {
         path: 'echeancier',
+        canActivate: [screenGuard('echeancier')],
         loadComponent: () =>
           import('./features/compliance.component').then((m) => m.ExpiryComponent),
       },
       {
         path: 'tiers',
+        canActivate: [screenGuard('tiers')],
         loadComponent: () =>
           import('./features/partners.component').then((m) => m.PartnersComponent),
       },
       {
         path: 'derogations',
-        // Filtrage de confort : l'autorisation réelle est côté serveur.
-        canActivate: [roleGuard('DG', 'FINANCE_CFO', 'CCOO', 'ACCOUNTANT', 'ASSISTANT_DG')],
+        canActivate: [screenGuard('derogations')],
         loadComponent: () =>
           import('./features/derogations.component').then((m) => m.DerogationsComponent),
       },
@@ -222,54 +258,82 @@ export const routes: Routes = [
       // moment précis où quelque chose ne va pas.
       {
         path: 'supervision',
-        // Filtrage de confort : le serveur reste seul juge, route par route.
-        canActivate: [roleGuard('DG', 'FINANCE_CFO', 'CCOO', 'ACCOUNTANT', 'IT_ADMIN')],
+        canActivate: [screenGuard('supervision')],
         loadComponent: () =>
           import('./features/supervision.component').then((m) => m.SupervisionComponent),
       },
       {
         path: 'journal-audit',
-        canActivate: [roleGuard('DG', 'IT_ADMIN')],
+        canActivate: [screenGuard('journal-audit')],
         loadComponent: () =>
           import('./features/audit-log.component').then((m) => m.AuditLogComponent),
       },
       {
         path: 'crm',
-        canActivate: [roleGuard('DG', 'CCOO', 'SALES_REP', 'FINANCE_CFO', 'ASSISTANT_DG')],
+        canActivate: [screenGuard('crm')],
         loadComponent: () => import('./features/crm.component').then((m) => m.CrmComponent),
+      },
+      // Déclarée AVANT crm/:id : le routeur retient la première route qui
+      // correspond, et :id avalerait « nouvelle » comme un identifiant.
+      {
+        path: 'crm/nouvelle',
+        canActivate: [roleGuard('DG', 'CCOO', 'SALES_REP')],
+        loadComponent: () =>
+          import('./features/opportunity-create.component').then(
+            (m) => m.OpportunityCreateComponent,
+          ),
+      },
+      {
+        path: 'crm/:id',
+        canActivate: [screenGuard('crm')],
+        loadComponent: () =>
+          import('./features/opportunity-detail.component').then(
+            (m) => m.OpportunityDetailComponent,
+          ),
       },
       {
         path: 'demandes-de-cotation',
-        canActivate: [roleGuard('DG', 'CCOO', 'SALES_REP', 'ASSISTANT_DG')],
+        canActivate: [screenGuard('demandes-de-cotation')],
         loadComponent: () =>
           import('./features/quotations.component').then((m) => m.QuotationsComponent),
       },
       {
         path: 'pilotage',
-        canActivate: [roleGuard('DG', 'FINANCE_CFO', 'CCOO', 'ACCOUNTANT', 'LOGISTICS_COORD')],
+        canActivate: [screenGuard('pilotage')],
         loadComponent: () =>
           import('./features/pilotage.component').then((m) => m.PilotageComponent),
       },
       {
         path: 'barge',
-        canActivate: [roleGuard('DG', 'CCOO', 'FINANCE_CFO', 'LOGISTICS_COORD')],
+        canActivate: [screenGuard('barge')],
         loadComponent: () => import('./features/barge.component').then((m) => m.BargeComponent),
       },
       {
         path: 'recouvrement',
-        canActivate: [roleGuard('DG', 'FINANCE_CFO', 'ACCOUNTANT')],
+        canActivate: [screenGuard('recouvrement')],
         loadComponent: () =>
           import('./features/collections.component').then((m) => m.CollectionsComponent),
       },
       {
         path: 'parametrage',
+        canActivate: [screenGuard('parametrage')],
         loadComponent: () =>
           import('./features/parameters.component').then((m) => m.ParametersComponent),
       },
       {
         path: 'referentiels',
+        canActivate: [screenGuard('referentiels')],
         loadComponent: () =>
           import('./features/referentials.component').then((m) => m.ReferentialsComponent),
+      },
+      // Accès aux écrans : hors matrice, hors @Screen() - un @Roles(DG) fixe
+      // en garantit l'accès quoi que le DG règle par ailleurs (§ paramétrage
+      // 17/08, voir screen-access.controller.ts).
+      {
+        path: 'acces-ecrans',
+        canActivate: [roleGuard('DG')],
+        loadComponent: () =>
+          import('./features/screen-access.component').then((m) => m.ScreenAccessComponent),
       },
     ],
   },

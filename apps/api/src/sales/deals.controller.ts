@@ -1,6 +1,8 @@
 import {
+  BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Injectable,
@@ -40,7 +42,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { AuditService } from '../common/audit/audit.service';
-import { Realm, RequireRealm, Roles } from '../common/auth/realm';
+import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { SettingsService } from '../common/config/settings.service';
 import { Page, PaginationQuery, paginate } from '../common/http/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -60,9 +62,14 @@ class CreateDealDto {
 
   @IsEnum(CommercialSegment) segment!: CommercialSegment;
 
-  @Type(() => Number) @IsNumber() @Min(0.000001) contractedVolume!: number;
-  @IsEnum(UnitOfMeasure) uom!: UnitOfMeasure;
-  @IsEnum(TransportMode) transportMode!: TransportMode;
+  /**
+   * Absents pour un produit SERVICE (ex. barge) : validés ci-dessous, dans
+   * `create()`, où le produit réel est connu — un décorateur déclaratif ne
+   * peut pas conditionner un champ à une table qu'il ne voit pas.
+   */
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0.000001) contractedVolume?: number;
+  @IsOptional() @IsEnum(UnitOfMeasure) uom?: UnitOfMeasure;
+  @IsOptional() @IsEnum(TransportMode) transportMode?: TransportMode;
 
   @IsString() @MaxLength(200) deliveryLocation!: string;
   @IsOptional() @IsISO8601() targetDeliveryDate?: string;
@@ -219,7 +226,7 @@ export class DealsService {
    */
   private async resolveStandard(
     costPostId: string,
-    deal: { segment: string; transportMode: string; productId: string },
+    deal: { segment: string; transportMode: string | null; productId: string },
   ) {
     const rows = await this.prisma.$queryRaw<
       Array<{ basis: string; amount: Prisma.Decimal; uom: string | null; tolerance_pct: Prisma.Decimal | null }>
@@ -299,7 +306,7 @@ export class DealsService {
    */
   private async materialise(
     line: DealCostLineDto,
-    deal: { segment: string; transportMode: string; productId: string; currencyCode: string },
+    deal: { segment: string; transportMode: string | null; productId: string; currencyCode: string },
     volume: number,
   ) {
     const standard = await this.resolveStandard(line.costPostId, deal);
@@ -443,9 +450,10 @@ export class DealsService {
 
     const deal = await this.prisma.deal.findUniqueOrThrow({
       where: { id },
-      select: { contractedVolume: true, ownerId: true },
+      select: { contractedVolume: true, ownerId: true, status: true },
     });
     DealsService.verifierPropriete(role, actorId, deal.ownerId);
+    DealsService.verifierModifiable(deal.status);
     const retained = dto.unitPurchasePrice ?? Number(sp.unitPrice);
 
     await this.prisma.deal.update({
@@ -513,6 +521,20 @@ export class DealsService {
   ): void {
     if (role === UserRole.SALES_REP && actorId && ownerId !== actorId) {
       throw new ForbiddenException(`Cette affaire appartient à un autre commercial. Chacun ${suite}.`);
+    }
+  }
+
+  /**
+   * Une affaire soumise au contrôle du risque — ou au-delà — ne se modifie
+   * plus. Seul le brouillon (DRAFT) reste ouvert au chiffrage : au-delà, la
+   * marge qui a servi de base à la décision d'approbation ne doit plus
+   * bouger sous les pieds de qui l'a validée.
+   */
+  private static verifierModifiable(status: DealStatus): void {
+    if (status !== DealStatus.DRAFT) {
+      throw new BadRequestException(
+        `Cette affaire n'est plus au brouillon (statut : ${status}) — elle ne se modifie plus.`,
+      );
     }
   }
 
@@ -667,6 +689,40 @@ export class DealsService {
   }
 
   async create(dto: CreateDealDto, actorId: string) {
+    const product = await this.prisma.product.findUniqueOrThrow({
+      where: { id: dto.productId },
+      select: { isService: true },
+    });
+
+    // ⚠️ UN PRODUIT SERVICE (barge) N'A NI TRANSPORT, NI VOLUME, NI UNITÉ.
+    //
+    //    Le volume contracté vaut 1 FORFAIT par convention plutôt que d'être
+    //    NULL : la chaîne de marge est exprimée « par unité » partout ailleurs
+    //    (§ MarginService), et 1 la rend triviale sans lui créer de cas
+    //    particulier. Le prix unitaire porte donc directement le montant
+    //    total de la prestation — « prix d'exploitation » à l'écran.
+    //
+    //    Pour un produit PHYSIQUE, ces trois champs restent obligatoires : le
+    //    DTO ne peut plus les imposer par décorateur puisqu'ils dépendent du
+    //    produit choisi, connu seulement ici.
+    let contractedVolume: number;
+    let uom: UnitOfMeasure;
+    let transportMode: TransportMode | null;
+    if (product.isService) {
+      contractedVolume = 1;
+      uom = UnitOfMeasure.FORFAIT;
+      transportMode = null;
+    } else {
+      if (dto.contractedVolume === undefined || !dto.uom || !dto.transportMode) {
+        throw new BadRequestException(
+          'Volume, unité et mode de transport sont requis pour un produit physique.',
+        );
+      }
+      contractedVolume = dto.contractedVolume;
+      uom = dto.uom;
+      transportMode = dto.transportMode;
+    }
+
     // La sonde protège des références posées hors séquence — reprise de
     // données, jeu de démonstration, migration. Sans elle, la première
     // création réelle heurte l'existant et l'utilisateur reçoit un 409.
@@ -691,18 +747,18 @@ export class DealsService {
           l,
           {
             segment: dto.segment,
-            transportMode: dto.transportMode,
+            transportMode,
             productId: dto.productId,
             currencyCode: dto.currencyCode,
           },
-          dto.contractedVolume,
+          contractedVolume,
         ),
       ),
     );
 
     const discountAmount = computeDiscount(
-      dto.unitSalePrice * dto.contractedVolume,
-      dto.contractedVolume,
+      dto.unitSalePrice * contractedVolume,
+      contractedVolume,
       dto.discountMode,
       dto.discountValue,
     );
@@ -718,17 +774,17 @@ export class DealsService {
         ownerId: actorId,
         status: DealStatus.DRAFT,
         segment: dto.segment,
-        contractedVolume: dto.contractedVolume.toFixed(6),
-        uom: dto.uom,
-        transportMode: dto.transportMode,
+        contractedVolume: contractedVolume.toFixed(6),
+        uom,
+        transportMode,
         deliveryLocation: dto.deliveryLocation,
         targetDeliveryDate: dto.targetDeliveryDate ? new Date(dto.targetDeliveryDate) : null,
         currencyCode: dto.currencyCode,
         unitSalePrice: dto.unitSalePrice.toFixed(4),
-        saleAmount: (dto.unitSalePrice * dto.contractedVolume).toFixed(4),
+        saleAmount: (dto.unitSalePrice * contractedVolume).toFixed(4),
         supplierPriceId: dto.supplierPriceId ?? null,
         unitPurchasePrice: unitPurchasePrice.toFixed(4),
-        purchaseAmount: (unitPurchasePrice * dto.contractedVolume).toFixed(4),
+        purchaseAmount: (unitPurchasePrice * contractedVolume).toFixed(4),
         discountMode: dto.discountMode ?? null,
         discountValue: dto.discountValue?.toFixed(4) ?? null,
         discountAmount: discountAmount.toFixed(4),
@@ -747,8 +803,49 @@ export class DealsService {
     return this.recomputeMargins(created.id);
   }
 
+  /**
+   * Suppression d'un brouillon (§ discussion 15/08).
+   *
+   * ⚠️ RÉSERVÉE AU BROUILLON — ET C'EST TOUT L'INTÉRÊT.
+   *
+   *    Une affaire soumise a déjà pu engager une décision (risque, DG) ;
+   *    la supprimer effacerait cette décision sans laisser de trace, alors
+   *    que le reste du système tient à ce qu'aucune action n'y disparaisse
+   *    sans preuve (§ 1.4). Un brouillon, lui, n'a encore rien engagé — le
+   *    verrou qui l'empêche d'être MODIFIÉ passé DRAFT (`verifierModifiable`)
+   *    interdit exactement les mêmes statuts ici, par la même règle.
+   *
+   *    Les lignes de coût du brouillon disparaissent avec lui (cascade) ; une
+   *    opération ou une facture déjà rattachées bloquent la suppression au
+   *    lieu d'être effacées en silence — cas qui ne devrait jamais se
+   *    présenter sur un DRAFT, le verrou financier l'interdisant en amont,
+   *    mais la base reste le dernier mot, pas cette hypothèse.
+   */
+  async remove(id: string, actorId: string, role?: UserRole): Promise<void> {
+    const deal = await this.prisma.deal.findUniqueOrThrow({
+      where: { id },
+      select: { status: true, ownerId: true, reference: true },
+    });
+    DealsService.verifierPropriete(role, actorId, deal.ownerId, 'ne supprime que les siennes');
+    DealsService.verifierModifiable(deal.status);
+
+    await this.prisma.deal.delete({ where: { id } });
+
+    await this.audit.record({
+      actorType: ActorType.INTERNAL_USER,
+      actorId,
+      action: AuditAction.DELETE,
+      entityType: 'Deal',
+      entityId: id,
+      before: deal,
+    });
+  }
+
   /** Soumet l'affaire au contrôle du risque. */
   async submitForRisk(id: string, actorId: string, role?: UserRole) {
+    const deal = await this.prisma.deal.findUniqueOrThrow({ where: { id }, select: { status: true, ownerId: true } });
+    DealsService.verifierPropriete(role, actorId, deal.ownerId);
+    DealsService.verifierModifiable(deal.status);
     await this.recomputeMargins(id);
     return this.transition(id, DealStatus.PENDING_RISK, actorId, 'Soumis au contrôle du risque', role);
   }
@@ -834,9 +931,11 @@ export class DealsService {
         productId: true,
         contractedVolume: true,
         ownerId: true,
+        status: true,
       },
     });
     DealsService.verifierPropriete(role, actorId, deal.ownerId);
+    DealsService.verifierModifiable(deal.status);
 
     const materialised = await Promise.all(
       lines.map((l) => this.materialise(l, deal, Number(deal.contractedVolume))),
@@ -922,6 +1021,7 @@ export class DealsController {
 
   @Get()
   @Roles(UserRole.DG, UserRole.CCOO, UserRole.SALES_REP, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT, UserRole.LOGISTICS_COORD, UserRole.ASSISTANT_DG)
+  @Screen('affaires')
   list(@Query() query: DealQuery, @Req() req: { auth: { role?: UserRole; sub: string } }) {
     return this.service.list(query, req.auth.role, req.auth.sub);
   }
@@ -947,6 +1047,12 @@ export class DealsController {
   @Roles(UserRole.SALES_REP, UserRole.CCOO)
   create(@Body() dto: CreateDealDto, @Req() req: { auth: { sub: string } }) {
     return this.service.create(dto, req.auth.sub);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.SALES_REP, UserRole.CCOO)
+  remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: { auth: { sub: string; role?: UserRole } }) {
+    return this.service.remove(id, req.auth.sub, req.auth.role);
   }
 
   @Patch(':id/submit')

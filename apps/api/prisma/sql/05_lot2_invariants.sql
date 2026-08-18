@@ -571,7 +571,20 @@ ALTER TABLE invoices
              AND simple_invoice_decided_at IS NOT NULL
              AND simple_invoice_reason IS NOT NULL
              AND length(trim(simple_invoice_reason)) >= 10)
-       );
+       ),
+
+  -- Une pièce référence une affaire, une demande de cotation, ou les deux
+  -- (la proforma approuvée les porte l'une et l'autre après conversion) -
+  -- jamais ni l'une ni l'autre (§ discussion 17/08).
+  DROP CONSTRAINT IF EXISTS chk_invoices_deal_or_quotation,
+  ADD  CONSTRAINT chk_invoices_deal_or_quotation
+       CHECK (deal_id IS NOT NULL OR quotation_request_id IS NOT NULL),
+
+  -- Une demande de cotation n'engage rien avant l'affaire : seule une
+  -- proforma peut y répondre, jamais une pièce définitive.
+  DROP CONSTRAINT IF EXISTS chk_invoices_quotation_requires_proforma,
+  ADD  CONSTRAINT chk_invoices_quotation_requires_proforma
+       CHECK (quotation_request_id IS NULL OR type::text = 'PROFORMA');
 
 COMMENT ON COLUMN invoices.vat_amount IS
   'TVA EXTRAITE du total (total × taux ÷ (100 + taux)), jamais ajoutée. Affichée pour information. N''entre pas dans le calcul de marge.';

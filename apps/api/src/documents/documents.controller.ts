@@ -19,6 +19,7 @@ import {
   AuditAction,
   FieldRole,
   GeneratedDocumentKind,
+  OperationStatus,
   Prisma,
   SignatoryKind,
   UserRole,
@@ -40,12 +41,16 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import { AuditService } from '../common/audit/audit.service';
-import { FieldRoles, Public, Realm, RequireRealm, Roles } from '../common/auth/realm';
+import { FieldRoles, Public, Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { Page, PaginationQuery, paginate } from '../common/http/pagination.dto';
 import { FieldActor, FieldScopeService } from '../field/field-scope.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ReferenceService } from '../common/reference/reference.service';
 import { StorageService } from '../common/storage/storage.service';
+// Import de TYPE seulement : `pdf.processor.ts` importe déjà `DocumentsService`
+// depuis ce fichier — une valeur importée ici créerait un cycle à l'exécution,
+// pas seulement dans les types.
+import type { OperationClosurePdfJob } from './pdf.processor';
 
 // ===========================================================================
 //  DTO
@@ -208,14 +213,65 @@ export class DocumentsService {
   }
 
   /**
+   * Numéro de la séquence d'une nature de pièce, AVEC SONDE.
+   *
+   * ⚠️ CORRIGÉ — LA SONDE FACULTATIVE DE `ReferenceService` N'ÉTAIT JAMAIS
+   *    FOURNIE ICI, ALORS QUE SON PROPRE COMMENTAIRE DÉCRIT EXACTEMENT CE CAS.
+   *
+   *    Un jeu de données de démonstration pose des références SANS passer
+   *    par le compteur (`BL-2026-00001` inséré directement en base) : le
+   *    compteur ignore leur existence et repart de 1. Le jour où cette
+   *    nature de pièce est numérotée pour de vrai pour la PREMIÈRE fois, le
+   *    numéro qu'il propose percute l'existant — `register()` échoue sur une
+   *    contrainte d'unicité, après que le PDF a déjà été rendu avec ce
+   *    numéro dans son en-tête. Constaté en le déclenchant : deux
+   *    générations sur la même opération, la première perdue en échec, la
+   *    seconde ayant sauté un numéro.
+   */
+  private annualReference(kind: GeneratedDocumentKind): Promise<string> {
+    return this.reference.annual(DOC_SCOPE[kind], 5, new Date(), async (candidate) => {
+      const pris = await this.prisma.generatedDocument.findUnique({
+        where: { reference: candidate },
+        select: { id: true },
+      });
+      return pris !== null;
+    });
+  }
+
+  /**
+   * Réserve un numéro de la séquence d'une nature de pièce, AVANT génération.
+   *
+   * Sert au générateur PDF (`DocumentsPdfProcessor`) exactement comme le
+   * jeton d'authenticité précalculé ci-dessous : la référence doit être
+   * connue AVANT le rendu pour être imprimée dans l'en-tête du document —
+   * `register()` ne peut pas en fournir une nouvelle après coup sans que le
+   * PDF déjà rendu affiche un numéro qui n'est plus le sien.
+   */
+  reserveReference(kind: GeneratedDocumentKind): Promise<string> {
+    return this.annualReference(kind);
+  }
+
+  /**
    * Enregistre une pièce produite. Non scellée : elle reste rectifiable.
    *
-   * `precomputedToken` sert au générateur PDF (`DocumentsPdfProcessor`) : le
-   * jeton doit être connu AVANT le rendu pour être imprimé dans le QR code du
-   * document lui-même — l'enregistrement ne peut pas en fournir un nouveau
-   * après coup, le PDF serait déjà figé avec le mauvais jeton dedans.
+   * `precomputedToken`/`precomputedReference` servent au générateur PDF
+   * (`DocumentsPdfProcessor`) : jeton et référence doivent être connus AVANT
+   * le rendu pour être imprimés dans le document lui-même (QR code, en-tête)
+   * — l'enregistrement ne peut pas en fournir de nouveaux après coup, le PDF
+   * serait déjà figé avec les mauvais dedans.
+   *
+   * `actor` peut être un agent terrain : le rapport d'exécution et le bon de
+   * livraison naissent d'une génération déclenchée depuis la tablette, pas du
+   * bureau (§ 10, § 12.2). `generatedById` ne pointe alors PAS l'agent — la
+   * colonne ne référence que `users`, jamais `field_users` — l'auteur réel
+   * reste néanmoins tracé dans l'audit, qui distingue les deux réalms.
    */
-  async register(dto: RegisterDocumentDto, actorId: string, precomputedToken?: string) {
+  async register(
+    dto: RegisterDocumentDto,
+    actor: { type: ActorType; id: string },
+    precomputedToken?: string,
+    precomputedReference?: string,
+  ) {
     if (!dto.dealId && !dto.operationId && !dto.invoiceId) {
       throw new BadRequestException(
         'Une pièce doit être rattachée à une affaire, une opération ou une facture — sans quoi elle est introuvable le jour où on la cherche.',
@@ -225,7 +281,7 @@ export class DocumentsService {
     const created = await this.prisma.generatedDocument.create({
       data: {
         kind: dto.kind,
-        reference: await this.reference.annual(DOC_SCOPE[dto.kind], 5),
+        reference: precomputedReference ?? (await this.annualReference(dto.kind)),
         dealId: dto.dealId ?? null,
         operationId: dto.operationId ?? null,
         invoiceId: dto.invoiceId ?? null,
@@ -234,13 +290,13 @@ export class DocumentsService {
         sizeBytes: BigInt(Math.round(dto.sizeBytes)),
         sha256: dto.sha256,
         authenticityToken: precomputedToken ?? randomBytes(24).toString('hex'),
-        generatedById: actorId,
+        generatedById: actor.type === ActorType.INTERNAL_USER ? actor.id : null,
       },
     });
 
     await this.audit.record({
-      actorType: ActorType.INTERNAL_USER,
-      actorId,
+      actorType: actor.type,
+      actorId: actor.id,
       action: AuditAction.CREATE,
       entityType: 'GeneratedDocument',
       entityId: created.id,
@@ -303,6 +359,21 @@ export class DocumentsService {
       },
     });
 
+    // ⚠️ SCELLE AUTOMATIQUEMENT DÈS QUE LES SIGNATAIRES REQUIS Y SONT.
+    //
+    //    Un rapport ou un bon de livraison correctement signé qui attend
+    //    encore un geste manuel de scellement reproduirait le piège de la
+    //    facture simple sans motif (§ discussion 17/08) : signé sur le
+    //    terrain, puis coincé au bureau faute d'un clic que personne ne
+    //    pense à faire. `seal()` reste appelable à la main ; ceci ne fait que
+    //    ne pas attendre qu'on le fasse quand la pièce est déjà complète.
+    try {
+      await this.seal(documentId, actor.id);
+    } catch {
+      // Signataire encore manquant (bon de livraison : le client n'a pas
+      // encore signé) - ce n'est pas une erreur, juste pas encore le moment.
+    }
+
     return signature;
   }
 
@@ -316,25 +387,37 @@ export class DocumentsService {
   async seal(id: string, actorId: string) {
     const doc = await this.prisma.generatedDocument.findUniqueOrThrow({
       where: { id },
-      select: { isSealed: true, kind: true, reference: true, _count: { select: { signatures: true } } },
+      select: {
+        isSealed: true,
+        kind: true,
+        reference: true,
+        signatures: { select: { kind: true } },
+      },
     });
     if (doc.isSealed) {
       throw new BadRequestException(`La pièce ${doc.reference} est déjà scellée.`);
     }
-    // Un bon de livraison ou un rapport d'exécution non signé n'a aucune
-    // valeur opposable : le sceller reviendrait à figer une pièce vide.
-    const REQUIRES_SIGNATURE: GeneratedDocumentKind[] = [
-      GeneratedDocumentKind.DELIVERY_NOTE,
-      GeneratedDocumentKind.OPERATION_REPORT,
-    ];
-    if (REQUIRES_SIGNATURE.includes(doc.kind) && doc._count.signatures === 0) {
+
+    // ⚠️ LE RAPPORT ET LE BON DE LIVRAISON N'ATTENDENT PAS LES MÊMES
+    //    SIGNATAIRES (§ discussion 17/08) - « au moins une signature »
+    //    laissait sceller un bon de livraison que seul l'agent avait signé,
+    //    sans le client. Un rapport d'exécution est un constat de l'agent :
+    //    lui seul l'atteste. Un bon de livraison engage les deux parties.
+    const kinds = new Set(doc.signatures.map((s) => s.kind));
+    if (doc.kind === GeneratedDocumentKind.OPERATION_REPORT && !kinds.has(SignatoryKind.FIELD_USER)) {
       throw new BadRequestException(
-        `La pièce ${doc.reference} ne porte aucune signature. Un ${
-          doc.kind === GeneratedDocumentKind.DELIVERY_NOTE
-            ? 'bon de livraison'
-            : 'rapport d’exécution'
-        } non signé n’est pas opposable.`,
+        `Le rapport d’exécution ${doc.reference} n’est pas encore signé par l’agent terrain.`,
       );
+    }
+    if (doc.kind === GeneratedDocumentKind.DELIVERY_NOTE) {
+      const manquants: string[] = [];
+      if (!kinds.has(SignatoryKind.FIELD_USER)) manquants.push('l’agent terrain');
+      if (!kinds.has(SignatoryKind.CLIENT_REPRESENTATIVE)) manquants.push('le représentant du client');
+      if (manquants.length > 0) {
+        throw new BadRequestException(
+          `Le bon de livraison ${doc.reference} attend encore la signature de ${manquants.join(' et de ')}.`,
+        );
+      }
     }
 
     const sealed = await this.prisma.generatedDocument.update({
@@ -370,7 +453,7 @@ export class DocumentsService {
     const replacement = await this.prisma.generatedDocument.create({
       data: {
         kind: dto.kind ?? original.kind,
-        reference: await this.reference.annual(DOC_SCOPE[dto.kind ?? original.kind], 5),
+        reference: await this.annualReference(dto.kind ?? original.kind),
         dealId: dto.dealId ?? original.dealId,
         operationId: dto.operationId ?? original.operationId,
         invoiceId: dto.invoiceId ?? original.invoiceId,
@@ -479,6 +562,7 @@ export class DocumentsController {
     UserRole.LOGISTICS_COORD,
     UserRole.ASSISTANT_DG,
   )
+  @Screen('documents')
   list(@Query() query: DocumentQuery) {
     return this.service.list(query);
   }
@@ -534,7 +618,7 @@ export class DocumentsController {
   @Post()
   @Roles(UserRole.CCOO, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT, UserRole.LOGISTICS_COORD)
   register(@Body() dto: RegisterDocumentDto, @Req() req: { auth: { sub: string } }) {
-    return this.service.register(dto, req.auth.sub);
+    return this.service.register(dto, { type: ActorType.INTERNAL_USER, id: req.auth.sub });
   }
 
   @Post(':id/signatures')
@@ -599,12 +683,73 @@ const NATURES_VISIBLES_DU_TERRAIN: GeneratedDocumentKind[] = [
  *    donnée d'un autre client. Le cloisonnement passe par un objet DÉDIÉ, pas
  *    par un masquage a posteriori.
  */
+/**
+ * Statuts à partir desquels la clôture terrain peut être déclenchée.
+ *
+ * Avant `DELIVERING`, la livraison n'a pas eu lieu : un bon de livraison
+ * n'aurait rien à décrire. À partir de `CLOSED`, les deux pièces sont censées
+ * déjà exister — le trigger `enforce_closure_documents_sealed` (§ SQL) le
+ * garantit — et une seconde génération ferait doublon.
+ */
+const STATUTS_CLOTURABLES: OperationStatus[] = [
+  OperationStatus.DELIVERING,
+  OperationStatus.FINAL_CHECK,
+];
+
 @Injectable()
 export class FieldDocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly perimetre: FieldScopeService,
+    @InjectQueue('documents') private readonly documentsQueue: Queue<OperationClosurePdfJob>,
   ) {}
+
+  /**
+   * Déclenche la génération du rapport d'exécution et du bon de livraison.
+   *
+   * ⚠️ CORRIGÉ — CES DEUX PIÈCES ÉTAIENT « DÉCLARÉES, JAMAIS DÉCLENCHÉES ».
+   *
+   *    `GeneratedDocumentKind.OPERATION_REPORT` et `DELIVERY_NOTE` existaient
+   *    dans le schéma, dans la liste blanche du terrain et dans les règles de
+   *    scellement — mais rien ne les produisait jamais (§ discussion 17/08).
+   *
+   *    Génération asynchrone, comme pour une facture (`DocumentsPdfProcessor`) :
+   *    le rendu Chromium ne doit pas tenir la requête de l'agent, sur une
+   *    tablette dont le réseau est incertain.
+   */
+  async generateClosureDocuments(operationId: string, actor: FieldActor): Promise<{ jobId: string }> {
+    await this.perimetre.assertOperation(operationId, actor);
+
+    const operation = await this.prisma.operation.findUniqueOrThrow({
+      where: { id: operationId },
+      select: { status: true, reference: true },
+    });
+    if (!STATUTS_CLOTURABLES.includes(operation.status)) {
+      throw new BadRequestException(
+        `L'opération ${operation.reference} n'est pas au stade de la clôture (statut actuel : ${operation.status}). La livraison doit avoir eu lieu, et les deux pièces ne se génèrent qu'une fois.`,
+      );
+    }
+
+    const existants = await this.prisma.generatedDocument.findMany({
+      where: {
+        operationId,
+        kind: { in: [GeneratedDocumentKind.OPERATION_REPORT, GeneratedDocumentKind.DELIVERY_NOTE] },
+      },
+      select: { kind: true, reference: true },
+    });
+    if (existants.length > 0) {
+      throw new BadRequestException(
+        `Cette opération porte déjà : ${existants.map((e) => e.reference).join(', ')}. Une pièce ne se génère qu'une fois — voir sa signature depuis la liste des documents.`,
+      );
+    }
+
+    const job = await this.documentsQueue.add(
+      'operation-closure',
+      { type: 'operation-closure', operationId, fieldUserId: actor.id },
+      { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
+    );
+    return { jobId: job.id! };
+  }
 
   /**
    * Pièces des opérations DE L'AGENT, et de ces natures-là seulement.
@@ -691,6 +836,20 @@ export class FieldDocumentsController {
       { operationId: query.operationId, pageSize: query.pageSize, skip: query.skip },
       { id: req.auth.sub, role: req.auth.role },
     );
+  }
+
+  /**
+   * Génère le rapport d'exécution et le bon de livraison de l'opération.
+   * Réservé au FIELD_AGENT : c'est lui qui clôture, jamais le contrôleur HSE
+   * seul — même s'il partage la liste blanche de lecture et de signature.
+   */
+  @Post('operations/:operationId/closure')
+  @FieldRoles(FieldRole.FIELD_AGENT)
+  generateClosure(
+    @Param('operationId', ParseUUIDPipe) operationId: string,
+    @Req() req: { auth: { sub: string; role?: FieldRole } },
+  ) {
+    return this.service.generateClosureDocuments(operationId, { id: req.auth.sub, role: req.auth.role });
   }
 
   /**

@@ -13,7 +13,7 @@ import {
 import { ActorType, AuditAction, Prisma, UserRole } from '@prisma/client';
 import { IsArray, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import { AuditService } from '../common/audit/audit.service';
-import { Realm, RequireRealm, Roles } from '../common/auth/realm';
+import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { SettingsService } from '../common/config/settings.service';
 import { humaniseCheck, translatePostgresError } from '../common/filters/prisma-exception.filter';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -729,6 +729,7 @@ export class ParametersController {
     UserRole.SALES_REP,
     UserRole.IT_ADMIN,
   )
+  @Screen('parametrage')
   catalogue(@Req() req: { auth: { role: UserRole } }) {
     return this.service.catalogue(req.auth.role);
   }

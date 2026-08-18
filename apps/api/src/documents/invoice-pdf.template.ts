@@ -34,7 +34,8 @@ export interface InvoicePdfData {
   partnerLegalName: string;
   partnerTaxpayerAccountNumber: string | null;
   partnerCountryCode: string;
-  dealReference: string;
+  /** Absente pour une proforma répondant à une demande de cotation, avant conversion en affaire. */
+  dealReference: string | null;
   productName: string;
   verifyUrl: string;
   qrDataUri: string;
@@ -167,7 +168,7 @@ export function renderInvoiceHtml(d: InvoicePdfData): string {
     </div>
     <div class="block">
       <div class="label">Affaire</div>
-      <div class="value">${esc(d.dealReference)}</div>
+      <div class="value">${d.dealReference ? esc(d.dealReference) : 'en réponse à une demande de cotation'}</div>
     </div>
     <div class="block">
       <div class="label">Date d'émission</div>

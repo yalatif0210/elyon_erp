@@ -15,15 +15,29 @@ interface PageQuery {
   pageSize?: number;
 }
 
+export interface QuotationProformaRow {
+  id: string;
+  number: string;
+  status: string;
+  billedVolume: string;
+  uom: string;
+  unitPrice: string;
+  currencyCode: string;
+  acceptedAt: string | null;
+  generatedDocuments: { id: string; reference: string }[];
+}
+
 export interface QuotationRequestRow {
   id: string;
   desiredVolume: string;
   uom: string;
   desiredDeliveryDate: string | null;
   message: string | null;
-  status: 'NEW' | 'IN_REVIEW' | 'CONVERTED' | 'DECLINED';
+  status: 'NEW' | 'IN_REVIEW' | 'PROFORMA_APPROVED' | 'CONVERTED' | 'DECLINED';
   createdAt: string;
   product: { code: string; name: string };
+  approvedProformaId: string | null;
+  proformas: QuotationProformaRow[];
 }
 
 export interface CreateQuotationDto {
@@ -117,6 +131,11 @@ export class ApiService {
 
   quotations(): Observable<QuotationRequestRow[]> {
     return this.http.get<QuotationRequestRow[]>('/api/portal/quotations');
+  }
+
+  /** Approbation d'une proforma reçue en réponse (§ discussion 17/08). */
+  approveProforma(quotationId: string, invoiceId: string): Observable<unknown> {
+    return this.http.patch(`/api/portal/quotations/${quotationId}/proformas/${invoiceId}/approuver`, {});
   }
 
   // --- Affaires -------------------------------------------------------------

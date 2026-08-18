@@ -67,7 +67,7 @@ interface Draft {
             @for (l of drafts(); track $index) {
               <tr [class]="rowClass(l)">
                 <td>
-                  <select class="field" [(ngModel)]="l.costPostId" (ngModelChange)="onPostChange(l)">
+                  <select class="field" [(ngModel)]="l.costPostId" (ngModelChange)="onPostChange(l)" [disabled]="status !== 'DRAFT'">
                     <option [ngValue]="''">Choisir un poste</option>
                     @for (p of directPosts(); track p.costPostId) {
                       <option [ngValue]="p.costPostId">
@@ -90,6 +90,7 @@ interface Draft {
                     [(ngModel)]="l.amount"
                     (ngModelChange)="touch()"
                     [attr.aria-label]="'Valeur : ' + basisLabel(l)"
+                    [disabled]="status !== 'DRAFT'"
                   />
                 </td>
                 <td class="num font-mono font-semibold text-ink">{{ money(total(l)) }}</td>
@@ -108,14 +109,16 @@ interface Draft {
                   }
                 </td>
                 <td>
-                  <button
-                    type="button"
-                    class="text-ink-faint hover:text-crit"
-                    aria-label="Retirer la ligne"
-                    (click)="remove($index)"
-                  >
-                    <erp-icon name="ban" [size]="14" />
-                  </button>
+                  @if (status === 'DRAFT') {
+                    <button
+                      type="button"
+                      class="text-ink-faint hover:text-crit"
+                      aria-label="Retirer la ligne"
+                      (click)="remove($index)"
+                    >
+                      <erp-icon name="ban" [size]="14" />
+                    </button>
+                  }
                 </td>
               </tr>
 
@@ -163,15 +166,21 @@ interface Draft {
         </table>
       </div>
 
-      <div class="flex items-center gap-2 border-t border-rule px-[15px] py-3">
-        <button class="btn-ghost" (click)="add()">
-          <erp-icon name="plus" [size]="14" />
-          Ajouter un poste
-        </button>
-        <button class="btn-primary ml-auto" (click)="save()" [disabled]="busy() || !dirty()">
-          {{ busy() ? 'Enregistrement…' : 'Enregistrer le chiffrage' }}
-        </button>
-      </div>
+      @if (status === 'DRAFT') {
+        <div class="flex items-center gap-2 border-t border-rule px-[15px] py-3">
+          <button class="btn-ghost" (click)="add()">
+            <erp-icon name="plus" [size]="14" />
+            Ajouter un poste
+          </button>
+          <button class="btn-primary ml-auto" (click)="save()" [disabled]="busy() || !dirty()">
+            {{ busy() ? 'Enregistrement…' : 'Enregistrer le chiffrage' }}
+          </button>
+        </div>
+      } @else {
+        <p class="border-t border-rule px-[15px] py-3 text-[12px] text-ink-faint">
+          Affaire soumise : le chiffrage ne se modifie plus depuis cet écran.
+        </p>
+      }
 
       @if (error()) {
         <p
@@ -211,6 +220,8 @@ export class DealCostingComponent implements OnChanges {
   @Input({ required: true }) dealId!: string;
   @Input({ required: true }) currency!: string;
   @Input({ required: true }) uom!: string;
+  /** Verrou d'édition (§ discussion 15/08) : seul le brouillon se chiffre. */
+  @Input({ required: true }) status!: string;
 
   @Input({ required: true }) set volume(v: number) {
     this.volumeSignal.set(v);

@@ -1,5 +1,6 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import {
   ApiService,
   CrmAlerte,
@@ -8,6 +9,7 @@ import {
   CrmPipelineRow,
   PerformanceCommerciale,
 } from '../core/api.service';
+import { AuthService } from '../core/auth.service';
 import { IconComponent } from '../shared/icon.component';
 import { TableauPagine, TableauControlesComponent } from '../shared/tableau';
 import { dateOnly, grouper } from '../shared/format';
@@ -31,14 +33,22 @@ import { dateOnly, grouper } from '../shared/format';
 @Component({
   selector: 'erp-crm',
   standalone: true,
-  imports: [FormsModule, IconComponent, TableauControlesComponent],
+  imports: [FormsModule, RouterLink, IconComponent, TableauControlesComponent],
   template: `
-    <header class="mb-6">
-      <h1 class="page-title">Pipeline commercial</h1>
-      <p class="page-sub">
-        De la prospection à l'affaire signée. La valeur pondérée alimente la prévision de vente,
-        elle n'est donc pas qu'un indicateur d'équipe.
-      </p>
+    <header class="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <h1 class="page-title">Pipeline commercial</h1>
+        <p class="page-sub">
+          De la prospection à l'affaire signée. La valeur pondérée alimente la prévision de vente,
+          elle n'est donc pas qu'un indicateur d'équipe.
+        </p>
+      </div>
+      @if (peutCreer()) {
+        <a routerLink="/crm/nouvelle" class="btn-primary">
+          <erp-icon name="plus" [size]="14" />
+          Nouvelle opportunité
+        </a>
+      }
     </header>
 
     <!-- ============ Ce qui attend une action ============ -->
@@ -55,7 +65,7 @@ import { dateOnly, grouper } from '../shared/format';
         </div>
         <div class="flex flex-col gap-1.5">
           @for (a of alertes().slice(0, 12); track $index) {
-            <div class="flex items-baseline gap-2 text-[12px]">
+            <a [routerLink]="['/crm', a.opportunity_id]" class="flex items-baseline gap-2 text-[12px] hover:underline">
               <span class="font-mono text-ink-faint">{{ a.reference }}</span>
               <span class="min-w-0 flex-1 truncate text-ink">{{ a.objet }}</span>
               <span class="truncate text-ink-soft">{{ a.action }}</span>
@@ -63,7 +73,7 @@ import { dateOnly, grouper } from '../shared/format';
                     [class]="a.retard_jours > 0 ? 'text-crit' : 'text-ink-faint'">
                 {{ echeance(a) }}
               </span>
-            </div>
+            </a>
           }
         </div>
         @if (alertes().length > 12) {
@@ -313,9 +323,12 @@ import { dateOnly, grouper } from '../shared/format';
       @if (pipeline().length === 0) {
         <div class="card px-[15px] py-4">
           <p class="text-[13px] leading-relaxed text-ink-soft">
-            Aucune opportunité ouverte. Le pipeline se remplit depuis les prospects du
-            référentiel Tiers : chaque opportunité porte une prochaine action et sa date, sans
-            quoi elle dort jusqu'à ce qu'on la retrouve par hasard.
+            Aucune opportunité ouverte.
+            @if (peutCreer()) {
+              <a routerLink="/crm/nouvelle" class="link">Créer la première</a> - chaque opportunité
+              porte une prochaine action et sa date, sans quoi elle dort jusqu'à ce qu'on la
+              retrouve par hasard.
+            }
           </p>
         </div>
       } @else {
@@ -337,7 +350,9 @@ import { dateOnly, grouper } from '../shared/format';
             <tbody>
               @for (o of tableauPipeline.lignes(); track o.id) {
                 <tr>
-                  <td class="ref">{{ o.reference }}</td>
+                  <td>
+                    <a [routerLink]="['/crm', o.id]" class="ref hover:underline">{{ o.reference }}</a>
+                  </td>
                   <td class="text-ink">{{ o.title }}</td>
                   <td class="text-ink-soft">{{ o.client }}</td>
                   <td class="text-[12px] text-ink-soft">{{ o.etape }}</td>
@@ -364,6 +379,12 @@ import { dateOnly, grouper } from '../shared/format';
 })
 export class CrmComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly auth = inject(AuthService);
+
+  /** Miroir du @Roles() de `POST /crm/opportunites` - confort d'affichage. */
+  protected peutCreer(): boolean {
+    return this.auth.hasRole('DG', 'CCOO', 'SALES_REP');
+  }
 
   protected readonly pipeline = signal<CrmPipelineRow[]>([]);
 

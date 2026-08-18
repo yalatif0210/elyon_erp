@@ -19,6 +19,7 @@ import {
   OperationPhase,
   OperationStatus,
   Prisma,
+  SignatoryKind,
   TransportMode,
   UnitOfMeasure,
 } from '@prisma/client';
@@ -95,7 +96,8 @@ export interface FieldOperationSummary {
 export interface FieldProductView {
   code: string;
   name: string;
-  referenceDensity15: number;
+  /** Nulle pour un produit SERVICE (barge) — sans objet hors mesure volumétrique. */
+  referenceDensity15: number | null;
   viscosityCst: number | null;
   flashPointC: number | null;
   maxSulphurPct: number | null;
@@ -150,6 +152,14 @@ export interface FieldDocumentView {
   mimeType: string;
   generatedAt: Date;
   isSealed: boolean;
+  /**
+   * Natures de signataires déjà enregistrées — pas leur identité.
+   *
+   * Sert à l'écran de clôture à savoir QUI reste à faire signer sans devoir
+   * ouvrir la pièce : un bon de livraison qui porte déjà `FIELD_USER` n'a
+   * plus besoin que du représentant du client (§ 12.2).
+   */
+  signatureKinds: SignatoryKind[];
 }
 
 /** Pièce du client visible du terrain — FDS, agrément, autorisation. */
@@ -528,6 +538,7 @@ export class FieldOperationsService {
             mimeType: true,
             generatedAt: true,
             isSealed: true,
+            signatures: { select: { kind: true } },
           },
         },
       },
@@ -563,7 +574,7 @@ export class FieldOperationsService {
       product: {
         code: product.code,
         name: product.name,
-        referenceDensity15: toNumber(product.referenceDensity15),
+        referenceDensity15: toNumberOrNull(product.referenceDensity15),
         viscosityCst: toNumberOrNull(product.viscosityCst),
         flashPointC: toNumberOrNull(product.flashPointC),
         maxSulphurPct: toNumberOrNull(product.maxSulphurPct),
@@ -608,6 +619,7 @@ export class FieldOperationsService {
         mimeType: doc.mimeType,
         generatedAt: doc.generatedAt,
         isSealed: doc.isSealed,
+        signatureKinds: doc.signatures.map((s) => s.kind),
       })),
       referenceDocuments: operation.deal.client.documents.map((doc) => ({
         id: doc.id,

@@ -34,7 +34,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { AuditService } from '../common/audit/audit.service';
-import { FieldRoles, Realm, RequireRealm, Roles } from '../common/auth/realm';
+import { FieldRoles, Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { FieldScopeService } from '../field/field-scope.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ReferenceService } from '../common/reference/reference.service';
@@ -539,6 +539,7 @@ export class HseController {
     UserRole.ASSISTANT_DG,
     UserRole.FINANCE_CFO,
   )
+  @Screen('hse')
   checks(@Param('operationId', ParseUUIDPipe) operationId: string) {
     return this.service.checksForOperation(operationId);
   }

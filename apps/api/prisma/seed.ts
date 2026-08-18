@@ -214,6 +214,10 @@ async function main(): Promise<void> {
     { code: 'MGO', name: 'Marine Gas Oil', referenceDensity15: '0.860000', viscosityCst: '4.500', flashPointC: '60.00', maxSulphurPct: '0.1000', uiColorToken: 'cyan-400/70', defaultUom: UnitOfMeasure.MT },
     { code: 'DIESEL', name: 'Gasoil / Diesel', referenceDensity15: '0.840000', viscosityCst: '3.200', flashPointC: '55.00', maxSulphurPct: '0.0050', uiColorToken: 'amber-400/70', defaultUom: UnitOfMeasure.L },
     { code: 'GASOLINE', name: 'Essence Super', referenceDensity15: '0.745000', viscosityCst: '0.600', flashPointC: '-43.00', maxSulphurPct: '0.0010', uiColorToken: 'emerald-400/70', defaultUom: UnitOfMeasure.L },
+    // Produit SERVICE : ni densité, ni volume — une affaire qui le retient
+    // porte un prix d'exploitation, pas un prix au litre ou à la tonne
+    // (§ discussion 15/08).
+    { code: 'BARGE', name: 'Barge (exploitation)', referenceDensity15: null, viscosityCst: null, flashPointC: null, maxSulphurPct: null, uiColorToken: 'slate-400/70', defaultUom: UnitOfMeasure.FORFAIT, isService: true },
   ];
   const products: Record<string, string> = {};
   for (const p of productDefs) {

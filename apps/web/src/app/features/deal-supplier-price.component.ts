@@ -1,7 +1,6 @@
 import { Component, EventEmitter, Input, Output, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService, DealDetail, SupplierPriceOption } from '../core/api.service';
-import { AuthService } from '../core/auth.service';
 import { IconComponent } from '../shared/icon.component';
 import { grouper } from '../shared/format';
 
@@ -11,20 +10,16 @@ interface HttpFailure {
 }
 
 /**
- * Choix du fournisseur et étapes d'approbation d'une affaire (§ 5.4, § 11.2).
+ * Choix du fournisseur et du prix d'achat (§ 5.4).
  *
  * LE PRIX D'ACHAT SE CHOISIT, IL NE SE SAISIT PAS. Ne sont proposés que les
- * prix validés par le DG, portant le bon produit et en vigueur ce jour. Chaque
- * ligne montre le portage induit : deux fournisseurs au même prix ne coûtent
- * pas la même chose si l'un est payé d'avance et l'autre à trente jours.
+ * prix validés par le DG, portant le bon produit et en vigueur ce jour.
  *
- * Les boutons d'approbation ne préjugent de rien. La base seule décide, et un
- * refus revient avec son motif — plancher de marge, prix hors bande, absence
- * de prix sourcé. Dupliquer la règle ici la rendrait affaiblissable par un
- * futur changement de code sans que personne ne s'en aperçoive.
+ * Deuxième étape de la fiche affaire — après Client/Produit/Volume, avant le
+ * chiffrage des coûts.
  */
 @Component({
-  selector: 'erp-deal-actions',
+  selector: 'erp-deal-supplier-price',
   standalone: true,
   imports: [FormsModule, IconComponent],
   template: `
@@ -36,7 +31,11 @@ interface HttpFailure {
         }
       </div>
 
-      @if (prices().length === 0) {
+      @if (deal.status !== 'DRAFT') {
+        <p class="empty">
+          Affaire soumise : le fournisseur retenu ne se change plus depuis cet écran.
+        </p>
+      } @else if (prices().length === 0) {
         <p class="empty">
           Aucun prix fournisseur validé par le DG pour ce produit.<br />
           L’affaire ne pourra pas être approuvée tant qu’un prix n’est pas publié.
@@ -126,98 +125,38 @@ interface HttpFailure {
               </div>
             }
 
+            @if (error()) {
+              <div
+                class="mt-3 flex items-start gap-2 rounded-[3px] bg-crit-wash px-3 py-2
+                       text-[13px] text-crit"
+                role="alert"
+              >
+                <erp-icon name="alert-triangle" [size]="14" class="mt-0.5 shrink-0" />
+                <span>{{ error() }}</span>
+              </div>
+            }
+            @if (done()) {
+              <p
+                class="mt-3 flex items-center gap-2 rounded-[3px] bg-ok-wash px-3 py-2
+                       text-[13px] text-ok"
+                role="status"
+              >
+                <erp-icon name="check-circle" [size]="14" />
+                {{ done() }}
+              </p>
+            }
+
             <button class="btn-primary mt-3" (click)="attach()" [disabled]="busy()">
               {{ busy() ? 'Enregistrement…' : 'Retenir ce fournisseur' }}
             </button>
           </div>
         }
       }
-
-      <!-- ================= Étapes d'approbation ================= -->
-      <div class="border-t border-rule px-[15px] py-3">
-        <h3 class="mb-2 text-[13px] font-semibold text-ink">Circuit d’approbation</h3>
-
-        <ol class="mb-4 space-y-1.5 text-[13px]">
-          <li class="flex items-center gap-2" [class]="stepClass(deal.status !== 'DRAFT')">
-            <erp-icon
-              [name]="deal.status !== 'DRAFT' ? 'check-circle' : 'clock'"
-              [size]="13"
-            />
-            Soumission au contrôle du risque : <em>chargé d’affaire</em>
-          </li>
-          <li class="flex items-center gap-2" [class]="stepClass(!!deal.creditApprovedBy)">
-            <erp-icon [name]="deal.creditApprovedBy ? 'check-circle' : 'clock'" [size]="13" />
-            Approbation financière : <em>directeur financier</em>
-            @if (deal.creditApprovedBy) {
-              <span class="text-ink-muted">· {{ deal.creditApprovedBy.fullName }}</span>
-            }
-          </li>
-          @if (deal.thresholds.belowMinimumMargin || deal.dgApprovedBy) {
-            <li class="flex items-center gap-2" [class]="stepClass(!!deal.dgApprovedBy)">
-              <erp-icon [name]="deal.dgApprovedBy ? 'check-circle' : 'lock'" [size]="13" />
-              Accord du DG : marge sous le seuil
-              @if (deal.dgApprovedBy) {
-                <span class="text-ink-muted">· {{ deal.dgApprovedBy.fullName }}</span>
-              }
-            </li>
-          }
-        </ol>
-
-        @if (error()) {
-          <div
-            class="mb-3 flex items-start gap-2 rounded-[3px] bg-crit-wash px-3 py-2
-                   text-[13px] text-crit"
-            role="alert"
-          >
-            <erp-icon name="alert-triangle" [size]="14" class="mt-0.5 shrink-0" />
-            <span>{{ error() }}</span>
-          </div>
-        }
-        @if (done()) {
-          <p
-            class="mb-3 flex items-center gap-2 rounded-[3px] bg-ok-wash px-3 py-2
-                   text-[13px] text-ok"
-            role="status"
-          >
-            <erp-icon name="check-circle" [size]="14" />
-            {{ done() }}
-          </p>
-        }
-
-        <div class="flex flex-wrap gap-2">
-          @if (can('SALES_REP', 'CCOO') && deal.status === 'DRAFT') {
-            <button class="btn-primary" (click)="run('submit')" [disabled]="busy()">
-              Soumettre au risque
-            </button>
-          }
-          @if (can('FINANCE_CFO', 'DG') && !deal.creditApprovedBy) {
-            <button class="btn-primary" (click)="run('approve')" [disabled]="busy()">
-              Approuver
-            </button>
-          }
-          @if (can('DG') && deal.thresholds.belowMinimumMargin && !deal.dgApprovedBy) {
-            <button class="btn-ghost" (click)="run('dg')" [disabled]="busy()">
-              Donner l’accord du DG
-            </button>
-          }
-          <button class="btn-ghost" (click)="run('recompute')" [disabled]="busy()">
-            <erp-icon name="gauge" [size]="14" />
-            Recalculer la marge
-          </button>
-        </div>
-
-        <p class="mt-3 text-[11px] leading-relaxed text-ink-faint">
-          Un bouton visible ne préjuge pas du résultat : les seuils, le sourçage du prix et la
-          bande de tolérance sont appliqués au moment de l’écriture. Un refus
-          revient avec son motif.
-        </p>
-      </div>
     </section>
   `,
 })
-export class DealActionsComponent {
+export class DealSupplierPriceComponent {
   private readonly api = inject(ApiService);
-  private readonly auth = inject(AuthService);
 
   @Input({ required: true }) deal!: DealDetail;
   @Output() readonly changed = new EventEmitter<void>();
@@ -243,11 +182,6 @@ export class DealActionsComponent {
       this.chosen.set(r.selectedSupplierPriceId);
       if (r.retainedUnitPrice > 0) this.retained = r.retainedUnitPrice;
     });
-  }
-
-  protected can(...roles: string[]): boolean {
-    const r = this.auth.role();
-    return r !== null && roles.includes(r);
   }
 
   /** Retenir le prix du fournisseur doit être le geste par défaut. */
@@ -286,10 +220,6 @@ export class DealActionsComponent {
     return grouper(v, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  protected stepClass(done: boolean): string {
-    return done ? 'text-ok' : 'text-ink-muted';
-  }
-
   protected attach(): void {
     const p = this.current();
     if (!p || this.busy()) return;
@@ -311,35 +241,6 @@ export class DealActionsComponent {
         },
         error: (e: HttpFailure) => this.fail(e),
       });
-  }
-
-  protected run(step: 'submit' | 'approve' | 'dg' | 'recompute'): void {
-    if (this.busy()) return;
-    this.busy.set(true);
-    this.error.set(null);
-    this.done.set(null);
-
-    const calls = {
-      submit: () => this.api.submitDeal(this.deal.id),
-      approve: () => this.api.approveDeal(this.deal.id),
-      dg: () => this.api.grantDgApproval(this.deal.id),
-      recompute: () => this.api.recomputeDeal(this.deal.id),
-    };
-    const labels = {
-      submit: 'Affaire soumise au contrôle du risque.',
-      approve: 'Affaire approuvée.',
-      dg: 'Accord du DG enregistré.',
-      recompute: 'Marge recalculée.',
-    };
-
-    calls[step]().subscribe({
-      next: () => {
-        this.busy.set(false);
-        this.done.set(labels[step]);
-        this.changed.emit();
-      },
-      error: (e: HttpFailure) => this.fail(e),
-    });
   }
 
   private fail(e: HttpFailure): void {

@@ -13,7 +13,7 @@ import { ActorType, AuditAction, InvoiceType, UserRole, VehicleMaintenanceType, 
 import { Type } from 'class-transformer';
 import { IsEnum, IsISO8601, IsNumber, IsOptional, IsString, Length, Min, MinLength } from 'class-validator';
 import { AuditService } from '../common/audit/audit.service';
-import { Realm, RequireRealm, Roles } from '../common/auth/realm';
+import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { PrismaService } from '../common/prisma/prisma.service';
 
 // ===========================================================================
@@ -280,6 +280,7 @@ export class BargeSupervisionController {
 
   @Get('barges')
   @Roles(UserRole.DG, UserRole.CCOO, UserRole.FINANCE_CFO, UserRole.LOGISTICS_COORD)
+  @Screen('barge')
   bargePnL() {
     return this.service.bargePnL();
   }

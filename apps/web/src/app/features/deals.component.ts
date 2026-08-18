@@ -7,8 +7,9 @@ import { IconComponent } from '../shared/icon.component';
 import { PaginationComponent } from '../shared/tableau';
 import { grouper } from '../shared/format';
 import { StatusBadgeComponent, StatusKind } from '../shared/status-badge.component';
-import { DealActionsComponent } from './deal-actions.component';
+import { DealSupplierPriceComponent } from './deal-supplier-price.component';
 import { DealCostingComponent } from './deal-costing.component';
+import { DealApprovalComponent } from './deal-approval.component';
 
 /** Statuts d'affaire — libellé métier, et non le jeton technique. */
 const DEAL_STATUS: Record<string, { label: string; kind: StatusKind }> = {
@@ -258,8 +259,9 @@ const INVOICE_TYPE_LABEL: Record<string, string> = {
     RouterLink,
     IconComponent,
     StatusBadgeComponent,
+    DealSupplierPriceComponent,
     DealCostingComponent,
-    DealActionsComponent,
+    DealApprovalComponent,
   ],
   template: `
     @if (deal(); as d) {
@@ -378,7 +380,10 @@ const INVOICE_TYPE_LABEL: Record<string, string> = {
         </section>
 
         <div class="flex flex-col gap-5">
-          <erp-deal-actions [deal]="d" (changed)="reload()" />
+          <!-- Ordre de la fiche affaire (§ discussion 15/08) :
+               Client/Produit/Volume (en-tête, ci-dessus) → Fournisseur et
+               prix d'achat → Chiffrage des coûts → Circuit d'approbation. -->
+          <erp-deal-supplier-price [deal]="d" (changed)="reload()" />
 
           <erp-deal-costing
             [dealId]="d.id"
@@ -386,7 +391,10 @@ const INVOICE_TYPE_LABEL: Record<string, string> = {
             [uom]="d.uom"
             [volume]="volumeNumber(d)"
             [lines]="d.costLines ?? []"
+            [status]="d.status"
           />
+
+          <erp-deal-approval [deal]="d" (changed)="reload()" />
 
           <!-- ============ Origine du prix d'achat ============ -->
           <section class="card overflow-hidden">

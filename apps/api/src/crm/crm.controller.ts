@@ -24,7 +24,7 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { Realm, RequireRealm, Roles } from '../common/auth/realm';
+import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ReferenceService } from '../common/reference/reference.service';
 
@@ -285,18 +285,21 @@ export class CrmController {
 
   @Get('pipeline')
   @Roles(UserRole.DG, UserRole.CCOO, UserRole.SALES_REP, UserRole.FINANCE_CFO, UserRole.ASSISTANT_DG)
+  @Screen('crm')
   pipeline(@Query('ouvertes') ouvertes?: string, @Query('responsable') responsable?: string) {
     return this.service.pipeline({ ouvertes: ouvertes === 'true', responsable });
   }
 
   @Get('pipeline/par-etape')
   @Roles(UserRole.DG, UserRole.CCOO, UserRole.SALES_REP, UserRole.FINANCE_CFO, UserRole.ASSISTANT_DG)
+  @Screen('crm')
   parEtape() {
     return this.service.parEtape();
   }
 
   @Get('alertes')
   @Roles(UserRole.DG, UserRole.CCOO, UserRole.SALES_REP, UserRole.ASSISTANT_DG)
+  @Screen('crm')
   alertes() {
     return this.service.alertes();
   }
@@ -304,6 +307,7 @@ export class CrmController {
   /** Probabilité affichée contre conversion observée — l'honnêteté du pipeline. */
   @Get('conversion')
   @Roles(UserRole.DG, UserRole.CCOO, UserRole.FINANCE_CFO)
+  @Screen('crm')
   conversion() {
     return this.service.conversion();
   }

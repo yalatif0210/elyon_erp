@@ -1,6 +1,8 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { ApiService, Derogation } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
+import { HttpFailure, failureMessage } from '../shared/action-panel.component';
 import { IconComponent } from '../shared/icon.component';
 import { PaginationComponent } from '../shared/tableau';
 import { StatusBadgeComponent } from '../shared/status-badge.component';
@@ -13,8 +15,35 @@ const TYPE_LABELS: Record<string, string> = {
   TRANSPORT_NON_COMPLIANCE: 'Moyen non conforme',
   HSE_DELEGATION: 'Suppléance HSE',
   ULLAGE_ACKNOWLEDGEMENT: "Acquittement d'écart de volume",
+  PURCHASE_PRICE_VARIANCE: "Prix d'achat hors bande",
+  CREDIT_LIMIT_OVERRIDE: 'Dépassement de plafond de crédit',
   OTHER: 'Autre',
 };
+
+/**
+ * Types qu'on peut accorder DEPUIS CE FORMULAIRE GÉNÉRAL, et le rôle minimal
+ * requis — vérifié en base de toute façon (`trg_derogation_authority`), ceci
+ * n'est qu'un confort d'affichage qui évite un refus prévisible.
+ *
+ * ⚠️ `HSE_BLOCKING_OVERRIDE` ET `HSE_DELEGATION` SONT VOLONTAIREMENT ABSENTS.
+ *
+ *    Aucun code applicatif ne les rattache à quoi que ce soit :
+ *    `Operation.hseDerogationId` n'est écrit nulle part, et la création d'une
+ *    suppléance HSE ne pose jamais la dérogation qui devrait l'accompagner.
+ *    Les proposer ici produirait une dérogation enregistrée mais SANS EFFET —
+ *    pire qu'une case manquante, une fausse impression d'avoir agi. Ce
+ *    formulaire ne couvre donc que les types qu'une action de l'application
+ *    sait effectivement invoquer (§ 11.2) : approbation d'affaire (marge,
+ *    prix d'achat, encours), affectation de moyens, acquittement d'écart.
+ */
+const TYPES_ACCORDABLES: { type: string; roles: string[] }[] = [
+  { type: 'MARGIN_BELOW_DIRECT_FLOOR', roles: ['DG'] },
+  { type: 'TRANSPORT_NON_COMPLIANCE', roles: ['DG'] },
+  { type: 'PURCHASE_PRICE_VARIANCE', roles: ['DG', 'FINANCE_CFO', 'CCOO'] },
+  { type: 'CREDIT_LIMIT_OVERRIDE', roles: ['DG', 'FINANCE_CFO', 'CCOO'] },
+  { type: 'ULLAGE_ACKNOWLEDGEMENT', roles: ['DG', 'FINANCE_CFO', 'CCOO'] },
+  { type: 'OTHER', roles: ['DG', 'FINANCE_CFO', 'CCOO'] },
+];
 
 /**
  * Registre des dérogations — SPECIFICATIONS.md § 11.4.
@@ -26,14 +55,102 @@ const TYPE_LABELS: Record<string, string> = {
 @Component({
   selector: 'erp-derogations',
   standalone: true,
-  imports: [IconComponent, StatusBadgeComponent, PaginationComponent],
+  imports: [FormsModule, IconComponent, StatusBadgeComponent, PaginationComponent],
   template: `
-    <header class="mb-6">
-      <h1 class="page-title">Registre des dérogations</h1>
-      <p class="page-sub">
-        Verrous financier, HSE et conformité, toute levée y figure, avec son autorité et son motif.
-      </p>
+    <header class="mb-6 flex items-start justify-between gap-4">
+      <div>
+        <h1 class="page-title">Registre des dérogations</h1>
+        <p class="page-sub">
+          Verrous financier, HSE et conformité, toute levée y figure, avec son autorité et son
+          motif.
+        </p>
+      </div>
+      @if (peutAccorder()) {
+        <button class="btn-primary shrink-0" (click)="showCreate.set(!showCreate())">
+          {{ showCreate() ? 'Fermer' : 'Accorder une dérogation' }}
+        </button>
+      }
     </header>
+
+    <!-- ============ Octroi d'une dérogation (§ 11.4) ============
+         ⚠️ CORRIGÉ — CE REGISTRE NE SAVAIT QUE LISTER, REVOIR ET RÉVOQUER.
+            Rien ne permettait d'en ACCORDER une : la route existait depuis
+            toujours (POST /derogations), réservée à DG/DAF/CCOO, mais aucun
+            écran ne l'appelait. Un DG ne pouvait lever aucun verrou. -->
+    @if (showCreate()) {
+      <section class="card mb-5">
+        <div class="card-header"><h2 class="card-title">Accorder une dérogation</h2></div>
+        <div class="card-body">
+          @if (createError()) {
+            <div
+              class="mb-3 flex items-start gap-2 rounded-[3px] bg-crit-wash px-3 py-2
+                     text-[13px] text-crit"
+              role="alert"
+            >
+              <erp-icon name="alert-triangle" [size]="14" class="mt-0.5 shrink-0" />
+              <span>{{ createError() }}</span>
+            </div>
+          }
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <label class="label" for="d-type">Type</label>
+              <select id="d-type" class="field" [(ngModel)]="creType">
+                <option value="">Choisir</option>
+                @for (t of typesAccordablesPourMoi(); track t) {
+                  <option [value]="t">{{ typeLabel(t) }}</option>
+                }
+              </select>
+            </div>
+            <div>
+              <label class="label" for="d-sujet-type">Nature du sujet</label>
+              <input
+                id="d-sujet-type"
+                class="field"
+                maxlength="64"
+                placeholder="Deal, Operation, OperationAssignment…"
+                [(ngModel)]="creSubjectType"
+              />
+            </div>
+            <div>
+              <label class="label" for="d-sujet-id">Référence du sujet</label>
+              <input
+                id="d-sujet-id"
+                class="field font-mono"
+                maxlength="64"
+                placeholder="DEAL-2026-08-001"
+                [(ngModel)]="creSubjectId"
+              />
+              <p class="mt-1 text-[11px] leading-relaxed text-ink-faint">
+                La RÉFÉRENCE lisible, pas l’identifiant technique — c’est elle que le verrou
+                confronte au sujet réel. Laissez vide pour une dérogation générale.
+              </p>
+            </div>
+            <div>
+              <label class="label" for="d-echeance">Échéance (facultative)</label>
+              <input id="d-echeance" type="date" class="field" [(ngModel)]="creExpiresAt" />
+            </div>
+            <div class="md:col-span-2">
+              <label class="label" for="d-motif">Motif</label>
+              <textarea
+                id="d-motif"
+                class="field"
+                rows="2"
+                maxlength="2000"
+                placeholder="Circonstancié — 10 caractères minimum"
+                [(ngModel)]="creReason"
+              ></textarea>
+            </div>
+          </div>
+          <button
+            class="btn-primary mt-3"
+            [disabled]="creBusy() || !creComplet()"
+            (click)="creer()"
+          >
+            {{ creBusy() ? 'Envoi…' : 'Accorder' }}
+          </button>
+        </div>
+      </section>
+    }
 
     <!-- Revue mensuelle : les dérogations exceptionnelles ne doivent pas
          se perdre dans la masse. -->
@@ -131,6 +248,65 @@ export class DerogationsComponent implements OnInit {
   private readonly auth = inject(AuthService);
 
   protected readonly rows = signal<Derogation[]>([]);
+
+  // --- Octroi d'une dérogation ---------------------------------------------
+  protected readonly showCreate = signal(false);
+  protected readonly creBusy = signal(false);
+  protected readonly createError = signal<string | null>(null);
+  protected creType = '';
+  protected creSubjectType = '';
+  protected creSubjectId = '';
+  protected creReason = '';
+  protected creExpiresAt = '';
+
+  protected peutAccorder(): boolean {
+    return this.auth.hasRole('DG', 'FINANCE_CFO', 'CCOO');
+  }
+
+  protected typesAccordablesPourMoi(): string[] {
+    const r = this.auth.role();
+    if (!r) return [];
+    return TYPES_ACCORDABLES.filter((t) => t.roles.includes(r)).map((t) => t.type);
+  }
+
+  protected creComplet(): boolean {
+    return (
+      this.creType !== '' &&
+      this.creSubjectType.trim() !== '' &&
+      this.creReason.trim().length >= 10
+    );
+  }
+
+  protected creer(): void {
+    if (this.creBusy() || !this.creComplet()) return;
+    this.creBusy.set(true);
+    this.createError.set(null);
+    this.api
+      .createDerogation({
+        type: this.creType,
+        subjectType: this.creSubjectType.trim(),
+        subjectId: this.creSubjectId.trim() || undefined,
+        subjectLabel: this.creSubjectId.trim() || undefined,
+        reason: this.creReason.trim(),
+        expiresAt: this.creExpiresAt || undefined,
+      })
+      .subscribe({
+        next: () => {
+          this.creBusy.set(false);
+          this.showCreate.set(false);
+          this.creType = '';
+          this.creSubjectType = '';
+          this.creSubjectId = '';
+          this.creReason = '';
+          this.creExpiresAt = '';
+          this.load();
+        },
+        error: (e: HttpFailure) => {
+          this.creBusy.set(false);
+          this.createError.set(failureMessage(e, 'Dérogation refusée.'));
+        },
+      });
+  }
 
   /**
    * Page demandée au serveur.

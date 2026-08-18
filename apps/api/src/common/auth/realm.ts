@@ -39,12 +39,24 @@ export const REALM_KEY = 'erp:realm';
 export const ROLES_KEY = 'erp:roles';
 export const PUBLIC_KEY = 'erp:public';
 export const SKIP_AUDIT_KEY = 'erp:skipAudit';
+export const SCREEN_KEY = 'erp:screen';
 
 /** Réalm exigé par la route. Posé au niveau du contrôleur, jamais oublié. */
 export const RequireRealm = (realm: Realm) => SetMetadata(REALM_KEY, realm);
 
 /** Rôles internes autorisés. Sans ce décorateur, tout rôle du réalm passe. */
 export const Roles = (...roles: UserRole[]) => SetMetadata(ROLES_KEY, roles);
+
+/**
+ * Écran dont cette route porte le contenu de lecture (§ paramétrage 17/08).
+ *
+ * Posé UNIQUEMENT sur la ou les routes qui font vivre un écran à son
+ * ouverture (liste, détail affiché d'emblée) - jamais sur une route
+ * d'action. C'est ce qui rend `RoleScreenAccess` sûre par construction : la
+ * dérogation DG ne peut viser que ce qui est marqué, et rien n'est marqué en
+ * dehors de la lecture d'ouverture d'écran.
+ */
+export const Screen = (key: string) => SetMetadata(SCREEN_KEY, key);
 
 /**
  * Rôles TERRAIN autorisés. Décorateur distinct de `Roles` par typage, pas par

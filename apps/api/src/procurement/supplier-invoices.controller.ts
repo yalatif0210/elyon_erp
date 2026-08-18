@@ -28,7 +28,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { AuditService } from '../common/audit/audit.service';
-import { Realm, RequireRealm, Roles } from '../common/auth/realm';
+import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { Page, PaginationQuery, paginate } from '../common/http/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { round4 } from '../common/money/money';
@@ -411,6 +411,7 @@ export class SupplierInvoicesController {
     UserRole.CCOO,
     UserRole.LOGISTICS_COORD,
   )
+  @Screen('achats')
   list(@Query() query: SupplierInvoiceQuery) {
     return this.service.list(query);
   }

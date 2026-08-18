@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Injectable,
@@ -16,11 +17,13 @@ import {
 import {
   ActorType,
   AuditAction,
+  DealStatus,
   DiscountMode,
   FneStatus,
   InvoicePaymentMethod,
   InvoiceStatus,
   InvoiceType,
+  QuotationRequestStatus,
   TaxRegime,
   UnitOfMeasure,
   UserRole,
@@ -44,7 +47,7 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import { AuditService } from '../common/audit/audit.service';
-import { Realm, RequireRealm, Roles } from '../common/auth/realm';
+import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { Page, PaginationQuery, paginate } from '../common/http/pagination.dto';
 import { SettingsService } from '../common/config/settings.service';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -59,7 +62,13 @@ import type { InvoicePdfJob } from '../documents/pdf.processor';
 // ===========================================================================
 
 class CreateInvoiceDto {
-  @IsUUID() dealId!: string;
+  /**
+   * L'un des deux est exigé, jamais ni l'un ni l'autre (§ discussion 17/08) -
+   * vérifié en service, pas ici : le message doit dire LEQUEL manque, ce
+   * qu'un décorateur seul ne sait pas faire.
+   */
+  @IsOptional() @IsUUID() dealId?: string;
+  @IsOptional() @IsUUID() quotationRequestId?: string;
   @IsEnum(InvoiceType) type!: InvoiceType;
 
   /**
@@ -193,6 +202,7 @@ export class InvoicesService {
         include: {
           partner: { select: { code: true, legalName: true } },
           deal: { select: { id: true, reference: true } },
+          quotationRequest: { select: { id: true } },
           fneTransmission: { select: { status: true, fiscalReference: true } },
         },
       }),
@@ -252,6 +262,20 @@ export class InvoicesService {
       throw new BadRequestException('Un avoir doit référencer la pièce qu’il corrige.');
     }
 
+    // ⚠️ LE MOTIF DOIT ÊTRE EXIGÉ ICI, PAS SEULEMENT AU CHECK DE BASE.
+    //
+    //    `chk_invoices_simple_decision` ne bloque qu'à L'ÉMISSION (le motif
+    //    reste optionnel sur un brouillon). Sans ce garde-fou côté service, une
+    //    facture simple pouvait être ÉDITÉE sans motif, puis rester bloquée à
+    //    l'émission sans aucun moyen d'y revenir : la pièce n'a pas de route de
+    //    modification, et rien n'explique à l'écran ce qu'il faut faire. Exiger
+    //    le motif dès l'édition ferme cette impasse à la source.
+    if (dto.type === InvoiceType.SIMPLE && (!dto.simpleInvoiceReason || dto.simpleInvoiceReason.trim().length < 10)) {
+      throw new BadRequestException(
+        'Le recours à la facture simple est une décision interne : le motif est exigé dès l’édition (dix caractères au moins), faute de quoi la pièce restera bloquée à l’émission.',
+      );
+    }
+
     // ⚠️ UN AVOIR NE PEUT PAS DÉPASSER CE QU'IL CORRIGE.
     //
     //    Rien ne comparait son montant à la pièce corrigée. La vue de risque
@@ -263,12 +287,66 @@ export class InvoicesService {
       await this.assertAvoirRecevable(dto.correctedInvoiceId, dto.billedVolume * dto.unitPrice);
     }
 
-    const deal = await this.prisma.deal.findUniqueOrThrow({
-      where: { id: dto.dealId },
-      select: { clientId: true, currencyCode: true },
-    });
+    // ⚠️ L'UN OU L'AUTRE, JAMAIS NI L'UN NI L'AUTRE, JAMAIS LES DEUX ICI.
+    //
+    //    À la création. Après conversion, la proforma approuvée porte les
+    //    deux (voir `convertQuotation`) - mais on ne peut pas ÉDITER une
+    //    pièce en désignant simultanément une affaire ET une demande : ce
+    //    lien double ne se pose qu'à la conversion, jamais à la main.
+    if (!dto.dealId && !dto.quotationRequestId) {
+      throw new BadRequestException(
+        'Une pièce doit référencer une affaire ou une demande de cotation.',
+      );
+    }
+    if (dto.dealId && dto.quotationRequestId) {
+      throw new BadRequestException(
+        'Une pièce ne se rattache pas à la fois à une affaire et à une demande de cotation - ce double lien ne se pose qu’à la conversion.',
+      );
+    }
+    if (dto.quotationRequestId && dto.type !== InvoiceType.PROFORMA) {
+      throw new BadRequestException(
+        'Une demande de cotation ne peut produire qu’une proforma : rien n’engage encore avant l’affaire.',
+      );
+    }
 
-    const currencyCode = dto.currencyCode || deal.currencyCode;
+    let partnerId: string;
+
+    if (dto.dealId) {
+      const deal = await this.prisma.deal.findUniqueOrThrow({
+        where: { id: dto.dealId },
+        select: { clientId: true, status: true, reference: true },
+      });
+
+      // Seule une affaire VALIDÉE porte une créance opposable. Le tableau de
+      // création ne propose déjà que les affaires APPROVED (§ arbitrage
+      // 17/08) ; ce garde-fou tient la règle même pour un appel direct de
+      // l'API.
+      if (deal.status !== DealStatus.APPROVED) {
+        throw new BadRequestException(
+          `L'affaire ${deal.reference} n'est pas validée (statut : ${deal.status}) : elle ne peut pas être facturée.`,
+        );
+      }
+      partnerId = deal.clientId;
+    } else {
+      const quotation = await this.prisma.quotationRequest.findUniqueOrThrow({
+        where: { id: dto.quotationRequestId },
+        select: { partnerId: true, status: true },
+      });
+      // Une demande déjà convertie ou déclinée n'attend plus de réponse ;
+      // au-delà de PROFORMA_APPROVED, une nouvelle proforma n'aurait plus de
+      // demande vivante à laquelle se comparer.
+      if (
+        quotation.status === QuotationRequestStatus.CONVERTED ||
+        quotation.status === QuotationRequestStatus.DECLINED
+      ) {
+        throw new BadRequestException(
+          `Cette demande de cotation est close (statut : ${quotation.status}) : elle ne reçoit plus de proforma.`,
+        );
+      }
+      partnerId = quotation.partnerId;
+    }
+
+    const currencyCode = dto.currencyCode;
     const documentCurrencyCode = dto.documentCurrencyCode ?? currencyCode;
 
     // ⚠️ LE PLAN TRANSACTION S'ARRONDIT À LA PRÉCISION DE SA DEVISE.
@@ -338,8 +416,9 @@ export class InvoicesService {
         number,
         type: dto.type,
         status: InvoiceStatus.DRAFT,
-        dealId: dto.dealId,
-        partnerId: deal.clientId,
+        dealId: dto.dealId ?? null,
+        quotationRequestId: dto.quotationRequestId ?? null,
+        partnerId,
         createdById: actorId,
         sourceProformaId: dto.sourceProformaId ?? null,
         correctedInvoiceId: dto.correctedInvoiceId ?? null,
@@ -405,6 +484,24 @@ export class InvoicesService {
       entityId: invoice.id,
       after: invoice,
     });
+
+    // ⚠️ CORRIGÉ (§ discussion 17/08, point 1) — « SOUMETTRE AU CLIENT »
+    //    DOIT RÉELLEMENT L'ENVOYER, PAS LA LAISSER AU BROUILLON.
+    //
+    //    Une proforma répondant à une demande de cotation n'attend pas un
+    //    second acteur pour être émise : elle ne porte ni créance ni
+    //    conséquence fiscale (§ 9.3), rien ne justifie ici la séparation qui
+    //    protège l'émission d'une pièce définitive. Rester au brouillon
+    //    voulait dire : le commercial clique « soumettre », et rien ne part
+    //    tant que quelqu'un d'autre ne rouvre pas la pièce pour l'émettre.
+    //    Le PDF est mis en file dans la foulée - le téléchargement du
+    //    client, lui, attend un document RÉEL, pas une pièce simplement
+    //    marquée émise.
+    if (dto.quotationRequestId) {
+      const issued = await this.issue(invoice.id, {}, actorId);
+      await this.queuePdf(invoice.id, actorId);
+      return issued;
+    }
 
     return invoice;
   }
@@ -514,6 +611,14 @@ export class InvoicesService {
     }
     if (dto.type === InvoiceType.PROFORMA) {
       throw new BadRequestException('Une proforma ne se convertit pas en proforma.');
+    }
+    // Une proforma née d'une demande de cotation n'a de `dealId` qu'une fois
+    // la demande convertie (§ discussion 17/08) - avant cela, aucune pièce
+    // définitive ne peut en découler : rien n'engage encore l'entreprise.
+    if (!proforma.dealId) {
+      throw new BadRequestException(
+        'Cette proforma répond à une demande de cotation non encore convertie en affaire : elle ne peut pas devenir une pièce définitive avant cette conversion.',
+      );
     }
 
     return this.create(
@@ -852,6 +957,37 @@ export class InvoicesService {
     });
     return currency.decimalPlaces;
   }
+
+  /**
+   * Suppression d'une pièce encore au brouillon.
+   *
+   * Un brouillon n'a ni numéro opposable au client, ni PDF scellé, ni
+   * transmission FNE : rien n'a encore engagé l'entreprise. Passé ce statut
+   * (`issue()`), la pièce devient traçable et opposable - elle se corrige
+   * par avoir ou s'annule, elle ne s'efface plus.
+   */
+  async remove(id: string, actorId: string): Promise<void> {
+    const invoice = await this.prisma.invoice.findUniqueOrThrow({
+      where: { id },
+      select: { status: true, number: true },
+    });
+    if (invoice.status !== InvoiceStatus.DRAFT) {
+      throw new BadRequestException(
+        `${invoice.number} n'est plus au brouillon (statut : ${invoice.status}) : elle ne se supprime plus.`,
+      );
+    }
+
+    await this.prisma.invoice.delete({ where: { id } });
+
+    await this.audit.record({
+      actorType: ActorType.INTERNAL_USER,
+      actorId,
+      action: AuditAction.DELETE,
+      entityType: 'Invoice',
+      entityId: id,
+      before: invoice,
+    });
+  }
 }
 
 function addDays(from: Date, days: number): Date {
@@ -878,6 +1014,7 @@ export class InvoicesController {
     UserRole.SALES_REP,
     UserRole.ASSISTANT_DG,
   )
+  @Screen('facturation')
   list(@Query() query: InvoiceQuery) {
     return this.service.list(query);
   }
@@ -898,6 +1035,12 @@ export class InvoicesController {
   @Roles(UserRole.CCOO, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT, UserRole.SALES_REP)
   create(@Body() dto: CreateInvoiceDto, @Req() req: { auth: { sub: string } }) {
     return this.service.create(dto, req.auth.sub);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.CCOO, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT, UserRole.SALES_REP)
+  remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: { auth: { sub: string } }) {
+    return this.service.remove(id, req.auth.sub);
   }
 
   @Post(':id/convert')

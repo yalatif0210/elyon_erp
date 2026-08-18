@@ -2,7 +2,7 @@ import { BadRequestException, Body, Controller, Get, Injectable, Param, ParseUUI
 import { ActorType, AuditAction, DunningMethod, InvoiceType, UserRole } from '@prisma/client';
 import { IsEnum, IsISO8601, IsString, MinLength } from 'class-validator';
 import { AuditService } from '../common/audit/audit.service';
-import { Realm, RequireRealm, Roles } from '../common/auth/realm';
+import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { PrismaService } from '../common/prisma/prisma.service';
 
 // ===========================================================================
@@ -167,6 +167,7 @@ export class CollectionsController {
 
   @Get('supervision/aged-receivables')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT)
+  @Screen('recouvrement')
   agedReceivables() {
     return this.service.agedReceivables();
   }

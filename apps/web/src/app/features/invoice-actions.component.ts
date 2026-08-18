@@ -15,12 +15,14 @@ import { MontantDirective } from '../shared/montant.directive';
  *
  * LA TVA NE DÉPEND QUE DE LA CASE. La mention imprimée HT ou TTC n'entre dans
  * aucun calcul : elle figure en entête de la pièce, rien de plus. Et la TVA
- * est EXTRAITE du total, jamais ajoutée — le total dû par le client ne bouge
+ * est EXTRAITE du total, jamais ajoutée - le total dû par le client ne bouge
  * pas selon qu'elle s'applique ou non.
  *
- * Le volume et le prix sont SAISIS ici. Ils peuvent différer de l'affaire et
- * évoluer d'une proforma à la facture définitive : c'est le propre de la
- * facturation, et le relevé de mesure ne les détermine pas.
+ * Seules les affaires VALIDÉES (statut APPROVED) peuvent être facturées : une
+ * affaire encore en instance de risque ou de DG n'a rien à porter en créance.
+ *
+ * Volume et prix ne se saisissent plus ici : ils sont PORTÉS PAR L'AFFAIRE
+ * (arbitrage du 17/08) et affichés seuls, sans possibilité de modification.
  */
 @Component({
   selector: 'erp-invoice-actions',
@@ -45,6 +47,10 @@ import { MontantDirective } from '../shared/montant.directive';
                 </option>
               }
             </select>
+            <p class="mt-1 text-[11px] text-ink-faint">
+              Seules les affaires validées (circuit d’approbation complet) sont proposées : une
+              affaire encore en instance ne peut pas être facturée.
+            </p>
           </div>
           <div>
             <label class="label" for="type">Nature</label>
@@ -56,12 +62,26 @@ import { MontantDirective } from '../shared/montant.directive';
           </div>
 
           <div>
-            <label class="label" for="vol">Volume facturé</label>
-            <input id="vol" class="field text-right font-mono" erpMontant [(ngModel)]="billedVolume" />
+            <label class="label">Volume facturé</label>
+            <p class="field flex items-center justify-end bg-gray-50 font-mono text-ink-soft">
+              @if (selectedDeal(); as d) {
+                {{ int(d.contractedVolume) }} {{ d.uom }}
+              } @else {
+                <span class="text-ink-faint">-</span>
+              }
+            </p>
+            <p class="mt-1 text-[11px] text-ink-faint">Porté par l’affaire, non modifiable ici.</p>
           </div>
           <div>
-            <label class="label" for="pu">Prix unitaire TTC</label>
-            <input id="pu" class="field text-right font-mono" [(ngModel)]="unitPrice" />
+            <label class="label">Prix unitaire</label>
+            <p class="field flex items-center justify-end bg-gray-50 font-mono text-ink-soft">
+              @if (selectedDeal(); as d) {
+                {{ money(+d.unitSalePrice) }}
+              } @else {
+                <span class="text-ink-faint">-</span>
+              }
+            </p>
+            <p class="mt-1 text-[11px] text-ink-faint">Porté par l’affaire, non modifiable ici.</p>
           </div>
           <div>
             <label class="label" for="dev">Devise d’émission</label>
@@ -153,15 +173,24 @@ import { MontantDirective } from '../shared/montant.directive';
 
         @if (type === 'SIMPLE') {
           <div class="mt-3">
-            <label class="label" for="motif-simple">Motif du recours à la facture simple</label>
+            <label class="label" for="motif-simple">Motif du recours à la facture simple *</label>
             <input id="motif-simple" class="field" [(ngModel)]="simpleInvoiceReason" />
-            <p class="mt-1 text-[11px] text-ink-faint">
-              Décision interne : décideur, date et motif sont conservés.
+            <p class="mt-1 text-[11px]" [class]="motifInvalide() && simpleInvoiceReason ? 'text-crit' : 'text-ink-faint'">
+              @if (motifInvalide() && simpleInvoiceReason) {
+                Encore trop court : dix caractères au moins.
+              } @else {
+                Décision interne : décideur (vous) et date sont enregistrés automatiquement. Sans ce
+                motif, la pièce restera bloquée à l’émission - autant le donner maintenant.
+              }
             </p>
           </div>
         }
 
-        <button class="btn-primary mt-4" (click)="create()" [disabled]="state.busy() || !dealId">
+        <button
+          class="btn-primary mt-4"
+          (click)="create()"
+          [disabled]="state.busy() || !dealId || motifInvalide()"
+        >
           {{ state.busy() ? 'Édition…' : 'Éditer la pièce' }}
         </button>
       </div>
@@ -178,8 +207,6 @@ export class InvoiceActionsComponent {
 
   protected dealId = '';
   protected type = 'PROFORMA';
-  protected billedVolume: number | null = null;
-  protected unitPrice: number | null = null;
   /**
    * ⚠️ AUCUNE DEVISE N'EST ÉCRITE ICI.
    *
@@ -202,7 +229,10 @@ export class InvoiceActionsComponent {
   protected paymentMethod = '';
 
   constructor() {
-    this.api.deals(1, {}).subscribe((p) => this.deals.set(p.items));
+    // Seules les affaires VALIDÉES sont proposées : APPROVED est le seul
+    // statut, dans l'implémentation actuelle du circuit, qui atteste que le
+    // risque et - le cas échéant - le DG ont tranché.
+    this.api.deals(1, { status: 'APPROVED' }).subscribe((p) => this.deals.set(p.items));
     this.api.devises().subscribe((liste) => {
       this.devises.set(liste);
       // La locale d'abord ; à défaut la première active. Jamais le pivot par
@@ -215,8 +245,15 @@ export class InvoiceActionsComponent {
     });
   }
 
+  /** Affaire choisie - source unique du volume et du prix, non ressaisis. */
+  protected selectedDeal(): DealRow | undefined {
+    return this.deals().find((d) => d.id === this.dealId);
+  }
+
   protected total(): number {
-    return Number(this.billedVolume ?? 0) * Number(this.unitPrice ?? 0);
+    const d = this.selectedDeal();
+    if (!d) return 0;
+    return Number(d.contractedVolume) * Number(d.unitSalePrice);
   }
 
   /** TVA EXTRAITE du total, jamais ajoutée : Total × taux ÷ (100 + taux). */
@@ -230,17 +267,32 @@ export class InvoiceActionsComponent {
     return grouper(v, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
+  protected int(value: string): string {
+    return grouper(Number(value), { maximumFractionDigits: 0 });
+  }
+
+  /** Motif exigé - dès dix caractères, seuil aligné sur la validation serveur. */
+  protected motifInvalide(): boolean {
+    return this.type === 'SIMPLE' && this.simpleInvoiceReason.trim().length < 10;
+  }
+
   protected create(): void {
     if (this.state.busy()) return;
+    const d = this.selectedDeal();
+    if (!d) return;
+    if (this.motifInvalide()) {
+      this.state.fail({ error: { message: 'Le motif du recours à la facture simple est exigé (dix caractères au moins).' } });
+      return;
+    }
     this.state.start();
 
     this.api
       .createInvoice({
         dealId: this.dealId,
         type: this.type,
-        billedVolume: Number(this.billedVolume ?? 0),
-        uom: 'L',
-        unitPrice: Number(this.unitPrice ?? 0),
+        billedVolume: Number(d.contractedVolume),
+        uom: d.uom,
+        unitPrice: Number(d.unitSalePrice),
         currencyCode: this.currencyCode,
         documentCurrencyCode: this.documentCurrencyCode,
         isVatApplicable: this.isVatApplicable,
@@ -304,6 +356,13 @@ export class InvoiceActionsComponent {
             <button class="btn-primary" (click)="issue()" [disabled]="state.busy()">
               Émettre
             </button>
+            <button
+              class="btn-ghost ml-auto text-crit"
+              (click)="showDeleteConfirm.set(!showDeleteConfirm())"
+              [disabled]="state.busy()"
+            >
+              Supprimer le brouillon
+            </button>
           }
           @if (invoice.type === 'PROFORMA' && invoice.status !== 'DRAFT') {
             <button class="btn-ghost" (click)="convert('FNE')" [disabled]="state.busy()">
@@ -334,6 +393,30 @@ export class InvoiceActionsComponent {
             </button>
           }
         </div>
+
+        @if (showDeleteConfirm()) {
+          <div class="mt-4 rounded-[3px] border border-crit/30 bg-crit-wash px-3 py-3">
+            <h3 class="mb-1 text-[13px] font-semibold text-crit">
+              Supprimer {{ invoice.number }} ?
+            </h3>
+            <p class="mb-2 text-[12px] text-ink-soft">
+              Un brouillon n’a encore rien engagé : ni numéro opposable, ni transmission fiscale.
+              L’action est définitive.
+            </p>
+            <div class="flex gap-2">
+              <button
+                class="btn-ghost border-crit/50 text-crit"
+                (click)="supprimer()"
+                [disabled]="state.busy()"
+              >
+                Confirmer la suppression
+              </button>
+              <button class="btn-ghost" (click)="showDeleteConfirm.set(false)" [disabled]="state.busy()">
+                Annuler
+              </button>
+            </div>
+          </div>
+        }
 
         @if (showCancelForm()) {
           <div class="mt-4 rounded-[3px] border border-crit/30 bg-crit-wash px-3 py-3">
@@ -383,7 +466,7 @@ export class InvoiceActionsComponent {
                 <input id="av-vol" class="field w-32 text-right font-mono" erpMontant [(ngModel)]="avoirVolume" />
               </div>
               <div>
-                <label class="label" for="av-pu">Prix unitaire TTC</label>
+                <label class="label" for="av-pu">Prix unitaire</label>
                 <input id="av-pu" class="field w-32 text-right font-mono" [(ngModel)]="avoirUnitPrice" />
               </div>
               <button class="btn-primary" (click)="creerAvoir()" [disabled]="state.busy()">
@@ -433,6 +516,7 @@ export class InvoiceLifecycleComponent implements OnDestroy {
 
   @Input({ required: true }) invoice!: InvoiceRow;
   @Output() readonly changed = new EventEmitter<void>();
+  @Output() readonly deleted = new EventEmitter<void>();
 
   protected readonly state = new ActionState();
 
@@ -446,6 +530,17 @@ export class InvoiceLifecycleComponent implements OnDestroy {
 
   protected readonly showCancelForm = signal(false);
   protected cancelReason = '';
+
+  protected readonly showDeleteConfirm = signal(false);
+
+  protected supprimer(): void {
+    if (this.state.busy()) return;
+    this.state.start();
+    this.api.deleteInvoice(this.invoice.id).subscribe({
+      next: () => this.deleted.emit(),
+      error: (e: HttpFailure) => this.state.fail(e),
+    });
+  }
 
   /** Fermée dès qu'un encaissement existe — même partiel (§ arbitrage 15/08). */
   protected peutAnnuler(): boolean {

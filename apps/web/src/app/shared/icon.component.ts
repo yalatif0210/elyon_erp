@@ -30,6 +30,7 @@ export type IconName =
   | 'arrow-right'
   | 'arrow-up'
   | 'arrow-down'
+  | 'trash-2'
   | 'x';
 
 const PATHS: Record<IconName, string> = {
@@ -66,6 +67,8 @@ const PATHS: Record<IconName, string> = {
   // adjacent dit l'effet. Une icône seule ne suffit jamais (§ 17.2).
   'arrow-up': 'M12 19V5M5 12l7-7 7 7',
   'arrow-down': 'M12 5v14M19 12l-7 7-7-7',
+  'trash-2':
+    'M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14ZM10 11v6M14 11v6',
   x: 'M18 6 6 18M6 6l12 12',
 };
 

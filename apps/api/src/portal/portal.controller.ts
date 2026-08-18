@@ -14,7 +14,15 @@ import {
   Req,
   StreamableFile,
 } from '@nestjs/common';
-import { ActorType, AuditAction, DealStatus, InvoiceType, UnitOfMeasure } from '@prisma/client';
+import {
+  ActorType,
+  AuditAction,
+  DealStatus,
+  InvoiceStatus,
+  InvoiceType,
+  QuotationRequestStatus,
+  UnitOfMeasure,
+} from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsEnum, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { AuditService } from '../common/audit/audit.service';
@@ -105,8 +113,94 @@ export class PortalService {
     return this.prisma.quotationRequest.findMany({
       where: { partnerId },
       orderBy: { createdAt: 'desc' },
-      include: { product: { select: { code: true, name: true } } },
+      include: {
+        product: { select: { code: true, name: true } },
+        // Le brouillon jamais soumis reste invisible au client - il n'a rien
+        // à approuver tant que personne ne le lui a envoyé.
+        proformas: {
+          where: { type: InvoiceType.PROFORMA, status: { not: InvoiceStatus.DRAFT } },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            number: true,
+            status: true,
+            billedVolume: true,
+            uom: true,
+            unitPrice: true,
+            currencyCode: true,
+            acceptedAt: true,
+            // Le PDF est mis en file dès l'émission (§ discussion 17/08) -
+            // scellé, donc au même format que tout document produit par
+            // l'ERP. `isSealed` filtre l'éventuel brouillon jamais retenu
+            // d'une régénération manuelle.
+            generatedDocuments: {
+              where: { isSealed: true },
+              orderBy: { generatedAt: 'desc' },
+              take: 1,
+              select: { id: true, reference: true },
+            },
+          },
+        },
+      },
     });
+  }
+
+  /**
+   * Approbation d'une proforma par le CLIENT (§ discussion 17/08).
+   *
+   * ⚠️ LE CLOISONNEMENT PASSE PAR LE `WHERE`, DEUX FOIS.
+   *
+   *    La demande ET la pièce sont relues sous le `partnerId` du jeton avant
+   *    toute écriture — jamais un contrôle a posteriori sur un objet déjà lu
+   *    par son seul UUID (§ commentaire d'en-tête de ce fichier).
+   */
+  async approveProforma(partnerId: string, quotationId: string, invoiceId: string, portalUserId: string) {
+    const quotation = await this.prisma.quotationRequest.findFirst({
+      where: { id: quotationId, partnerId },
+      select: { status: true },
+    });
+    if (!quotation) throw new NotFoundException('Demande introuvable.');
+    if (
+      quotation.status === QuotationRequestStatus.CONVERTED ||
+      quotation.status === QuotationRequestStatus.DECLINED
+    ) {
+      throw new BadRequestException(`Cette demande est close (statut : ${quotation.status}).`);
+    }
+
+    const invoice = await this.prisma.invoice.findFirst({
+      where: {
+        id: invoiceId,
+        quotationRequestId: quotationId,
+        partnerId,
+        type: InvoiceType.PROFORMA,
+        status: { not: InvoiceStatus.DRAFT },
+      },
+      select: { id: true, number: true },
+    });
+    if (!invoice) throw new NotFoundException('Proforma introuvable.');
+
+    const now = new Date();
+    const [updatedInvoice] = await this.prisma.$transaction([
+      this.prisma.invoice.update({
+        where: { id: invoiceId },
+        data: { acceptedByPortalUserId: portalUserId, acceptedAt: now },
+      }),
+      this.prisma.quotationRequest.update({
+        where: { id: quotationId },
+        data: { status: QuotationRequestStatus.PROFORMA_APPROVED, approvedProformaId: invoiceId },
+      }),
+    ]);
+
+    await this.audit.record({
+      actorType: ActorType.PORTAL_USER,
+      actorId: portalUserId,
+      action: AuditAction.APPROVE,
+      entityType: 'Invoice',
+      entityId: invoiceId,
+      after: { acceptedAt: now, quotationId },
+    });
+
+    return updatedInvoice;
   }
 
   // --- Affaires — tableau de bord des offres ----------------------------
@@ -245,7 +339,19 @@ export class PortalService {
   // --- Relevés et factures ------------------------------------------------
 
   async listInvoices(partnerId: string, query: PortalListQuery): Promise<Page<unknown>> {
-    const where = { partnerId, type: { not: InvoiceType.CREDIT_NOTE } };
+    // ⚠️ UN BROUILLON RESTAIT VISIBLE AU CLIENT.
+    //
+    //    Le `where` ne filtrait que le TYPE (pas d'avoir), jamais le STATUT :
+    //    une pièce encore en édition interne - numéro non définitif, montants
+    //    susceptibles de changer, aucun PDF scellé - apparaissait telle quelle
+    //    sur le portail. Un DRAFT n'engage rien tant qu'il n'est pas ÉMIS
+    //    (`issue()`) : c'est cette frontière, pas la création, qui rend une
+    //    pièce opposable et donc montrable à un tiers.
+    const where = {
+      partnerId,
+      type: { not: InvoiceType.CREDIT_NOTE },
+      status: { not: InvoiceStatus.DRAFT },
+    };
     const [items, total] = await Promise.all([
       this.prisma.invoice.findMany({
         where,
@@ -312,6 +418,15 @@ export class PortalController {
   @Get('quotations')
   listQuotations(@Req() req: { auth: { partnerId?: string } }) {
     return this.service.listQuotations(this.partnerId(req));
+  }
+
+  @Patch('quotations/:id/proformas/:invoiceId/approuver')
+  approveProforma(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
+    @Req() req: { auth: { sub: string; partnerId?: string } },
+  ) {
+    return this.service.approveProforma(this.partnerId(req), id, invoiceId, req.auth.sub);
   }
 
   @Get('deals')

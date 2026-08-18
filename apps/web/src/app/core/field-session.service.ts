@@ -79,6 +79,19 @@ export class FieldSessionService {
   /** Mot de passe provisoire : le bandeau doit rester tant que rien n'est fait. */
   readonly motDePasseAChanger = signal(false);
 
+  /**
+   * Second facteur exigé mais non configuré (§ 1.4, § 10.5).
+   *
+   * ⚠️ CORRIGÉ — `totpEnrollmentRequired` ARRIVAIT DANS LA RÉPONSE DE
+   *    CONNEXION ET ÉTAIT JETÉ. La console bureautique lit le même champ pour
+   *    afficher un bandeau et ouvrir l'enrôlement ; côté terrain, rien ne le
+   *    lisait ni la route d'enrôlement (`/api/field/auth/totp/enroll` et
+   *    `/confirm`, elles bien vivantes côté serveur) n'avait d'écran pour la
+   *    déclencher. Un agent signalé pour un second facteur obligatoire
+   *    n'avait aucun moyen de l'activer depuis la tablette.
+   */
+  readonly totpRequis = signal(false);
+
   get jeton(): string | null {
     return sessionStorage.getItem(ACCES);
   }
@@ -131,6 +144,17 @@ export class FieldSessionService {
       .pipe(tap(() => this.motDePasseAChanger.set(false)));
   }
 
+  /** Ouvre l'enrôlement et rend le secret — affiché UNE SEULE fois. */
+  ouvrirEnrolementTotp(): Observable<{ secret: string }> {
+    return this.http.post<{ secret: string }>('/api/field/auth/totp/enroll', {});
+  }
+
+  confirmerEnrolementTotp(code: string): Observable<void> {
+    return this.http
+      .post<void>('/api/field/auth/totp/confirm', { code })
+      .pipe(tap(() => this.totpRequis.set(false)));
+  }
+
   deconnexion(): void {
     // On prévient le serveur pour révoquer la session, mais on nettoie
     // localement quoi qu'il arrive : une coupure réseau ne doit pas laisser
@@ -155,6 +179,7 @@ export class FieldSessionService {
     sessionStorage.setItem(PROFIL, JSON.stringify(res.profile));
     this.profilSignal.set(res.profile);
     this.motDePasseAChanger.set(res.mustChangePassword);
+    this.totpRequis.set(res.totpEnrollmentRequired);
   }
 }
 

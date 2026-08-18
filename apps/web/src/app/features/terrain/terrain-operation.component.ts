@@ -113,6 +113,16 @@ import { jour, jourHeure } from './terrain-libelles';
             <erp-icon name="arrow-right" [size]="18" />
             Faire avancer l’opération
           </a>
+          <!-- N'apparaît qu'au moment où la clôture a un sens : avant la
+               livraison, un bon de livraison n'aurait rien à décrire. Le
+               serveur tient la même règle (STATUTS_CLOTURABLES) — ce n'est
+               ici qu'un raccourci d'affichage, jamais l'autorité. -->
+          @if (clotureAccessible(op)) {
+            <a class="t-btn-ghost" [routerLink]="['/terrain/operation', op.id, 'cloture']">
+              <erp-icon name="check-circle" [size]="18" />
+              Clôturer l’opération
+            </a>
+          }
           <!-- Le lien n'apparaît que si un site est RÉFÉRENCÉ. Toutes les
                opérations n'en désignent pas — certaines livrent à une adresse
                en clair — et le serveur refuse alors la fiche, à juste titre.
@@ -283,6 +293,19 @@ export class TerrainOperationComponent implements OnInit {
   /** Total des points bloquants non levés, tel que le serveur les compte. */
   protected bloquants(op: FieldOperationDetail): number {
     return op.hse.checks.reduce((total, c) => total + c.blockingPending, 0);
+  }
+
+  /**
+   * Miroir d'affichage de `STATUTS_CLOTURABLES` côté serveur.
+   *
+   * Reste visible si les pièces existent déjà, même si le statut a depuis
+   * avancé : signer reste possible tant que l'opération n'est pas CLOSED, et
+   * l'agent ne doit pas perdre son chemin vers un bon de livraison à moitié
+   * signé.
+   */
+  protected clotureAccessible(op: FieldOperationDetail): boolean {
+    if (op.status === 'DELIVERING' || op.status === 'FINAL_CHECK') return true;
+    return op.documents.some((d) => d.kind === 'OPERATION_REPORT' || d.kind === 'DELIVERY_NOTE');
   }
 
   protected expiree(iso: string | null): boolean {

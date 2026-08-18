@@ -7,6 +7,7 @@ import { CryptoService } from './crypto/crypto.service';
 import { PrismaService } from './prisma/prisma.service';
 import { ReferenceService } from './reference/reference.service';
 import { RedisService } from './redis/redis.service';
+import { ScreenAccessService } from './auth/screen-access.service';
 import { SettingsService } from './config/settings.service';
 import { StorageService } from './storage/storage.service';
 import { AstmService } from './volumes/astm.service';
@@ -51,6 +52,9 @@ import { AstmService } from './volumes/astm.service';
     // écrites dans le code : le service est transverse au même titre que
     // l'accès base, et suit donc la même portée globale.
     SettingsService,
+    // Consulté par le garde d'authentification à CHAQUE requête interne
+    // (§ paramétrage 17/08) : doit être disponible partout, comme lui.
+    ScreenAccessService,
   ],
   exports: [
     AppConfig,
@@ -62,6 +66,7 @@ import { AstmService } from './volumes/astm.service';
     SettingsService,
     StorageService,
     AstmService,
+    ScreenAccessService,
   ],
 })
 export class CommonModule {}

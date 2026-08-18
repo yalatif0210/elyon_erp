@@ -81,6 +81,15 @@ import { ROLES_TERRAIN } from './terrain-libelles';
           </a>
         </div>
       }
+      @if (session.totpRequis()) {
+        <div class="flex items-center gap-2 border-b border-rule bg-crit-wash px-4 py-3 text-[14px] text-crit">
+          <erp-icon name="lock" [size]="16" />
+          Second facteur obligatoire, non configuré.
+          <a routerLink="/terrain/second-facteur" class="font-semibold underline underline-offset-2">
+            Le configurer
+          </a>
+        </div>
+      }
 
       <router-outlet />
     </div>

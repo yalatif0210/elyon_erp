@@ -1,6 +1,6 @@
 import { Controller, Get, Injectable, Param, Query, Req } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
-import { Realm, RequireRealm, Roles, SkipAudit } from '../common/auth/realm';
+import { Realm, RequireRealm, Roles, Screen, SkipAudit } from '../common/auth/realm';
 import { PrismaService } from '../common/prisma/prisma.service';
 
 /**
@@ -385,17 +385,20 @@ export class SupervisionController {
    * reviendrait à cacher à quelqu'un qu'on l'attend.
    */
   @Get('taches')
+  @Screen('mes-taches')
   taches(@Req() req: { auth: { role?: UserRole } }) {
     return this.service.taches(req.auth.role);
   }
 
   @Get('taches/compteur')
+  @Screen('mes-taches')
   compteurTaches(@Req() req: { auth: { role?: UserRole } }) {
     return this.service.compteurTaches(req.auth.role);
   }
 
   @Get('margin-band')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO)
+  @Screen('supervision')
   marginBand() {
     return this.service.marginBand();
   }
@@ -416,6 +419,7 @@ export class SupervisionController {
    */
   @Get('margin-band/by-owner')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO)
+  @Screen('supervision')
   byOwner() {
     return this.service.marginBandByOwner();
   }
@@ -433,6 +437,7 @@ export class SupervisionController {
    */
   @Get('performance-commerciale')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO)
+  @Screen('crm')
   performanceCommerciale(
     @Query('periode') periode?: string,
     @Query('ancre') ancre?: string,
@@ -450,6 +455,7 @@ export class SupervisionController {
 
   @Get('margin-variance')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO, UserRole.ACCOUNTANT)
+  @Screen('supervision')
   variance(@Query('minPct') minPct?: string) {
     return this.service.marginVariance(Number(minPct) || 0);
   }
@@ -462,12 +468,14 @@ export class SupervisionController {
 
   @Get('credit-exposure')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT, UserRole.CCOO)
+  @Screen('supervision')
   exposure() {
     return this.service.creditExposure();
   }
 
   @Get('outstanding-prepayments')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT)
+  @Screen('supervision')
   prepayments() {
     return this.service.outstandingPrepayments();
   }
@@ -481,12 +489,14 @@ export class SupervisionController {
    */
   @Get('invariants')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.IT_ADMIN)
+  @Screen('supervision')
   invariants() {
     return this.service.invariants();
   }
 
   @Get('parametres-requis')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.IT_ADMIN)
+  @Screen('supervision')
   parametresRequis() {
     return this.service.parametresRequis();
   }
@@ -500,24 +510,28 @@ export class SupervisionController {
 
   @Get('couverture-budgetaire')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO, UserRole.ACCOUNTANT, UserRole.LOGISTICS_COORD)
+  @Screen('pilotage')
   couvertureBudgetaire() {
     return this.service.couvertureBudgetaire();
   }
 
   @Get('point-mort')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO, UserRole.ACCOUNTANT)
+  @Screen('pilotage')
   pointMort() {
     return this.service.pointMort();
   }
 
   @Get('marge-cout-variable')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO, UserRole.ACCOUNTANT)
+  @Screen('pilotage')
   margeCoutVariable() {
     return this.service.margeCoutVariable();
   }
 
   @Get('bfr')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT)
+  @Screen('pilotage')
   bfr() {
     return this.service.bfr();
   }
@@ -532,6 +546,7 @@ export class SupervisionController {
    */
   @Get('absorption-reelle')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO)
+  @Screen('pilotage')
   absorptionReelle() {
     return this.service.absorptionReelle();
   }
@@ -543,17 +558,20 @@ export class SupervisionController {
   }
 
   @Get('tableau-operationnel')
+  @Screen('tableau-de-bord')
   tableauOperationnel() {
     return this.service.tableauOperationnel();
   }
 
   @Get('tableau-operationnel/:etat')
+  @Screen('tableau-de-bord')
   operationsParEtat(@Param('etat') etat: string) {
     return this.service.operationsParEtat(etat);
   }
 
   @Get('prevision-vente')
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO, UserRole.ACCOUNTANT, UserRole.LOGISTICS_COORD)
+  @Screen('pilotage')
   previsionVente() {
     return this.service.previsionVente();
   }

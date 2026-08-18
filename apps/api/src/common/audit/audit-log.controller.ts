@@ -1,7 +1,7 @@
 import { Controller, Get, Injectable, Query } from '@nestjs/common';
 import { ActorType, AuditAction, UserRole } from '@prisma/client';
 import { IsEnum, IsISO8601, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
-import { Realm, RequireRealm, Roles, SkipAudit } from '../auth/realm';
+import { Realm, RequireRealm, Roles, Screen, SkipAudit } from '../auth/realm';
 import { Page, PaginationQuery, paginate } from '../http/pagination.dto';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -118,6 +118,7 @@ export class AuditLogController {
 
   @Get()
   @Roles(UserRole.DG, UserRole.IT_ADMIN)
+  @Screen('journal-audit')
   list(@Query() query: AuditLogQuery) {
     return this.service.list(query);
   }

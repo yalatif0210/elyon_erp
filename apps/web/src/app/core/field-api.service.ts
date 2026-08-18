@@ -89,6 +89,8 @@ export interface FieldDocumentView {
   mimeType: string;
   generatedAt: string;
   isSealed: boolean;
+  /** Natures de signataires déjà enregistrées — pas leur identité. */
+  signatureKinds: string[];
 }
 
 export interface FieldReferenceDocumentView {
@@ -283,6 +285,38 @@ export class FieldApiService {
           }),
         ),
       );
+  }
+
+  /**
+   * Déclenche la génération du rapport d'exécution et du bon de livraison.
+   *
+   * Asynchrone côté serveur (file BullMQ, rendu Chromium) : le retour ne
+   * porte que l'identifiant de la tâche. L'écran doit recharger le dossier de
+   * l'opération quelques secondes plus tard pour voir apparaître les pièces.
+   */
+  genererCloture(operationId: string): Observable<{ jobId: string }> {
+    return this.http.post<{ jobId: string }>(
+      `${this.base}/documents/operations/${operationId}/closure`,
+      {},
+    );
+  }
+
+  /**
+   * Signature d'une pièce (rapport ou bon de livraison).
+   *
+   * Scelle AUTOMATIQUEMENT dès que les signataires requis y sont — c'est le
+   * serveur qui le décide (`DocumentsService.seal`), jamais cet écran : la
+   * réponse ne dit pas si la pièce est scellée, il faut recharger le dossier.
+   */
+  signerDocument(
+    documentId: string,
+    dto: {
+      kind: string;
+      signatoryName: string;
+      signatoryCapacity: string;
+    },
+  ): Observable<unknown> {
+    return this.http.post(`${this.base}/documents/${documentId}/signatures`, dto);
   }
 
   /**

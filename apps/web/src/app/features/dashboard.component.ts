@@ -1,6 +1,12 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { ApiService, ComplianceSubject, EtatOperationnel, ExpiryItem } from '../core/api.service';
+import {
+  ApiService,
+  ComplianceSubject,
+  EtatOperationnel,
+  ExpiryItem,
+  OperationParEtat,
+} from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
 import { StatusBadgeComponent } from '../shared/status-badge.component';
 
@@ -43,7 +49,13 @@ import { StatusBadgeComponent } from '../shared/status-badge.component';
         </div>
         <div class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
           @for (e of operationnel(); track e.etat) {
-            <div class="card px-[15px] py-3" [class.border-crit]="etatGrave(e.etat)">
+            <button
+              type="button"
+              class="card px-[15px] py-3 text-left transition-shadow hover:shadow-soft"
+              [class.border-crit]="etatGrave(e.etat)"
+              [class.ring-2]="etatSelectionne() === e.etat"
+              (click)="basculerDetail(e.etat)"
+            >
               <p class="text-[11px] uppercase tracking-wide text-ink-muted">
                 {{ etatLibelle(e.etat) }}
               </p>
@@ -57,9 +69,58 @@ import { StatusBadgeComponent } from '../shared/status-badge.component';
                   · jusqu'à {{ e.retard_max_jours }} j
                 }
               </p>
-            </div>
+            </button>
           }
         </div>
+
+        <!-- ⚠️ CORRIGÉ — LES CARTES ÉTAIENT MUETTES.
+             operationsParEtat() existait déjà côté service, appelée par
+             rien : un « 12 en retard » ne menait nulle part, il fallait
+             rouvrir /operations et deviner le bon filtre à la main. -->
+        @if (etatSelectionne(); as etat) {
+          <div class="card mt-3 overflow-hidden">
+            <div class="card-header">
+              <h3 class="card-title">{{ etatLibelle(etat) }}</h3>
+              <button class="link text-[12px]" (click)="etatSelectionne.set(null)">Fermer</button>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Opération</th>
+                    <th>Affaire</th>
+                    <th>Client</th>
+                    <th>Produit</th>
+                    <th class="num">Volume</th>
+                    <th class="num">Reste à encaisser</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (o of detailEtat(); track o.operation_id) {
+                    <tr>
+                      <td>
+                        <a [routerLink]="['/operations', o.operation_id]" class="ref hover:underline">
+                          {{ o.reference }}
+                        </a>
+                      </td>
+                      <td class="font-mono text-[12px] text-ink-muted">{{ o.affaire }}</td>
+                      <td class="text-ink-soft">{{ o.client }}</td>
+                      <td class="text-ink-soft">{{ o.produit }}</td>
+                      <td class="num font-mono text-ink-soft">
+                        {{ o.planned_volume }} {{ o.uom }}
+                      </td>
+                      <td class="num font-mono text-ink-soft">
+                        {{ +o.reste_a_encaisser > 0 ? o.reste_a_encaisser : '-' }}
+                      </td>
+                    </tr>
+                  } @empty {
+                    <tr><td colspan="6" class="empty">Chargement…</td></tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        }
       </section>
     }
 
@@ -189,6 +250,23 @@ export class DashboardComponent implements OnInit {
   protected readonly overview = signal<ComplianceSubject[]>([]);
   protected readonly expiry = signal<ExpiryItem[]>([]);
   protected readonly operationnel = signal<EtatOperationnel[]>([]);
+
+  protected readonly etatSelectionne = signal<string | null>(null);
+  protected readonly detailEtat = signal<OperationParEtat[]>([]);
+
+  /** Referme si on reclique le même état ; sinon charge son détail. */
+  protected basculerDetail(etat: string): void {
+    if (this.etatSelectionne() === etat) {
+      this.etatSelectionne.set(null);
+      return;
+    }
+    this.etatSelectionne.set(etat);
+    this.detailEtat.set([]);
+    this.api.operationsParEtat(etat).subscribe({
+      next: (rows) => this.detailEtat.set(rows),
+      error: () => this.detailEtat.set([]),
+    });
+  }
 
   protected readonly blocked = computed(() => this.overview().filter((s) => !s.is_compliant));
   protected readonly expired = computed(() => this.expiry().filter((e) => e.days_remaining < 0));

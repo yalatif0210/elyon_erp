@@ -10,7 +10,14 @@ interface NavItem {
   label: string;
   path: string;
   icon: IconName;
-  /** Rôles pour lesquels l'entrée est proposée. Vide = tous. */
+  /**
+   * Clé d'écran (§ paramétrage 17/08) - la visibilité est résolue par
+   * `AuthService.canSeeScreen()`, dérogations DG comprises. Absente pour les
+   * DEUX seules entrées volontairement hors matrice : `roles` fixe alors la
+   * règle, en dur, sans dérogation possible.
+   */
+  screenKey?: string;
+  /** Immunisé contre la matrice - voir `screenKey`. */
   roles?: UserRole[];
 }
 
@@ -24,31 +31,26 @@ const NAV: NavGroup[] = [
   {
     title: 'Piloter',
     items: [
-      { label: 'Tableau de bord', path: '/tableau-de-bord', icon: 'gauge' },
+      { label: 'Tableau de bord', path: '/tableau-de-bord', icon: 'gauge', screenKey: 'tableau-de-bord' },
       // En tête, sous le tableau de bord : c'est le premier écran qu'on ouvre
       // le matin. Ce qui n'est pas dans le chemin quotidien n'est pas lu.
-      { label: 'Ce que j’ai à traiter', path: '/mes-taches', icon: 'clipboard-check' },
+      {
+        label: 'Ce que j’ai à traiter',
+        path: '/mes-taches',
+        icon: 'clipboard-check',
+        screenKey: 'mes-taches',
+      },
       // Ce que les verrous NE PEUVENT PAS arrêter : le placement juste
       // au-dessus du seuil, l'écart entre marge promise et marge réalisée.
       // Sous « Piloter » et non sous « Administrer » : ce n'est pas un réglage,
       // c'est une lecture de l'entreprise.
-      {
-        label: 'Pilotage financier',
-        path: '/pilotage',
-        icon: 'gauge',
-        roles: ['DG', 'FINANCE_CFO', 'CCOO', 'ACCOUNTANT', 'LOGISTICS_COORD'],
-      },
-      {
-        label: 'Surveillance',
-        path: '/supervision',
-        icon: 'search',
-        roles: ['DG', 'FINANCE_CFO', 'CCOO', 'ACCOUNTANT', 'IT_ADMIN'],
-      },
+      { label: 'Pilotage financier', path: '/pilotage', icon: 'gauge', screenKey: 'pilotage' },
+      { label: 'Surveillance', path: '/supervision', icon: 'search', screenKey: 'supervision' },
       {
         label: 'Recouvrement',
         path: '/recouvrement',
         icon: 'alert-triangle',
-        roles: ['DG', 'FINANCE_CFO', 'ACCOUNTANT'],
+        screenKey: 'recouvrement',
       },
     ],
   },
@@ -57,57 +59,44 @@ const NAV: NavGroup[] = [
     items: [
       // Avant les affaires : le pipeline les PRÉCÈDE, une affaire naît d'une
       // opportunité gagnée. L'ordre de la navigation raconte le parcours.
-      {
-        label: 'Pipeline commercial',
-        path: '/crm',
-        icon: 'search',
-        roles: ['DG', 'CCOO', 'SALES_REP', 'FINANCE_CFO', 'ASSISTANT_DG'],
-      },
+      { label: 'Pipeline commercial', path: '/crm', icon: 'search', screenKey: 'crm' },
       {
         label: 'Demandes de cotation',
         path: '/demandes-de-cotation',
         icon: 'clipboard-check',
-        roles: ['DG', 'CCOO', 'SALES_REP', 'ASSISTANT_DG'],
+        screenKey: 'demandes-de-cotation',
       },
-      { label: 'Affaires', path: '/affaires', icon: 'briefcase' },
-      { label: 'Opérations', path: '/operations', icon: 'truck' },
-      { label: 'Facturation', path: '/facturation', icon: 'receipt' },
-      { label: 'Contrôles HSE', path: '/hse', icon: 'clipboard-check' },
-      { label: 'Documents', path: '/documents', icon: 'file-text' },
-      {
-        label: 'Achats',
-        path: '/achats',
-        icon: 'briefcase',
-        roles: ['DG', 'FINANCE_CFO', 'ACCOUNTANT', 'CCOO', 'LOGISTICS_COORD'],
-      },
-      {
-        label: 'Barge',
-        path: '/barge',
-        icon: 'truck',
-        roles: ['DG', 'CCOO', 'FINANCE_CFO', 'LOGISTICS_COORD'],
-      },
+      { label: 'Affaires', path: '/affaires', icon: 'briefcase', screenKey: 'affaires' },
+      { label: 'Opérations', path: '/operations', icon: 'truck', screenKey: 'operations' },
+      { label: 'Facturation', path: '/facturation', icon: 'receipt', screenKey: 'facturation' },
+      { label: 'Contrôles HSE', path: '/hse', icon: 'clipboard-check', screenKey: 'hse' },
+      { label: 'Documents', path: '/documents', icon: 'file-text', screenKey: 'documents' },
+      { label: 'Achats', path: '/achats', icon: 'briefcase', screenKey: 'achats' },
+      { label: 'Barge', path: '/barge', icon: 'truck', screenKey: 'barge' },
     ],
   },
   {
     title: 'Administrer',
     items: [
-      { label: 'Conformité', path: '/conformite', icon: 'shield' },
-      { label: 'Échéancier', path: '/echeancier', icon: 'clock' },
-      { label: 'Tiers', path: '/tiers', icon: 'users' },
+      { label: 'Conformité', path: '/conformite', icon: 'shield', screenKey: 'conformite' },
+      { label: 'Échéancier', path: '/echeancier', icon: 'clock', screenKey: 'echeancier' },
+      { label: 'Tiers', path: '/tiers', icon: 'users', screenKey: 'tiers' },
+      { label: 'Dérogations', path: '/derogations', icon: 'lock', screenKey: 'derogations' },
+      { label: 'Référentiels', path: '/referentiels', icon: 'layers', screenKey: 'referentiels' },
       {
-        label: 'Dérogations',
-        path: '/derogations',
-        icon: 'lock',
-        roles: ['DG', 'FINANCE_CFO', 'CCOO', 'ACCOUNTANT', 'ASSISTANT_DG'],
+        label: 'Paramétrage',
+        path: '/parametrage',
+        icon: 'clipboard-check',
+        screenKey: 'parametrage',
       },
-      { label: 'Référentiels', path: '/referentiels', icon: 'layers' },
-      { label: 'Paramétrage', path: '/parametrage', icon: 'clipboard-check' },
       {
         label: 'Journal d’audit',
         path: '/journal-audit',
         icon: 'file-text',
-        roles: ['DG', 'IT_ADMIN'],
+        screenKey: 'journal-audit',
       },
+      // Hors matrice, volontairement : voir le commentaire de `NavItem.roles`.
+      { label: 'Accès aux écrans', path: '/acces-ecrans', icon: 'lock', roles: ['DG'] },
     ],
   },
 ];
@@ -273,6 +262,10 @@ export class ShellComponent implements OnInit {
 
   ngOnInit(): void {
     this.relireCompteur();
+    // Charge une fois par session ; `screenGuard` réutilise le même appel mis
+    // en cache. Le menu se recalcule tout seul via `visibleNav` dès que le
+    // signal se remplit (§ paramétrage 17/08).
+    this.auth.visibleScreens$().subscribe();
 
     // ⚠️ LA PASTILLE ÉTAIT LUE UNE SEULE FOIS, AU MONTAGE DU CADRE.
     //
@@ -327,9 +320,15 @@ export class ShellComponent implements OnInit {
 
   protected readonly visibleNav = computed(() => {
     const role = this.auth.role();
+    // Dépend de `this.auth.screens()` pour se recalculer dès le chargement
+    // asynchrone (§ paramétrage 17/08) - lu ici uniquement pour que le signal
+    // entre dans les dépendances de ce computed.
+    this.auth.screens();
     return NAV.map((group) => ({
       ...group,
-      items: group.items.filter((i) => !i.roles || (role !== null && i.roles.includes(role))),
+      items: group.items.filter((i) =>
+        i.roles ? role !== null && i.roles.includes(role) : this.auth.canSeeScreen(i.screenKey!),
+      ),
     })).filter((group) => group.items.length > 0);
   });
 

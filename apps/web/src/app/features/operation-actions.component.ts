@@ -17,6 +17,7 @@ import {
   ActionState,
   HttpFailure,
 } from '../shared/action-panel.component';
+import { DerogationInlineComponent } from '../shared/derogation-inline.component';
 import { IconComponent } from '../shared/icon.component';
 import { MontantDirective } from '../shared/montant.directive';
 
@@ -43,7 +44,13 @@ const NEXT_STEPS: { to: string; label: string }[] = [
 @Component({
   selector: 'erp-operation-actions',
   standalone: true,
-  imports: [FormsModule, IconComponent, ActionFeedbackComponent, MontantDirective],
+  imports: [
+    FormsModule,
+    IconComponent,
+    ActionFeedbackComponent,
+    MontantDirective,
+    DerogationInlineComponent,
+  ],
   template: `
     <section class="card overflow-hidden">
       <div class="card-header">
@@ -161,6 +168,31 @@ const NEXT_STEPS: { to: string; label: string }[] = [
             </div>
           }
         </div>
+
+        <!-- ============ Dérogation de conformité (§ 11.2, § 11.4) ============
+             ⚠️ CORRIGÉ — complianceDerogationId existait sur le DTO d'affectation
+                depuis toujours, sans aucun chemin pour le renseigner : un moyen non
+                conforme sélectionné ci-dessus était refusé par la base, sans que
+                le DG puisse jamais lever le verrou depuis l'écran. -->
+        @if (moyenNonConforme(); as label) {
+          @if (isDg()) {
+            <div class="mt-3">
+              <erp-derogation-inline
+                type="TRANSPORT_NON_COMPLIANCE"
+                subjectType="OperationAssignment"
+                [subjectId]="operation.reference"
+                [subjectLabel]="operation.reference"
+                [titre]="label + ' n’est pas conforme — dérogation du DG obligatoire'"
+                (accorde)="complianceDerogationId.set($event)"
+              />
+            </div>
+          } @else if (!complianceDerogationId()) {
+            <p class="mt-3 rounded-[3px] bg-crit-wash px-3 py-2 text-[12px] text-crit">
+              {{ label }} n’est pas conforme. Seul le DG peut accorder la dérogation qui permet de
+              l’affecter malgré tout.
+            </p>
+          }
+        }
 
         <button class="btn-primary mt-3" (click)="assign()" [disabled]="state.busy()">
           Affecter les moyens
@@ -391,12 +423,19 @@ export class OperationActionsComponent {
   protected driverId = '';
   protected freightCost: number | null = null;
   protected freightVarianceReason = '';
+  protected readonly complianceDerogationId = signal<string | null>(null);
 
   /** Note de levée, par exigence — saisie avant d'attester. */
   protected notesExigence: Record<string, string> = {};
 
+  /**
+   * ⚠️ CORRIGÉ — lisait `deliverySite`, un champ que le serveur ne rend
+   *    jamais (`site`, voir `api.service.ts`). Cette liste était donc
+   *    TOUJOURS vide : aucune exigence de site ne s'affichait jamais ici,
+   *    ni ne pouvait donc être levée depuis cet écran.
+   */
   protected readonly exigences = computed(
-    () => this.operation.destinationSite?.deliverySite?.requirements ?? [],
+    () => this.operation.destinationSite?.site?.requirements ?? [],
   );
 
   /** L'acquittement d'une exigence, s'il existe. */
@@ -522,6 +561,26 @@ export class OperationActionsComponent {
     return this.compliance().filter((c) => c.subject_kind === kind);
   }
 
+  protected isDg(): boolean {
+    return this.auth.role() === 'DG';
+  }
+
+  /** Le premier moyen SÉLECTIONNÉ qui n'est pas conforme, désigné par son libellé. */
+  protected moyenNonConforme(): string | null {
+    if (this.complianceDerogationId()) return null;
+    const selection = [
+      { id: this.carrierId, kind: 'CARRIER' as const },
+      { id: this.vehicleId, kind: 'VEHICLE' as const },
+      { id: this.driverId, kind: 'DRIVER' as const },
+    ];
+    for (const s of selection) {
+      if (!s.id) continue;
+      const sujet = this.compliance().find((c) => c.subject_kind === s.kind && c.subject_id === s.id);
+      if (sujet && !sujet.is_compliant) return sujet.subject_label;
+    }
+    return null;
+  }
+
   /** Reprend le tarif négocié : conserver la proposition est le geste normal. */
   protected reprendreTarif(): void {
     const t = this.tarifRetenu();
@@ -544,10 +603,14 @@ export class OperationActionsComponent {
         ...(this.freightVarianceReason.trim()
           ? { freightVarianceReason: this.freightVarianceReason.trim() }
           : {}),
+        ...(this.complianceDerogationId()
+          ? { complianceDerogationId: this.complianceDerogationId()! }
+          : {}),
       })
       .subscribe({
         next: () => {
           this.state.succeed('Moyens affectés.');
+          this.complianceDerogationId.set(null);
           this.changed.emit();
         },
         error: (e: HttpFailure) => this.state.fail(e),

@@ -91,6 +91,9 @@ const SQL_FILES = [
   // Fin de la transition : l'exercice porte seul ses conditions financières.
   // APRÈS 24, qui définit les fonctions qu'il remplace.
   '35_fin_de_transition.sql',
+  // Verrou de clôture : lit generated_documents, qui existe déjà côté Prisma —
+  // aucune dépendance d'ordre avec les fichiers précédents.
+  '36_cloture_operation.sql',
   // La file de tâches lit TOUTES les vues précédentes : elle vient en dernier.
   '22_file_de_taches.sql',
   // Paramètres requis : AVANT 15, dont deux règles d'invariant les lisent.

@@ -108,6 +108,11 @@ enum UnitOfMeasure {
   M3 // Mètre cube
   MT // Tonne métrique
   BBL // Baril
+  /// Prestation forfaitaire — un produit SERVICE (ex. barge), sans mesure
+  /// volumétrique. Le prix unitaire porte alors le montant total : le volume
+  /// contracté vaut 1 par convention, pour que la chaîne de marge (exprimée
+  /// « par unité » partout ailleurs) reste valable sans cas particulier.
+  FORFAIT
 
   @@map("unit_of_measure")
 }
@@ -621,6 +626,7 @@ model PortalUser {
 
   // --- Relations inverses du lot 2 ---
   dealAcceptances Deal[] @relation("DealAcceptedBy")
+  invoiceAcceptances Invoice[] @relation("InvoiceAcceptedBy")
   quotationRequests QuotationRequest[]
 
   @@index([partnerId, isActive])
@@ -630,6 +636,10 @@ model PortalUser {
 enum QuotationRequestStatus {
   NEW
   IN_REVIEW
+  /// Le client a approuvé l'une des proforma soumises, depuis son portail.
+  /// Rien n'est encore une affaire : c'est ce statut qui rend la conversion
+  /// manuelle possible, pas la demande elle-même (§ discussion 17/08).
+  PROFORMA_APPROVED
   CONVERTED
   DECLINED
 
@@ -662,6 +672,16 @@ model QuotationRequest {
   message             String?       @db.VarChar(2000)
 
   status QuotationRequestStatus @default(NEW)
+
+  /// Toutes les proforma soumises en réponse — une demande peut en porter
+  /// plusieurs, selon la teneur des négociations (§ discussion 17/08).
+  proformas Invoice[] @relation("QuotationProformas")
+
+  /// La proforma que le CLIENT a approuvée depuis son portail. C'est ELLE,
+  /// et non le statut seul, qui dit laquelle a gagné quand plusieurs
+  /// coexistent — indispensable pour annuler les autres à la conversion.
+  approvedProformaId String?  @unique @map("approved_proforma_id") @db.Uuid
+  approvedProforma    Invoice? @relation("QuotationApprovedProforma", fields: [approvedProformaId], references: [id], onDelete: SetNull)
 
   /// Renseigné quand un commercial en fait une affaire — la demande reste,
   /// elle ne se transforme pas en silence.
@@ -1221,11 +1241,20 @@ model Product {
 
   /// Densité de référence à 15 °C (kg/L). Base de toute conversion
   /// L ↔ m³ ↔ MT ↔ BBL via les tables ASTM D1250 (§ 6.2).
-  referenceDensity15 Decimal       @map("reference_density_15") @db.Decimal(9, 6)
+  ///
+  /// NULLE pour un produit SERVICE (`isService`) — une prestation n'a pas de
+  /// densité, et rien ne la mesure en volume.
+  referenceDensity15 Decimal?      @map("reference_density_15") @db.Decimal(9, 6)
   viscosityCst       Decimal?      @map("viscosity_cst") @db.Decimal(9, 3)
   flashPointC        Decimal?      @map("flash_point_c") @db.Decimal(6, 2)
   maxSulphurPct      Decimal?      @map("max_sulphur_pct") @db.Decimal(6, 4)
   defaultUom         UnitOfMeasure @default(L) @map("default_uom")
+
+  /// Produit SERVICE (ex. barge/soutage) plutôt que produit physique mesuré
+  /// en volume. Une affaire qui le retient n'exige ni mode de transport, ni
+  /// volume, ni unité — son prix unitaire porte le montant total de la
+  /// prestation (§ discussion 15/08).
+  isService Boolean @default(false) @map("is_service")
 
   /// Régime fiscal du produit (§ 6.2).
   taxRegime String? @map("tax_regime") @db.VarChar(64)
@@ -2078,6 +2107,41 @@ model SystemSetting {
   @@map("system_settings")
 }
 
+/// VISIBLE = accordé même hors du rôle natif. MASQUE = retiré même à un rôle
+/// qui y aurait droit nativement. L'absence de ligne = comportement par
+/// défaut du code (aucune dérogation).
+enum ScreenAccessOverride {
+  VISIBLE
+  MASQUE
+
+  @@map("screen_access_override")
+}
+
+/// Dérogations DG à la visibilité des écrans par rôle (§ paramétrage 17/08).
+///
+/// ⚠️ CE N'EST PAS UNE TABLE DE PERMISSIONS D'ACTION.
+///
+///    Elle ne gouverne QUE la visibilité en LECTURE d'un écran - ce qui rend
+///    un menu et sa route ouvrables. Les actions (créer, approuver,
+///    supprimer...) restent décidées par `@Roles()` sur chaque route, en dur
+///    dans le code, et cette table n'a AUCUNE prise dessus. Un rôle qui
+///    obtient ainsi la vue d'un écran voit ses données ; les boutons d'action
+///    que son rôle ne permet pas restent bloqués exactement comme avant.
+///    Mélanger les deux aurait transformé un réglage de confort en porte
+///    dérobée vers des droits d'écriture que personne n'a validés.
+model RoleScreenAccess {
+  id          String               @id @default(uuid()) @db.Uuid
+  role        UserRole
+  screenKey   String               @map("screen_key") @db.VarChar(64)
+  override    ScreenAccessOverride
+  updatedById String?              @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdAt   DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([role, screenKey])
+  @@map("role_screen_access")
+}
+
 /// Générateur de références séquentielles sans trou. L'incrément se fait
 /// sous SELECT ... FOR UPDATE dans la transaction métier — jamais en mémoire
 /// applicative, sous peine de collision ou de trou.
@@ -2442,12 +2506,18 @@ model Deal {
   segment CommercialSegment
 
   // --- Objet commercial ---
-  contractedVolume   Decimal       @map("contracted_volume") @db.Decimal(18, 6)
-  uom                UnitOfMeasure
-  incoterm           String?       @db.VarChar(8)
-  transportMode      TransportMode @map("transport_mode")
-  deliveryLocation   String        @map("delivery_location") @db.VarChar(200)
-  targetDeliveryDate DateTime?     @map("target_delivery_date") @db.Date
+  //
+  // `contractedVolume`/`uom` restent NOT NULL : un produit SERVICE (barge)
+  // vaut 1/FORFAIT par convention plutôt que NULL, pour que la chaîne de
+  // marge (exprimée « par unité » partout ailleurs) reste valable sans cas
+  // particulier — voir `UnitOfMeasure.FORFAIT`.
+  contractedVolume Decimal       @map("contracted_volume") @db.Decimal(18, 6)
+  uom              UnitOfMeasure
+  incoterm         String?       @db.VarChar(8)
+  /// NULLE pour un produit SERVICE : rien n'y est physiquement transporté.
+  transportMode      TransportMode? @map("transport_mode")
+  deliveryLocation   String         @map("delivery_location") @db.VarChar(200)
+  targetDeliveryDate DateTime?      @map("target_delivery_date") @db.Date
 
   // --- Devises (§ 9.2) : transaction, pivot, document ---
   currencyCode String   @map("currency_code") @db.Char(3)
@@ -3431,10 +3501,30 @@ model Invoice {
   type   InvoiceType
   status InvoiceStatus @default(DRAFT)
 
-  dealId    String  @map("deal_id") @db.Uuid
-  deal      Deal    @relation(fields: [dealId], references: [id], onDelete: Restrict)
+  /// ⚠️ OPTIONNEL DEPUIS LE 17/08 — UNE PROFORMA PEUT PRÉCÉDER TOUTE AFFAIRE.
+  ///
+  ///    Une proforma répondant à une demande de cotation n'a encore aucune
+  ///    affaire à référencer : c'est justement ce qu'elle prépare. La
+  ///    contrainte `chk_invoices_deal_or_quotation` exige l'un OU l'autre,
+  ///    jamais ni l'un ni l'autre. À la conversion, la proforma approuvée
+  ///    reçoit un `dealId` en plus de son `quotationRequestId` - elle ne
+  ///    perd pas sa provenance en gagnant une affaire.
+  dealId    String?  @map("deal_id") @db.Uuid
+  deal      Deal?    @relation(fields: [dealId], references: [id], onDelete: Restrict)
   partnerId String  @map("partner_id") @db.Uuid
   partner   Partner @relation("InvoicePartner", fields: [partnerId], references: [id], onDelete: Restrict)
+
+  /// Demande de cotation dont cette proforma est la réponse. Voir `dealId`.
+  quotationRequestId String?           @map("quotation_request_id") @db.Uuid
+  quotationRequest    QuotationRequest? @relation("QuotationProformas", fields: [quotationRequestId], references: [id], onDelete: Restrict)
+  approvedForQuotation QuotationRequest? @relation("QuotationApprovedProforma")
+
+  /// Approbation CLIENT depuis le portail (§ discussion 17/08) - distincte de
+  /// l'émission interne : c'est le client qui accepte les termes, pas
+  /// l'entreprise qui les lui impose.
+  acceptedByPortalUserId String?     @map("accepted_by_portal_user_id") @db.Uuid
+  acceptedByPortalUser   PortalUser? @relation("InvoiceAcceptedBy", fields: [acceptedByPortalUserId], references: [id], onDelete: SetNull)
+  acceptedAt             DateTime?   @map("accepted_at") @db.Timestamptz(3)
 
   /// Qui a saisi la pièce — séparation des tâches (§ 1.4) : cette personne ne
   /// peut pas être celle qui en enregistre le règlement.

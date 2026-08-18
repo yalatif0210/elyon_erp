@@ -278,6 +278,7 @@ export class FieldAttachmentsService {
       orderBy: { createdAt: 'asc' },
       select: {
         id: true,
+        kind: true,
         mimeType: true,
         sizeBytes: true,
         caption: true,

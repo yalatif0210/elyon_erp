@@ -1,8 +1,13 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { ApiService, OperationDetail, OperationRow } from '../core/api.service';
+import { ApiService, OperationDetail, OperationRow, SupplierInvoiceRow } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
+import {
+  ActionFeedbackComponent,
+  ActionState,
+  HttpFailure,
+} from '../shared/action-panel.component';
 import { IconComponent } from '../shared/icon.component';
 import { PaginationComponent } from '../shared/tableau';
 import { grouper } from '../shared/format';
@@ -253,7 +258,14 @@ export class OperationsComponent implements OnInit {
 @Component({
   selector: 'erp-operation-detail',
   standalone: true,
-  imports: [RouterLink, IconComponent, StatusBadgeComponent, OperationActionsComponent],
+  imports: [
+    FormsModule,
+    RouterLink,
+    IconComponent,
+    StatusBadgeComponent,
+    ActionFeedbackComponent,
+    OperationActionsComponent,
+  ],
   template: `
     @if (operation(); as o) {
       <nav class="mb-3 flex items-center gap-1.5 text-[12px] text-ink-muted">
@@ -415,6 +427,90 @@ export class OperationsComponent implements OnInit {
           </p>
         </section>
       </div>
+
+      <!-- ============ Lignes de coût et rapprochement fournisseur ============
+           ⚠️ CORRIGÉ — o.costLines était servi par le serveur depuis
+              toujours, et rien ne l'affichait : la fiche ne montrait qu'un
+              compte. Le rattachement à la facture fournisseur (§ 14.6) n'avait
+              donc, en pratique, aucun geste pour l'exercer. -->
+      @if (o.costLines.length > 0) {
+        <section class="card mt-5 overflow-hidden">
+          <div class="card-header"><h2 class="card-title">Lignes de coût</h2></div>
+          <erp-action-feedback [error]="costState.error()" [success]="costState.done()" />
+          <div class="overflow-x-auto">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Poste</th>
+                  <th>Fournisseur</th>
+                  <th class="num">Montant</th>
+                  <th>Facture fournisseur</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (l of o.costLines; track l.id) {
+                  <tr>
+                    <td>
+                      <span class="text-ink">{{ l.costPost.label }}</span>
+                      @if (l.description) {
+                        <p class="mt-0.5 text-[11px] text-ink-faint">{{ l.description }}</p>
+                      }
+                      @if (l.isSystemComputed) {
+                        <span class="ml-1 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-ink-faint">
+                          calculée
+                        </span>
+                      }
+                    </td>
+                    <td class="text-ink-soft">{{ l.supplier?.legalName ?? '-' }}</td>
+                    <td class="num font-mono text-ink-soft">
+                      {{ money(+(l.actualAmount ?? l.estimatedAmount)) }}
+                      <span class="ml-1 text-[11px] text-ink-faint">{{ l.currencyCode }}</span>
+                    </td>
+                    <td>
+                      @if (l.supplierInvoiceId) {
+                        <span class="flex items-center gap-1 text-[12px] font-medium text-ok">
+                          <erp-icon name="check-circle" [size]="13" />
+                          {{ factureLabel(l.supplierInvoiceId) }}
+                        </span>
+                      } @else if (!l.supplierId) {
+                        <span class="text-[11px] text-ink-faint">aucun fournisseur sur la ligne</span>
+                      } @else if (candidates(l).length === 0) {
+                        <span class="text-[11px] text-ink-faint">
+                          aucune facture non rattachée pour ce fournisseur
+                        </span>
+                      } @else if (!peutRattacher()) {
+                        <span class="text-[11px] text-ink-faint">DAF ou comptable seuls</span>
+                      } @else {
+                        <div class="flex items-center gap-1.5">
+                          <select class="field h-8 py-0 text-[12px]" [(ngModel)]="attachChoice[l.id]">
+                            <option value="">Choisir…</option>
+                            @for (inv of candidates(l); track inv.id) {
+                              <option [value]="inv.id">{{ inv.reference }} · {{ money(+inv.amount) }} {{ inv.currencyCode }}</option>
+                            }
+                          </select>
+                          <button
+                            type="button"
+                            class="btn-ghost px-2 py-1 text-[12px]"
+                            [disabled]="costState.busy() || !attachChoice[l.id]"
+                            (click)="attacher(l.id)"
+                          >
+                            Rattacher
+                          </button>
+                        </div>
+                      }
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          <p class="border-t border-rule px-4 py-2.5 text-[11px] leading-relaxed text-ink-faint">
+            Un coût réel rattaché à sa facture fournisseur est le rapprochement le plus solide dont
+            dispose l’entreprise : il ne repose sur aucune déclaration, seulement sur la
+            confrontation de deux enregistrements indépendants.
+          </p>
+        </section>
+      }
     } @else {
       <p class="empty">Chargement de l’opération…</p>
     }
@@ -423,8 +519,18 @@ export class OperationsComponent implements OnInit {
 export class OperationDetailComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
+  private readonly auth = inject(AuthService);
 
   protected readonly operation = signal<OperationDetail | null>(null);
+
+  // --- Rattachement des coûts aux factures fournisseurs (§ 14.6) -----------
+  protected readonly costState = new ActionState();
+  /** Factures NON RATTACHÉES de l'affaire — candidates au rattachement. */
+  private readonly invoicesLibres = signal<SupplierInvoiceRow[]>([]);
+  /** Toutes les factures de l'affaire — pour AFFICHER la référence d'un rattachement déjà fait. */
+  private readonly invoicesToutes = signal<SupplierInvoiceRow[]>([]);
+  /** Choix en cours, par ligne de coût — l'écran ne soumet rien tant qu'on n'a pas cliqué. */
+  protected readonly attachChoice: Record<string, string> = {};
 
   ngOnInit(): void {
     this.reload();
@@ -433,7 +539,44 @@ export class OperationDetailComponent implements OnInit {
   /** Après toute action, on relit : le verrou HSE a pu changer d'état. */
   protected reload(): void {
     const id = this.route.snapshot.paramMap.get('id');
-    if (id) this.api.operation(id).subscribe((o) => this.operation.set(o));
+    if (!id) return;
+    this.api.operation(id).subscribe((o) => {
+      this.operation.set(o);
+      this.api.supplierInvoices(1, { dealId: o.deal.id }).subscribe((p) => {
+        this.invoicesToutes.set(p.items);
+        this.invoicesLibres.set(
+          p.items.filter((inv) => !o.costLines.some((l) => l.supplierInvoiceId === inv.id)),
+        );
+      });
+    });
+  }
+
+  /** Factures non rattachées, du MÊME fournisseur que la ligne. */
+  protected candidates(l: OperationDetail['costLines'][number]): SupplierInvoiceRow[] {
+    return this.invoicesLibres().filter((inv) => inv.supplier.code === l.supplier?.code);
+  }
+
+  protected factureLabel(invoiceId: string): string {
+    return this.invoicesToutes().find((inv) => inv.id === invoiceId)?.reference ?? invoiceId;
+  }
+
+  /** Le rattachement est réservé au DAF et au comptable — vérifié en base de toute façon. */
+  protected peutRattacher(): boolean {
+    return this.auth.hasRole('FINANCE_CFO', 'ACCOUNTANT');
+  }
+
+  protected attacher(costLineId: string): void {
+    const invoiceId = this.attachChoice[costLineId];
+    if (!invoiceId || this.costState.busy()) return;
+    this.costState.start();
+    this.api.attachCostLine(invoiceId, costLineId).subscribe({
+      next: () => {
+        this.costState.succeed('Ligne de coût rattachée à la facture fournisseur.');
+        delete this.attachChoice[costLineId];
+        this.reload();
+      },
+      error: (e: HttpFailure) => this.costState.fail(e),
+    });
   }
 
   protected status(code: string) {
@@ -450,5 +593,10 @@ export class OperationDetailComponent implements OnInit {
 
   protected volume(o: OperationRow): string {
     return `${grouper(Number(o.plannedVolume), { maximumFractionDigits: 0 })} ${o.uom}`;
+  }
+
+  protected money(value: number): string {
+    if (!Number.isFinite(value)) return '-';
+    return grouper(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 }

@@ -1,6 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ApiService, OperationRow } from '../core/api.service';
+import { ApiService, AttachmentRow, OperationRow } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import {
   ActionFeedbackComponent,
@@ -16,8 +16,22 @@ interface HseCheckRow {
   validatedByFieldUser: { fullName: string } | null;
   validatedByUser: { fullName: string } | null;
   template: { code: string; label: string };
-  items: { id: string; level: string; outcome: string; item: { label: string } }[];
+  items: {
+    id: string;
+    level: string;
+    outcome: string;
+    comment: string | null;
+    recordedValue: string | null;
+    item: { label: string };
+  }[];
 }
+
+const OUTCOME_LABEL: Record<string, string> = {
+  PENDING: 'En attente',
+  PASSED: 'Conforme',
+  FAILED: 'Non conforme',
+  NOT_APPLICABLE: 'Non applicable',
+};
 
 /**
  * Suivi HSE côté interne (§ 7, § 3.4).
@@ -135,7 +149,14 @@ interface HseCheckRow {
                   <td class="num font-mono" [class]="c.blocking > 0 ? 'text-crit' : 'text-ok'">
                     {{ c.blocking }}
                   </td>
-                  <td>
+                  <td class="whitespace-nowrap">
+                    <button
+                      type="button"
+                      class="btn-ghost mr-1.5"
+                      (click)="basculer(c)"
+                    >
+                      {{ estOuvert(c.check.id) ? 'Masquer' : 'Voir sur pièces' }}
+                    </button>
                     @if (isDg()) {
                       <button
                         class="btn-ghost"
@@ -149,6 +170,65 @@ interface HseCheckRow {
                     }
                   </td>
                 </tr>
+                @if (estOuvert(c.check.id)) {
+                  <tr>
+                    <td colspan="5" class="bg-gray-50 px-4 py-3">
+                      <!-- ⚠️ CORRIGÉ — LA VALIDATION À DISTANCE SE FAISAIT SANS
+                           JAMAIS VOIR LA PHOTO QU'ELLE ATTESTE. Le contrôleur
+                           (ou le DG en suppléance) ne disposait que du
+                           décompte des points bloquants — jamais de la pièce
+                           qui prouve, ou pas, qu'un point est réellement
+                           conforme. -->
+                      <div class="space-y-2">
+                        @for (i of c.check.items; track i.id) {
+                          <div class="rounded-[3px] border border-rule-strong bg-surface px-3 py-2">
+                            <div class="flex flex-wrap items-baseline gap-2">
+                              <span class="text-[12px] font-medium text-ink">{{ i.item.label }}</span>
+                              <span class="text-[10px] uppercase tracking-wide text-ink-faint">{{ i.level }}</span>
+                              <span
+                                class="text-[11px] font-semibold"
+                                [class]="i.outcome === 'PASSED' ? 'text-ok' : i.outcome === 'FAILED' ? 'text-crit' : 'text-ink-muted'"
+                              >
+                                {{ outcomeLabel(i.outcome) }}
+                              </span>
+                              @if (i.recordedValue) {
+                                <span class="text-[11px] text-ink-soft">· {{ i.recordedValue }}</span>
+                              }
+                            </div>
+                            @if (i.comment) {
+                              <p class="mt-1 text-[11px] italic text-ink-muted">{{ i.comment }}</p>
+                            }
+
+                            @if (photosDe(c, i.id); as photos) {
+                              @if (photos.length > 0) {
+                                <div class="mt-2 flex flex-wrap gap-2">
+                                  @for (p of photos; track p.id) {
+                                    <button
+                                      type="button"
+                                      class="block h-16 w-16 overflow-hidden rounded-[3px] border border-rule-strong"
+                                      (click)="agrandir(p.id)"
+                                      title="Ouvrir en plein écran"
+                                    >
+                                      @if (urlDe(p.id); as url) {
+                                        <img [src]="url" class="h-full w-full object-cover" alt="" />
+                                      } @else {
+                                        <span class="flex h-full w-full items-center justify-center text-[9px] text-ink-faint">
+                                          …
+                                        </span>
+                                      }
+                                    </button>
+                                  }
+                                </div>
+                              } @else {
+                                <p class="mt-1 text-[11px] text-ink-faint">Aucune photo jointe à ce point.</p>
+                              }
+                            }
+                          </div>
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                }
               }
             </tbody>
           </table>
@@ -170,8 +250,16 @@ export class HseComponent implements OnInit {
   protected readonly state = new ActionState();
   protected readonly operations = signal<OperationRow[]>([]);
   protected readonly pending = signal<
-    { operation: string; check: HseCheckRow; blocking: number }[]
+    { operation: string; operationId: string; check: HseCheckRow; blocking: number }[]
   >([]);
+
+  /** Checklists dépliées pour consultation des pièces (§ 7.2). */
+  private readonly ouverts = new Set<string>();
+  /** Pièces jointes déjà chargées, par OPÉRATION — une requête par opération, pas par point. */
+  private readonly attachmentsParOperation = new Map<string, AttachmentRow[]>();
+  /** Objets-URL des images déjà téléchargées — un flux binaire n'a pas de sens à redemander. */
+  private readonly urls = new Map<string, string>();
+  protected readonly outcomeLabel = (o: string) => OUTCOME_LABEL[o] ?? o;
 
   protected type = 'INCIDENT';
   protected severity = 'MINOR';
@@ -193,7 +281,8 @@ export class HseComponent implements OnInit {
   }
 
   private loadChecks(ops: OperationRow[]): void {
-    const rows: { operation: string; check: HseCheckRow; blocking: number }[] = [];
+    const rows: { operation: string; operationId: string; check: HseCheckRow; blocking: number }[] =
+      [];
     let remaining = ops.length;
     if (remaining === 0) return;
 
@@ -204,6 +293,7 @@ export class HseComponent implements OnInit {
             if (c.validatedAt) continue;
             rows.push({
               operation: o.reference,
+              operationId: o.id,
               check: c,
               blocking: c.items.filter((i) => i.level === 'BLOCKING' && i.outcome !== 'PASSED')
                 .length,
@@ -216,6 +306,65 @@ export class HseComponent implements OnInit {
         },
       });
     }
+  }
+
+  // --- Consultation des pièces (§ 7.2) --------------------------------------
+
+  protected estOuvert(checkId: string): boolean {
+    return this.ouverts.has(checkId);
+  }
+
+  protected basculer(row: { operationId: string; check: HseCheckRow }): void {
+    if (this.ouverts.has(row.check.id)) {
+      this.ouverts.delete(row.check.id);
+      return;
+    }
+    this.ouverts.add(row.check.id);
+    if (!this.attachmentsParOperation.has(row.operationId)) {
+      this.api.attachmentsForOperation(row.operationId).subscribe((liste) => {
+        this.attachmentsParOperation.set(row.operationId, liste);
+        // Les vignettes se chargent tout de suite : c'est la preuve qu'on est
+        // venu voir, pas un lien de plus à cliquer avant de la trouver.
+        //
+        // ⚠️ `kind`, PAS SEULEMENT LE TYPE MIME. Une capture de signature est
+        //    aussi souvent un image/png qu'une vraie photo — les mélanger
+        //    montrerait la signature du client comme preuve du briefing
+        //    sécurité, exactement l'amalgame que `AttachmentKind` existe pour
+        //    empêcher (§ commentaire du modèle Prisma).
+        for (const a of liste) {
+          if (a.kind === 'PHOTO' && a.mimeType.startsWith('image/')) this.chargerImage(a.id);
+        }
+      });
+    }
+  }
+
+  /** Photos (pas les signatures ni les documents) rattachées à CE point. */
+  protected photosDe(
+    row: { operationId: string },
+    checkItemId: string,
+  ): AttachmentRow[] {
+    const liste = this.attachmentsParOperation.get(row.operationId);
+    if (!liste) return [];
+    return liste.filter(
+      (a) => a.checkItem?.id === checkItemId && a.kind === 'PHOTO' && a.mimeType.startsWith('image/'),
+    );
+  }
+
+  protected urlDe(attachmentId: string): string | null {
+    return this.urls.get(attachmentId) ?? null;
+  }
+
+  private chargerImage(id: string): void {
+    if (this.urls.has(id)) return;
+    this.api.attachmentBlob(id).subscribe((blob) => {
+      this.urls.set(id, URL.createObjectURL(blob));
+    });
+  }
+
+  /** Plein écran : l'image est déjà en mémoire, un nouvel onglet suffit. */
+  protected agrandir(attachmentId: string): void {
+    const url = this.urls.get(attachmentId);
+    if (url) window.open(url, '_blank');
   }
 
   protected validateAsDg(checkId: string): void {

@@ -34,6 +34,23 @@ export interface Page<T> {
   totalPages: number;
 }
 
+/** Pièce jointe terrain — photo, signature ou document numérisé (§ 10.2). */
+export interface AttachmentRow {
+  id: string;
+  /** PHOTO, SIGNATURE ou DOCUMENT — une capture de signature n'est pas une photo. */
+  kind: string;
+  mimeType: string;
+  caption: string | null;
+  createdAt: string;
+  checkItem: {
+    id: string;
+    level: string;
+    outcome: string;
+    item: { code: string; label: string; phase: string };
+  } | null;
+  hseEvent: { id: string; reference: string; type: string; severity: string } | null;
+}
+
 export interface ComplianceSubject {
   subject_kind: 'CARRIER' | 'VEHICLE' | 'DRIVER';
   subject_id: string;
@@ -63,6 +80,7 @@ export interface Derogation {
   id: string;
   type: string;
   subjectType: string;
+  subjectId: string | null;
   subjectLabel: string | null;
   reason: string;
   status: string;
@@ -72,6 +90,18 @@ export interface Derogation {
   reviewedAt: string | null;
   authority: { fullName: string; role: string } | null;
   requestedBy: { fullName: string; role: string } | null;
+}
+
+/** Corps du POST /derogations — calqué sur `CreateDerogationDto` (§ 11.4). */
+export interface CreateDerogationInput {
+  type: string;
+  subjectType: string;
+  /** DOIT être la référence lisible du sujet (ex. DEAL-2026-08-001) : c'est
+   *  elle, pas l'UUID, que `derogation_opposable()` confronte au sujet réel. */
+  subjectId?: string;
+  subjectLabel?: string;
+  reason: string;
+  expiresAt?: string;
 }
 
 export interface Partner {
@@ -95,7 +125,18 @@ export interface Partner {
      * Elles appartiennent au lieu et non au client : plusieurs clients se font
      * livrer au même endroit, et une consigne recopiée se périme d'un côté.
      */
-    deliverySite: {
+    /**
+     * ⚠️ CORRIGÉ — LE CHAMP S'APPELLE `site`, PAS `deliverySite`.
+     *
+     *    L'interface portait un nom que la réponse serveur ne rend jamais
+     *    (`referentials.controller.ts` sélectionne `sites: { site: {...} }`).
+     *    `s.deliverySite` valait donc toujours `undefined`, et le bandeau
+     *    « Ce que ce site exige » ne s'affichait JAMAIS — sur aucun des trois
+     *    écrans qui le consomment, création d'opération comprise. Un
+     *    site déclaré CRITICAL avec des exigences bloquantes se choisissait
+     *    donc sans qu'aucune n'apparaisse.
+     */
+    site: {
       id: string;
       code: string;
       name: string;
@@ -161,9 +202,10 @@ export interface CreateDealInput {
   siteId?: string;
   productId: string;
   segment: string;
-  contractedVolume: number;
-  uom: string;
-  transportMode: string;
+  /** Absents pour un produit SERVICE (barge) — voir `ProductOption.isService`. */
+  contractedVolume?: number;
+  uom?: string;
+  transportMode?: string;
   deliveryLocation: string;
   targetDeliveryDate?: string;
   currencyCode: string;
@@ -186,7 +228,7 @@ export interface ContractRow {
 export interface DealDetail extends DealRow {
   deliveryLocation: string;
   targetDeliveryDate: string | null;
-  transportMode: string;
+  transportMode: string | null;
   contract: { reference: string; title: string } | null;
   supplierPrice: {
     unitPrice: string;
@@ -289,6 +331,25 @@ export interface CreateOperationInput {
 }
 
 /**
+ * Ligne de coût d'une opération — DISTINCTE de `DealCostLine` (le chiffrage
+ * prévisionnel de l'affaire) : celle-ci porte le coût RÉEL, éventuellement
+ * rattaché à la facture fournisseur qui le justifie (§ 14.6).
+ */
+export interface OperationCostLineRow {
+  id: string;
+  description: string | null;
+  costPost: { code: string; label: string; nature: string };
+  supplier: { code: string; legalName: string } | null;
+  supplierId: string | null;
+  supplierInvoiceId: string | null;
+  estimatedAmount: string;
+  actualAmount: string | null;
+  currencyCode: string;
+  isSystemComputed: boolean;
+  incurredAt: string | null;
+}
+
+/**
  * Détail d'une opération.
  *
  * `operationTypes` n'est pas un ornement : c'est par ces types, et par eux
@@ -296,10 +357,16 @@ export interface CreateOperationInput {
  * rendre lisible d'où vient la checklist — et pourquoi elle est vide quand
  * aucun type retenu n'en porte.
  */
-export interface OperationDetail extends OperationRow {
+export interface OperationDetail extends Omit<OperationRow, 'deal'> {
+  /** `id` en plus de `OperationRow.deal` : la fiche affaire l'a, la liste ne l'a pas. */
+  deal: OperationRow['deal'] & { id: string };
   hseGate: HseGate;
   measurements: MeasurementSummary[];
   operationTypes: CarriedOperationType[];
+  /** ⚠️ Servie par le serveur depuis toujours ; jamais déclarée ici, donc
+   *  jamais affichée : `_count.costLines` donnait un nombre, jamais le détail
+   *  qui permet de le rattacher à une facture fournisseur (§ 14.6). */
+  costLines: OperationCostLineRow[];
 
   /** Le site de livraison et, par lui, ce qu'il exige (§ 6.2). */
   destinationSite: {
@@ -307,7 +374,8 @@ export interface OperationDetail extends OperationRow {
     code: string;
     name: string;
     city: string | null;
-    deliverySite: {
+    /** ⚠️ Voir la même correction sur `Partner.sites[].site` ci-dessus. */
+    site: {
       id: string;
       code: string;
       name: string;
@@ -598,18 +666,33 @@ export interface DunningActionRow {
   createdAt: string;
 }
 
+export interface QuotationProformaRow {
+  id: string;
+  number: string;
+  status: string;
+  billedVolume: string;
+  uom: string;
+  unitPrice: string;
+  currencyCode: string;
+  acceptedAt: string | null;
+}
+
 export interface QuotationRequestInternalRow {
   id: string;
+  partnerId: string;
+  productId: string;
   desiredVolume: string;
   uom: string;
   desiredDeliveryDate: string | null;
   message: string | null;
-  status: 'NEW' | 'IN_REVIEW' | 'CONVERTED' | 'DECLINED';
+  status: 'NEW' | 'IN_REVIEW' | 'PROFORMA_APPROVED' | 'CONVERTED' | 'DECLINED';
   createdAt: string;
-  partner: { code: string; legalName: string };
-  product: { code: string; name: string };
+  partner: { code: string; legalName: string; segment: string | null };
+  product: { code: string; name: string; isService: boolean };
   submittedByPortalUser: { fullName: string; email: string };
   convertedDeal: { id: string; reference: string } | null;
+  approvedProforma: { id: string; number: string } | null;
+  proformas: QuotationProformaRow[];
 }
 
 export interface OutstandingAdvanceRow {
@@ -1097,6 +1180,17 @@ export interface ImportReport {
   avertissements: { line: number; field?: string; message: string }[];
 }
 
+/** Une ligne de la matrice DG : un écran, avec l'état de chaque rôle. */
+export interface ScreenAccessRow {
+  key: string;
+  label: string;
+  group: string;
+  roles: Record<
+    string,
+    { defaultVisible: boolean; override: 'VISIBLE' | 'MASQUE' | null; effective: boolean }
+  >;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
@@ -1136,6 +1230,21 @@ export class ApiService {
 
   revokeDerogation(id: string): Observable<Derogation> {
     return this.http.patch<Derogation>(`${this.base}/derogations/${id}/revoke`, {});
+  }
+
+  /**
+   * Accorde une dérogation (§ 11.4).
+   *
+   * ⚠️ CORRIGÉ — CETTE ROUTE N'AVAIT AUCUN APPELANT.
+   *
+   *    `POST /derogations` existait depuis toujours, réservée à DG/DAF/CCOO et
+   *    vérifiée en base par type. Mais aucun écran ne l'appelait : le registre
+   *    savait lister, revoir et révoquer des dérogations, jamais en accorder
+   *    une. Un DG ne pouvait lever AUCUN verrou — marge, conformité, HSE,
+   *    encours — depuis l'application.
+   */
+  createDerogation(body: CreateDerogationInput): Observable<Derogation> {
+    return this.http.post<Derogation>(`${this.base}/derogations`, body);
   }
 
   // --- Référentiels --------------------------------------------------------
@@ -1217,6 +1326,11 @@ export class ApiService {
     return this.http.post<DealRow>(`${this.base}/deals`, dto);
   }
 
+  /** Suppression d'une affaire encore au brouillon (seul statut supprimable). */
+  deleteDeal(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/deals/${id}`);
+  }
+
   costPosts2(): Observable<CostPostRow[]> {
     return this.http.get<CostPostRow[]>(`${this.base}/referentials/cost-posts`);
   }
@@ -1255,7 +1369,12 @@ export class ApiService {
 
   approveDeal(
     id: string,
-    body: { marginDerogationId?: string; note?: string } = {},
+    body: {
+      marginDerogationId?: string;
+      purchasePriceDerogationId?: string;
+      creditDerogationId?: string;
+      note?: string;
+    } = {},
   ): Observable<unknown> {
     return this.http.patch(`${this.base}/deals/${id}/approve`, body);
   }
@@ -1378,10 +1497,62 @@ export class ApiService {
     return this.http.post(`${this.base}/operations/${id}/cost-lines`, body);
   }
 
+  /**
+   * Rattache une ligne de coût à la facture fournisseur qui la justifie
+   * (§ 14.6).
+   *
+   * ⚠️ CORRIGÉ — CETTE ROUTE N'AVAIT AUCUN APPELANT. La règle était écrite,
+   *    réservée au DAF et au comptable, et impossible à exercer : un coût
+   *    RÉEL enregistré sur une opération et une facture fournisseur reçue
+   *    restaient deux enregistrements sans lien, alors même que le
+   *    rapprochement (`costReconciliation()`) est le contrôle anti-détournement
+   *    le plus solide dont dispose l'entreprise — précisément parce qu'il ne
+   *    repose sur aucune déclaration.
+   */
+  attachCostLine(supplierInvoiceId: string, costLineId: string): Observable<unknown> {
+    return this.http.patch(
+      `${this.base}/supplier-invoices/${supplierInvoiceId}/cost-lines/${costLineId}`,
+      {},
+    );
+  }
+
   // --- Actions sur une pièce de facturation (§ 9) --------------------------
 
   createInvoice(body: Record<string, unknown>): Observable<{ id: string; number: string }> {
     return this.http.post<{ id: string; number: string }>(`${this.base}/invoices`, body);
+  }
+
+  /** Suppression d'une pièce encore au brouillon (seul statut supprimable). */
+  deleteInvoice(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/invoices/${id}`);
+  }
+
+  /**
+   * Vérification d'authenticité par jeton - route PUBLIQUE, aucun jeton de
+   * session n'est requis ni envoyé (§ le token du QR code EST l'accès).
+   */
+  verifyDocument(token: string): Observable<{
+    valid: boolean;
+    message: string;
+    kind?: string;
+    reference?: string;
+    sha256?: string;
+    generatedAt?: string;
+    sealed?: boolean;
+    sealedAt?: string | null;
+    superseded?: string | null;
+  }> {
+    return this.http.get(`${this.base}/documents/verify/${token}`) as Observable<{
+      valid: boolean;
+      message: string;
+      kind?: string;
+      reference?: string;
+      sha256?: string;
+      generatedAt?: string;
+      sealed?: boolean;
+      sealedAt?: string | null;
+      superseded?: string | null;
+    }>;
   }
 
   convertProforma(id: string, body: Record<string, unknown>): Observable<unknown> {
@@ -1425,6 +1596,27 @@ export class ApiService {
    *  est un en-tête `Authorization`, que la navigation native ne pose jamais. */
   downloadDocument(documentId: string): Observable<Blob> {
     return this.http.get(`${this.base}/documents/${documentId}/download`, { responseType: 'blob' });
+  }
+
+  // --- Pièces jointes terrain, vues du bureau (§ 7.2) ----------------------
+  //
+  // ⚠️ CORRIGÉ — `InternalAttachmentsController` N'AVAIT AUCUN APPELANT.
+  //
+  //    Son propre commentaire dit que la validation à distance, sur photos,
+  //    est le mode NORMAL de fonctionnement (l'entreprise ne compte qu'un
+  //    contrôleur HSE). Sans ces deux méthodes, `hse.component.ts` validait
+  //    des checklists à l'aveugle : le nombre de points bloquants, jamais la
+  //    preuve photographique qui les documente.
+
+  attachmentsForOperation(operationId: string): Observable<AttachmentRow[]> {
+    const params = new HttpParams().set('operationId', operationId);
+    return this.http.get<AttachmentRow[]>(`${this.base}/attachments`, { params });
+  }
+
+  /** En `blob`, comme `downloadDocument` : l'en-tête d'autorisation ne
+   *  traverse jamais un simple `<img src>`. */
+  attachmentBlob(id: string): Observable<Blob> {
+    return this.http.get(`${this.base}/attachments/${id}`, { responseType: 'blob' });
   }
 
   recordInvoicePayment(
@@ -1593,6 +1785,23 @@ export class ApiService {
 
   declineQuotation(id: string, reason: string): Observable<unknown> {
     return this.http.patch(`${this.base}/quotations/${id}/decliner`, { reason });
+  }
+
+  /**
+   * Crée l'affaire à partir d'une demande APPROUVÉE et la relie (§ discussion
+   * 17/08) - tiers, produit, volume, prix et devise viennent de la demande et
+   * de la proforma retenue ; seuls transport/site restent à préciser.
+   */
+  convertQuotation(
+    id: string,
+    body: {
+      segment: string;
+      transportMode?: string;
+      siteId?: string;
+      deliveryLocation?: string;
+    },
+  ): Observable<unknown> {
+    return this.http.patch(`${this.base}/quotations/${id}/convertir`, body);
   }
 
   // --- Pilotage financier (§ 14.3, § 14.5, § 14.6) -------------------------
@@ -1844,5 +2053,20 @@ export class ApiService {
       settledAt,
       reason,
     });
+  }
+
+  // --- Accès aux écrans, paramétrage DG (§ paramétrage 17/08) --------------
+
+  screenAccessMatrix(): Observable<ScreenAccessRow[]> {
+    return this.http.get<ScreenAccessRow[]>(`${this.base}/screen-access`);
+  }
+
+  /** `override: null` rétablit l'hérité — supprime la dérogation. */
+  setScreenAccess(
+    role: string,
+    screenKey: string,
+    override: 'VISIBLE' | 'MASQUE' | null,
+  ): Observable<unknown> {
+    return this.http.patch(`${this.base}/screen-access`, { role, screenKey, override });
   }
 }

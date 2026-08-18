@@ -1,6 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ApiService, ProductRow, QuotationRequestRow } from '../core/api.service';
+import { ApiService, ProductRow, QuotationProformaRow, QuotationRequestRow } from '../core/api.service';
 import { ActionFeedbackComponent, ActionState, HttpFailure } from '../shared/action-panel.component';
 import { IconComponent } from '../shared/icon.component';
 import { dateOnly, grouper } from '../shared/format';
@@ -8,6 +8,7 @@ import { dateOnly, grouper } from '../shared/format';
 const STATUS_LABEL: Record<string, string> = {
   NEW: 'Nouvelle',
   IN_REVIEW: 'En cours d’étude',
+  PROFORMA_APPROVED: 'Proforma approuvée',
   CONVERTED: 'Convertie en affaire',
   DECLINED: 'Déclinée',
 };
@@ -15,6 +16,7 @@ const STATUS_LABEL: Record<string, string> = {
 const STATUS_BADGE: Record<string, string> = {
   NEW: 'badge-wait',
   IN_REVIEW: 'badge-transit',
+  PROFORMA_APPROVED: 'badge-ok',
   CONVERTED: 'badge-ok',
   DECLINED: 'badge-blocked',
 };
@@ -23,9 +25,10 @@ const STATUS_BADGE: Record<string, string> = {
  * Demandes de cotation (§ 13, module 0).
  *
  * Volontairement LÉGER, à l'image de `QuotationRequest` côté serveur : le
- * client exprime un besoin, il ne chiffre rien et ne voit aucun prix — c'est
- * un commercial qui étudie la demande et, s'il y donne suite, crée l'affaire
- * lui-même depuis la console interne.
+ * client exprime un besoin, il ne chiffre rien et ne voit aucun prix. Un
+ * commercial étudie la demande et y répond par une ou plusieurs proforma
+ * (§ discussion 17/08) : c'est ICI que le client en approuve une - le geste
+ * qui rend la conversion en affaire possible côté commercial.
  */
 @Component({
   selector: 'erp-portal-devis',
@@ -107,6 +110,7 @@ const STATUS_BADGE: Record<string, string> = {
         <p class="text-[13px] text-ink-soft">Aucune demande envoyée pour le moment.</p>
       </div>
     } @else {
+      <erp-action-feedback [error]="stateApproval.error()" [success]="stateApproval.done()" />
       <div class="card overflow-x-auto">
         <table class="table">
           <thead>
@@ -127,6 +131,49 @@ const STATUS_BADGE: Record<string, string> = {
                 <td class="font-mono text-[12px] text-ink-soft">{{ dateOnly(d.desiredDeliveryDate) }}</td>
                 <td><span [class]="badge(d.status)">{{ label(d.status) }}</span></td>
               </tr>
+              @if (d.proformas.length > 0) {
+                <tr>
+                  <td colspan="5" class="!pt-0 !pb-3">
+                    <div class="ml-2 border-l-2 border-rule pl-3">
+                      <p class="mb-1.5 text-[11px] uppercase tracking-wide text-ink-faint">
+                        Proforma reçue{{ d.proformas.length > 1 ? 's' : '' }}
+                      </p>
+                      @for (p of d.proformas; track p.id) {
+                        <div class="mb-1.5 flex flex-wrap items-center gap-2 text-[13px]">
+                          <span class="font-mono text-ink-muted">{{ p.number }}</span>
+                          <span class="text-ink">
+                            {{ grouper(+p.billedVolume) }} {{ p.uom }} à {{ grouper(+p.unitPrice) }}
+                            {{ p.currencyCode }}
+                          </span>
+                          @if (p.acceptedAt) {
+                            <span class="badge-ok">Approuvée</span>
+                          } @else if (d.status === 'CONVERTED' || d.status === 'DECLINED') {
+                            <span class="text-[11px] text-ink-faint">Non retenue</span>
+                          } @else {
+                            <button
+                              class="btn-ghost !h-7 !px-2.5 text-[12px]"
+                              (click)="approuver(d, p)"
+                              [disabled]="stateApproval.busy()"
+                            >
+                              Approuver cette offre
+                            </button>
+                          }
+                          @if (p.generatedDocuments.length > 0) {
+                            <button
+                              class="btn-ghost !h-7 !px-2.5 text-[12px]"
+                              (click)="telecharger(p.generatedDocuments[0].id, p.generatedDocuments[0].reference)"
+                              [disabled]="telechargement() === p.generatedDocuments[0].id"
+                            >
+                              <erp-icon name="file-text" [size]="12" />
+                              {{ telechargement() === p.generatedDocuments[0].id ? '…' : 'PDF' }}
+                            </button>
+                          }
+                        </div>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              }
             }
           </tbody>
         </table>
@@ -156,6 +203,42 @@ export class DevisComponent implements OnInit {
   }
   protected badge(status: string): string {
     return STATUS_BADGE[status] ?? 'badge-neutral';
+  }
+
+  protected readonly stateApproval = new ActionState();
+  protected readonly telechargement = signal<string | null>(null);
+
+  protected approuver(d: QuotationRequestRow, p: QuotationProformaRow): void {
+    if (this.stateApproval.busy()) return;
+    this.stateApproval.start();
+    this.api.approveProforma(d.id, p.id).subscribe({
+      next: () => {
+        this.stateApproval.succeed(`Offre ${p.number} approuvée.`);
+        this.load();
+      },
+      error: (e: HttpFailure) => this.stateApproval.fail(e),
+    });
+  }
+
+  /** Même format que partout dans l'ERP : le PDF scellé, jamais un brouillon (§ 9). */
+  protected telecharger(documentId: string, reference: string): void {
+    if (this.telechargement()) return;
+    this.telechargement.set(documentId);
+    this.api.downloadDocument(documentId).subscribe({
+      next: (blob) => {
+        this.telechargement.set(null);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${reference}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => {
+        this.telechargement.set(null);
+        this.stateApproval.error.set('Téléchargement impossible : réessayez dans un instant.');
+      },
+    });
   }
 
   ngOnInit(): void {

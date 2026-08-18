@@ -6,6 +6,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { DerogationController, DerogationService } from './admin/derogations.controller';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './common/auth/jwt-auth.guard';
+import { ScreenAccessController } from './common/auth/screen-access.controller';
 import { LocalizedThrottlerGuard } from './common/auth/throttler.guard';
 import { CommonModule } from './common/common.module';
 import { RATE_WINDOW_MS, primeRateLimits } from './common/config/rate-limits';
@@ -128,6 +129,7 @@ import {
     PortalController,
     QuotationsController,
     AuditLogController,
+    ScreenAccessController,
   ],
   providers: [
     ReferentialsService,

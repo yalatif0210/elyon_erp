@@ -14,7 +14,7 @@ import {
   AuditAction, ComplianceType, UserRole } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsDateString, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
-import { Realm, RequireRealm, Roles } from '../common/auth/realm';
+import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { SettingsService } from '../common/config/settings.service';
 import { AuditService } from '../common/audit/audit.service';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -192,6 +192,7 @@ export class ComplianceController {
 
   @Get('overview')
   @Roles(UserRole.DG, UserRole.CCOO, UserRole.LOGISTICS_COORD, UserRole.FINANCE_CFO, UserRole.ASSISTANT_DG)
+  @Screen('conformite')
   overview() {
     return this.service.overview();
   }
@@ -204,6 +205,7 @@ export class ComplianceController {
 
   @Get('expiry-watch')
   @Roles(UserRole.DG, UserRole.CCOO, UserRole.LOGISTICS_COORD, UserRole.ASSISTANT_DG, UserRole.FINANCE_CFO)
+  @Screen('echeancier')
   expiryWatch(@Query() query: ExpiryWatchQuery) {
     return this.service.expiryWatch(query.withinDays, query.blockingOnly === 'true');
   }

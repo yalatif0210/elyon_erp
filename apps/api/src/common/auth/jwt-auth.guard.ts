@@ -7,13 +7,16 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
+import type { UserRole } from '@prisma/client';
 import { AppConfig } from '../config/env.config';
 import { RedisService } from '../redis/redis.service';
+import { ScreenAccessService } from './screen-access.service';
 import {
   AccessTokenPayload,
   PUBLIC_KEY,
   REALM_KEY,
   ROLES_KEY,
+  SCREEN_KEY,
   Realm,
 } from './realm';
 
@@ -35,6 +38,7 @@ export class JwtAuthGuard implements CanActivate {
     private readonly jwt: JwtService,
     private readonly config: AppConfig,
     private readonly redis: RedisService,
+    private readonly screenAccess: ScreenAccessService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -82,12 +86,33 @@ export class JwtAuthGuard implements CanActivate {
       throw new ForbiddenException('Périmètre non autorisé');
     }
 
-    // --- 3. Rôle ------------------------------------------------------------
+    // --- 3. Rôle --------------------------------------------------------
     const allowedRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
-    if (allowedRoles?.length && !allowedRoles.includes(payload.role ?? '')) {
+    const staticAllowed = !allowedRoles?.length || allowedRoles.includes(payload.role ?? '');
+
+    // --- 3bis. Dérogation DG à la visibilité d'écran (§ paramétrage 17/08) --
+    //
+    //    UNIQUEMENT sur une route marquée @Screen() - la route de lecture qui
+    //    fait vivre un écran à son ouverture. Sans cette marque, `staticAllowed`
+    //    seul décide : le comportement d'aujourd'hui ne bouge pas d'un pouce
+    //    pour toute route d'action.
+    const screenKey = this.reflector.getAllAndOverride<string>(SCREEN_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (payload.realm === Realm.INTERNAL && screenKey && payload.role) {
+      const visible = await this.screenAccess.isVisibleForRoute(
+        payload.role as UserRole,
+        screenKey,
+        staticAllowed,
+      );
+      if (!visible) {
+        throw new ForbiddenException('Écran masqué pour ce rôle');
+      }
+    } else if (!staticAllowed) {
       throw new ForbiddenException('Rôle non autorisé');
     }
 

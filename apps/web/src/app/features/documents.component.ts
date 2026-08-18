@@ -143,6 +143,15 @@ const KINDS: Record<string, string> = {
                 {{ d.supersedes?.reference ?? '-' }}
               </td>
               <td>
+                @if (d.isSealed) {
+                  <button
+                    class="link mr-2 text-[12px]"
+                    (click)="telecharger(d)"
+                    [disabled]="downloadingId() === d.id"
+                  >
+                    {{ downloadingId() === d.id ? 'Téléchargement…' : 'Télécharger' }}
+                  </button>
+                }
                 @if (!d.isSealed) {
                   <button class="link mr-2 text-[12px]" (click)="openSign(d)">Signer</button>
                   <button class="link text-[12px]" (click)="seal(d)">Sceller</button>
@@ -280,6 +289,7 @@ export class DocumentsComponent implements OnInit {
 
   protected readonly signing = signal<DocumentRow | null>(null);
   protected readonly superseding = signal<DocumentRow | null>(null);
+  protected readonly downloadingId = signal<string | null>(null);
   protected readonly state = new ActionState();
 
   protected signatoryKind = 'CLIENT_REPRESENTATIVE';
@@ -328,6 +338,35 @@ export class DocumentsComponent implements OnInit {
 
   protected kind(k: string): string {
     return KINDS[k] ?? k;
+  }
+
+  /**
+   * ⚠️ CORRIGÉ — LE BOUTON N'EXISTAIT PAS.
+   *
+   *    `ApiService.downloadDocument()` et la route qu'il appelle existaient
+   *    déjà (réutilisés par les écrans facture et affaire pour leurs propres
+   *    PDF), mais rien sur CET écran - le registre documentaire lui-même -
+   *    ne les invoquait : consulter une pièce scellée depuis ici n'avait
+   *    aucun moyen d'aboutir.
+   */
+  protected telecharger(d: DocumentRow): void {
+    if (this.downloadingId()) return;
+    this.downloadingId.set(d.id);
+    this.api.downloadDocument(d.id).subscribe({
+      next: (blob) => {
+        this.downloadingId.set(null);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${d.reference}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: (e: HttpFailure) => {
+        this.downloadingId.set(null);
+        this.state.fail(e, 'Téléchargement impossible.');
+      },
+    });
   }
 
   protected openSign(d: DocumentRow): void {

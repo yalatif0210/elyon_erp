@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { CommercialSegment, Prisma, UserRole } from '@prisma/client';
 import { IsIn, IsOptional } from 'class-validator';
-import { Realm, RequireRealm, Roles, SkipAudit } from '../common/auth/realm';
+import { Realm, RequireRealm, Roles, Screen, SkipAudit } from '../common/auth/realm';
 import { Page, PaginationQuery, paginate } from '../common/http/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { findReferential, rolesDeLecture } from './registry';
@@ -606,6 +606,7 @@ export class ReferentialsController {
   constructor(private readonly service: ReferentialsService) {}
 
   @Get('currencies')
+  @Screen('referentiels')
   currencies() {
     return this.service.currencies();
   }
@@ -645,6 +646,7 @@ export class ReferentialsController {
     UserRole.SALES_REP,
     UserRole.LOGISTICS_COORD,
   )
+  @Screen('tiers')
   partners(@Query() query: PartnerQuery, @Req() req: { auth: { role?: UserRole } }) {
     return this.service.partners(query, req.auth.role);
   }

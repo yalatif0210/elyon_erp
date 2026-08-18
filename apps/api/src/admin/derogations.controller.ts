@@ -2,7 +2,7 @@ import { Body, Controller, Get, Injectable, Param, ParseUUIDPipe, Patch, Post, Q
 import { AuditAction, ActorType, DerogationStatus, DerogationType, UserRole } from '@prisma/client';
 import { IsEnum, IsISO8601, IsOptional, IsString, Length, MaxLength } from 'class-validator';
 import { AuditService } from '../common/audit/audit.service';
-import { Realm, RequireRealm, Roles } from '../common/auth/realm';
+import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { Page, PaginationQuery, paginate } from '../common/http/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
 
@@ -170,6 +170,7 @@ export class DerogationController {
 
   @Get()
   @Roles(UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO, UserRole.ACCOUNTANT, UserRole.ASSISTANT_DG)
+  @Screen('derogations')
   list(@Query() query: DerogationQuery) {
     return this.service.list(query);
   }

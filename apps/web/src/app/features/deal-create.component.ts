@@ -1,7 +1,7 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { ApiService, ContractRow, Partner, ReferentialSpec } from '../core/api.service';
+import { ApiService, ContractRow, Partner, ReferentialSpec, SiteRequirement } from '../core/api.service';
 import { ActionFeedbackComponent, ActionState, HttpFailure } from '../shared/action-panel.component';
 import { IconComponent } from '../shared/icon.component';
 
@@ -35,6 +35,9 @@ interface ProductOption {
   code: string;
   name: string;
   defaultUom: string;
+  /** Produit SERVICE (ex. barge) : ni transport, ni volume, ni unité —
+   *  le prix unitaire porte directement le montant total de la prestation. */
+  isService: boolean;
 }
 
 interface CurrencyOption {
@@ -46,6 +49,8 @@ interface SiteOption {
   id: string;
   label: string;
   deliveryLocation: string;
+  /** Ce que ce site exige — saisi au référentiel des sites, lu ici (§ 6.2). */
+  exigences: SiteRequirement[];
 }
 
 /**
@@ -108,15 +113,69 @@ interface SiteOption {
           }
         </div>
 
-        @if (sitesDuClient().length > 0) {
+        @if (clientId) {
           <div class="sm:col-span-2">
-            <label class="label" for="site">Site de livraison connu (facultatif)</label>
-            <select id="site" class="field" [(ngModel)]="siteId" (ngModelChange)="onSiteChange()">
-              <option value="">Aucun, saisir un lieu libre ci-dessous</option>
-              @for (s of sitesDuClient(); track s.id) {
-                <option [ngValue]="s.id">{{ s.label }}</option>
+            <label class="label" for="site">
+              Site de livraison
+              @if (sitesDuClient().length > 0) {
+                <span class="text-crit">*</span>
               }
-            </select>
+            </label>
+            @if (sitesDuClient().length > 0) {
+              <select id="site" class="field" [(ngModel)]="siteId" (ngModelChange)="onSiteChange()">
+                <option value="" disabled>Choisir…</option>
+                @for (s of sitesDuClient(); track s.id) {
+                  <option [ngValue]="s.id">{{ s.label }}</option>
+                }
+              </select>
+            } @else {
+              <input id="site" class="field" [(ngModel)]="deliveryLocation" maxlength="200" />
+              <p class="mt-1 text-[11px] text-ink-faint">
+                Ce client n’a aucun site enregistré : lieu saisi librement, sans exigence
+                rattachée. Un site créé au référentiel des tiers apparaîtra ici au prochain
+                choix de ce client.
+              </p>
+            }
+
+            <!-- ============ Ce que ce site exige ============
+                 Purement informatif à ce stade : ce n'est pas ici que
+                 l'exigence bloque, mais au chargement de l'opération qui
+                 livrera cette affaire. La rappeler maintenant évite au
+                 commercial de la découvrir après coup (§ discussion 15/08). -->
+            @if (exigencesDuSite(); as ex) {
+              @if (ex.length > 0) {
+                <div class="mt-3 rounded-[3px] border border-rule-strong bg-gray-100 px-3.5 py-3">
+                  <p class="flex items-center gap-1.5 text-[12px] font-semibold text-ink">
+                    <erp-icon name="shield" [size]="14" />
+                    Ce que ce site exige
+                  </p>
+                  <ul class="mt-2 space-y-2">
+                    @for (e of ex; track e.id) {
+                      <li class="text-[12px] leading-snug">
+                        <span class="font-medium text-ink">{{ e.type.label }}</span>
+                        @if (e.isBlocking) {
+                          <span
+                            class="ml-1.5 inline-flex items-center gap-1 rounded-[3px] bg-crit px-1.5
+                                   py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
+                          >
+                            <erp-icon name="lock" [size]="10" />
+                            Bloquant
+                          </span>
+                        }
+                        <span class="block text-ink-soft">{{ e.detail }}</span>
+                      </li>
+                    }
+                  </ul>
+                  @if (bloquantes() > 0) {
+                    <p class="mt-2 text-[11px] leading-snug text-crit">
+                      {{ bloquantes() }} exigence(s) bloquante(s) : sans conséquence sur cette
+                      affaire, mais l’opération qui la livrera ne pourra pas partir au
+                      chargement tant qu’elles n’auront pas été levées et acquittées.
+                    </p>
+                  }
+                </div>
+              }
+            }
           </div>
         }
       </div>
@@ -145,42 +204,46 @@ interface SiteOption {
           </select>
         </div>
 
-        <div>
-          <label class="label" for="mode">Mode de transport <span class="text-crit">*</span></label>
-          <select id="mode" class="field" [(ngModel)]="transportMode">
-            <option value="" disabled>Choisir…</option>
-            @for (m of transportModes(); track m) {
-              <option [ngValue]="m">{{ m }}</option>
-            }
-          </select>
-        </div>
-
-        <div>
-          <label class="label" for="volume">Volume contracté <span class="text-crit">*</span></label>
-          <input id="volume" type="number" min="0" step="any" class="field text-right font-mono" [(ngModel)]="contractedVolume" />
-        </div>
-
-        <div>
-          <label class="label" for="uom">Unité <span class="text-crit">*</span></label>
-          @if (uoms().length > 0) {
-            <select id="uom" class="field" [(ngModel)]="uom">
-              @for (u of uoms(); track u) {
-                <option [ngValue]="u">{{ u }}</option>
+        @if (!produitService()) {
+          <div>
+            <label class="label" for="mode">Mode de transport <span class="text-crit">*</span></label>
+            <select id="mode" class="field" [(ngModel)]="transportMode">
+              <option value="" disabled>Choisir…</option>
+              @for (m of transportModes(); track m) {
+                <option [ngValue]="m">{{ m }}</option>
               }
             </select>
-          } @else {
-            <input id="uom" class="field font-mono" [(ngModel)]="uom" />
-          }
-        </div>
+          </div>
+
+          <div>
+            <label class="label" for="volume">Volume contracté <span class="text-crit">*</span></label>
+            <input id="volume" type="number" min="0" step="any" class="field text-right font-mono" [(ngModel)]="contractedVolume" />
+          </div>
+
+          <div>
+            <label class="label" for="uom">Unité <span class="text-crit">*</span></label>
+            @if (uoms().length > 0) {
+              <select id="uom" class="field" [(ngModel)]="uom">
+                @for (u of uoms(); track u) {
+                  <option [ngValue]="u">{{ u }}</option>
+                }
+              </select>
+            } @else {
+              <input id="uom" class="field font-mono" [(ngModel)]="uom" />
+            }
+          </div>
+        } @else {
+          <div class="sm:col-span-3">
+            <p class="text-[12px] text-ink-faint">
+              Produit de service : ni mode de transport, ni volume, ni unité. Le prix ci-dessous
+              porte le montant total de la prestation.
+            </p>
+          </div>
+        }
 
         <div>
           <label class="label" for="target">Livraison cible souhaitée</label>
           <input id="target" type="date" class="field" [(ngModel)]="targetDeliveryDate" />
-        </div>
-
-        <div class="sm:col-span-3">
-          <label class="label" for="lieu">Lieu de livraison <span class="text-crit">*</span></label>
-          <input id="lieu" class="field" [(ngModel)]="deliveryLocation" maxlength="200" />
         </div>
       </div>
     </section>
@@ -200,7 +263,10 @@ interface SiteOption {
         </div>
 
         <div>
-          <label class="label" for="prix">Prix de vente unitaire <span class="text-crit">*</span></label>
+          <label class="label" for="prix">
+            {{ produitService() ? 'Prix d’exploitation' : 'Prix de vente unitaire' }}
+            <span class="text-crit">*</span>
+          </label>
           <input id="prix" type="number" min="0" step="any" class="field text-right font-mono" [(ngModel)]="unitSalePrice" />
         </div>
 
@@ -262,15 +328,25 @@ export class DealCreateComponent implements OnInit {
   protected readonly contractsDuClient = computed(() =>
     this.contracts().filter((c) => c.clientId === this.clientId),
   );
+  protected readonly produitService = computed(
+    () => this.products().find((p) => p.id === this.productId)?.isService ?? false,
+  );
   protected readonly sitesDuClient = computed<SiteOption[]>(() => {
     const client = this.clients().find((p) => p.id === this.clientId);
     if (!client) return [];
     return client.sites.map((s) => ({
       id: s.id,
       label: `${s.name}${s.city ? ' (' + s.city + ')' : ''}`,
-      deliveryLocation: s.deliverySite?.name ?? s.name,
+      deliveryLocation: s.site?.name ?? s.name,
+      exigences: s.site?.requirements ?? [],
     }));
   });
+  protected readonly exigencesDuSite = computed(
+    () => this.sitesDuClient().find((s) => s.id === this.siteId)?.exigences ?? [],
+  );
+  protected readonly bloquantes = computed(
+    () => this.exigencesDuSite().filter((e) => e.isBlocking).length,
+  );
 
   protected clientId = '';
   protected contractId = '';
@@ -302,6 +378,7 @@ export class DealCreateComponent implements OnInit {
   protected onClientChange(): void {
     this.contractId = '';
     this.siteId = '';
+    this.deliveryLocation = '';
     const client = this.clients().find((p) => p.id === this.clientId);
     if (client?.segment) this.segment = client.segment;
   }
@@ -313,21 +390,20 @@ export class DealCreateComponent implements OnInit {
 
   protected onProductChange(): void {
     const product = this.products().find((p) => p.id === this.productId);
-    if (product) this.uom = product.defaultUom;
+    if (product && !product.isService) this.uom = product.defaultUom;
   }
 
   protected peutEnvoyer(): boolean {
-    return !!(
+    const base = !!(
       this.clientId &&
       this.productId &&
       this.segment &&
-      this.contractedVolume &&
-      this.uom &&
-      this.transportMode &&
       this.deliveryLocation.trim() &&
       this.currencyCode &&
       this.unitSalePrice !== null
     );
+    if (this.produitService()) return base;
+    return base && !!(this.contractedVolume && this.uom && this.transportMode);
   }
 
   private enumValues(names: string[]): string[] {
@@ -343,6 +419,8 @@ export class DealCreateComponent implements OnInit {
     if (this.state.busy() || !this.peutEnvoyer()) return;
     this.state.start();
 
+    const service = this.produitService();
+
     this.api
       .createDeal({
         contractId: this.contractId || undefined,
@@ -350,9 +428,11 @@ export class DealCreateComponent implements OnInit {
         siteId: this.siteId || undefined,
         productId: this.productId,
         segment: this.segment,
-        contractedVolume: Number(this.contractedVolume ?? 0),
-        uom: this.uom,
-        transportMode: this.transportMode,
+        // Absents pour un produit service : le serveur applique 1/FORFAIT et
+        // n'exige aucun mode de transport (§ discussion 15/08).
+        contractedVolume: service ? undefined : Number(this.contractedVolume ?? 0),
+        uom: service ? undefined : this.uom,
+        transportMode: service ? undefined : this.transportMode,
         deliveryLocation: this.deliveryLocation.trim(),
         targetDeliveryDate: this.targetDeliveryDate || undefined,
         currencyCode: this.currencyCode,

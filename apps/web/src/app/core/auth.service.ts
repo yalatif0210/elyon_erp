@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { Observable, tap } from 'rxjs';
+import { Observable, map, shareReplay, tap } from 'rxjs';
 
 export interface Profile {
   id: string;
@@ -67,6 +67,35 @@ export class AuthService {
   readonly totpPending = signal(false);
   readonly passwordChangePending = signal(false);
 
+  /**
+   * Écrans visibles pour le rôle courant, dérogations DG comprises
+   * (§ paramétrage 17/08).
+   *
+   * `null` tant que non chargé - le menu et les gardes de route attendent
+   * `visibleScreens$()` plutôt que de lire ce signal directement, pour ne
+   * jamais décider sur un ensemble vide par manque de chargement.
+   */
+  private readonly screensSignal = signal<string[] | null>(null);
+  readonly screens = this.screensSignal.asReadonly();
+  private screens$: Observable<string[]> | null = null;
+
+  /** Charge une fois par session, partagé entre le menu et les gardes de route. */
+  visibleScreens$(): Observable<string[]> {
+    if (!this.screens$) {
+      this.screens$ = this.http.get<{ screens: string[] }>('/api/internal/screen-access/me').pipe(
+        map((r) => r.screens),
+        tap((screens) => this.screensSignal.set(screens)),
+        shareReplay(1),
+      );
+    }
+    return this.screens$;
+  }
+
+  /** Lecture synchrone pour le menu - vide tant que non chargé, jamais faussement permissif. */
+  canSeeScreen(key: string): boolean {
+    return this.screensSignal()?.includes(key) ?? false;
+  }
+
   get accessToken(): string | null {
     return sessionStorage.getItem(AuthService.ACCESS);
   }
@@ -113,6 +142,8 @@ export class AuthService {
     sessionStorage.removeItem(AuthService.REFRESH);
     sessionStorage.removeItem(AuthService.PROFILE);
     this.profileSignal.set(null);
+    this.screensSignal.set(null);
+    this.screens$ = null;
     void this.router.navigate(['/connexion']);
   }
 
@@ -154,6 +185,11 @@ export class AuthService {
     this.profileSignal.set(res.profile);
     this.totpPending.set(res.totpEnrollmentRequired);
     this.passwordChangePending.set(res.mustChangePassword);
+    // Une nouvelle connexion dans le même onglet ne doit jamais réutiliser les
+    // écrans du compte précédent : sans cette remise à zéro, `visibleScreens$()`
+    // aurait rendu son résultat mis en cache par `shareReplay`.
+    this.screensSignal.set(null);
+    this.screens$ = null;
   }
 }
 

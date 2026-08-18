@@ -39,7 +39,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { AuditService } from '../common/audit/audit.service';
-import { Realm, RequireRealm, Roles } from '../common/auth/realm';
+import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { Page, PaginationQuery, paginate } from '../common/http/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AstmService } from '../common/volumes/astm.service';
@@ -1017,6 +1017,7 @@ export class OperationsController {
     UserRole.ACCOUNTANT,
     UserRole.ASSISTANT_DG,
   )
+  @Screen('operations')
   list(@Query() query: OperationQuery) {
     return this.service.list(query);
   }

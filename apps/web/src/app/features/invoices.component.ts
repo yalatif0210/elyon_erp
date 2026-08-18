@@ -101,7 +101,12 @@ const FILTERS: { label: string; type?: string }[] = [
     <erp-invoice-actions class="mb-5 block" (created)="load()" />
 
     @if (selected(); as inv) {
-      <erp-invoice-lifecycle class="mb-5 block" [invoice]="inv" (changed)="load()" />
+      <erp-invoice-lifecycle
+        class="mb-5 block"
+        [invoice]="inv"
+        (changed)="load()"
+        (deleted)="onDeleted()"
+      />
     }
 
     <div class="mb-4 flex flex-wrap items-center gap-2">
@@ -145,7 +150,7 @@ const FILTERS: { label: string; type?: string }[] = [
             <th>Client</th>
             <th>Affaire</th>
             <th class="num">Volume</th>
-            <th class="num">Prix TTC</th>
+            <th class="num">Prix</th>
             <th class="num">Total facture</th>
             <th class="num">Dont TVA</th>
             <th class="num">Échéance</th>
@@ -260,6 +265,11 @@ export class InvoicesComponent implements OnInit {
 
   protected select(i: InvoiceRow): void {
     this.selected.set(this.selected()?.id === i.id ? null : i);
+  }
+
+  protected onDeleted(): void {
+    this.selected.set(null);
+    this.load();
   }
 
   protected setFilter(type?: string): void {
