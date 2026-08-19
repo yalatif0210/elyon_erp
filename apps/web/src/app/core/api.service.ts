@@ -1791,6 +1791,19 @@ export class ApiService {
     return this.http.post(`${this.base}/compliance/records`, body);
   }
 
+  /**
+   * Dépôt du scan, AVANT l'enregistrement qui le référence (§ commentaire de
+   * `ComplianceService.uploadDocument`). `FormData` : Angular pose lui-même
+   * l'en-tête `Content-Type` avec la bonne frontière multipart, le poser à
+   * la main casserait l'envoi.
+   */
+  uploadComplianceDocument(file: File, type: string): Observable<{ id: string; title: string }> {
+    const corps = new FormData();
+    corps.append('file', file);
+    corps.append('type', type);
+    return this.http.post<{ id: string; title: string }>(`${this.base}/compliance/documents`, corps);
+  }
+
   // --- Surveillance (§ 5.4, § 9.1) -----------------------------------------
 
   marginBand(): Observable<MarginBandRow[]> {

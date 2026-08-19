@@ -1,0 +1,62 @@
+# ===========================================================================
+#  SURCHARGE DE PRODUCTION — VPS derrière Cloudflare
+#  Réf. DEPLOIEMENT.md
+#
+#  Ajoute le relais public (seul conteneur exposé sur l'hôte) et retire la
+#  publication directe des ports d'`api`, `web` et `portal` : ils ne restent
+#  joignables que par le réseau `edge`, depuis le relais.
+#
+#  Usage : docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# ===========================================================================
+
+services:
+  api:
+    ports: [] # Plus de port publié : seul le relais atteint l'API, via `edge`.
+
+  web:
+    ports: []
+
+  portal:
+    ports: []
+
+  # -------------------------------------------------------------------------
+  #  Relais public — TLS avec le certificat d'origine Cloudflare, un
+  #  sous-domaine par service (voir docker/nginx/proxy.conf).
+  # -------------------------------------------------------------------------
+  proxy:
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    init: true
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: docker/proxy.Dockerfile
+    networks:
+      - edge
+    ports:
+      - "80:80"
+      - "443:443"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    volumes:
+      # Certificat d'origine Cloudflare — jamais dans l'image, jamais dans le
+      # dépôt (voir DEPLOIEMENT.md pour l'obtenir et .gitignore pour son
+      # exclusion). Lecture seule : ce conteneur ne le renouvelle ni ne
+      # l'écrit, il ne fait que le servir.
+      - type: bind
+        source: ./certs/cloudflare
+        target: /etc/nginx/certs
+        read_only: true
+    depends_on:
+      web:
+        condition: service_healthy
+      portal:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 128M

@@ -587,7 +587,7 @@ export class OperationActionsComponent {
   /** Qui peut lever le verrou HSE par dérogation — même liste que la route serveur. */
   protected peutLeverVerrouHse(): boolean {
     const r = this.auth.role();
-    return r === 'DG' || r === 'CCOO';
+    return r === 'DG' || r === 'CCOO' || r === 'FINANCE_CFO';
   }
 
   protected leverVerrouHse(derogationId: string): void {

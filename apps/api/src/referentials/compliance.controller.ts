@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -11,10 +12,13 @@ import {
   Query,
   Req,
   StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ActorType,
-  AuditAction, ComplianceType, UserRole } from '@prisma/client';
+  AuditAction, ComplianceType, DocumentType, UserRole } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsDateString, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
@@ -80,6 +84,50 @@ class CreateComplianceDto {
   @IsOptional()
   @IsUUID()
   driverId?: string;
+
+  /**
+   * Pièce numérisée qui atteste l'enregistrement — issue d'un dépôt
+   * préalable (`POST compliance/documents`). Facultative : un enregistrement
+   * saisi de mémoire, en attendant le scan, reste possible.
+   */
+  @IsOptional()
+  @IsUUID()
+  documentId?: string;
+}
+
+/** Plafond de sécurité du tuyau, en octets — même principe que le terrain. */
+const PLAFOND_TUYAU = 32 * 1024 * 1024;
+
+/** Nature admise pour un document de conformité — un scan, pas un exécutable. */
+const NATURES_ADMISES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+
+/**
+ * `DocumentType` est un référentiel plus large que `ComplianceType` — il
+ * couvre aussi les pièces générées (facture, bon de livraison…). Dérivé
+ * plutôt que redemandé : l'agent qui vient de choisir « Assurance » n'a pas
+ * à choisir une seconde fois, dans un vocabulaire différent, ce qu'il vient
+ * de dire.
+ */
+const DOCUMENT_TYPE_PAR_COMPLIANCE_TYPE: Record<ComplianceType, DocumentType> = {
+  CUSTOMS_LICENSE: DocumentType.CUSTOMS_CERTIFICATE,
+  MINISTERIAL_APPROVAL: DocumentType.MINISTERIAL_APPROVAL,
+  IMPORT_EXPORT_LICENSE: DocumentType.IMPORT_EXPORT_LICENSE,
+  INSURANCE: DocumentType.INSURANCE_POLICY,
+  TECHNICAL_INSPECTION: DocumentType.TECHNICAL_INSPECTION,
+  DRIVER_LICENSE: DocumentType.DRIVER_DOCUMENT,
+  DRIVER_TRAINING: DocumentType.DRIVER_DOCUMENT,
+  HSE_CERTIFICATION: DocumentType.OTHER,
+  VESSEL_CERTIFICATE: DocumentType.VESSEL_CERTIFICATE,
+  SAFETY_DATA_SHEET: DocumentType.SAFETY_DATA_SHEET,
+  OTHER: DocumentType.OTHER,
+};
+
+/** Fichier reçu, tel que multer le rend — voir field-attachments.controller.ts. */
+interface FichierRecu {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
 }
 
 @Injectable()
@@ -128,6 +176,92 @@ export class ComplianceService {
     );
   }
 
+  /**
+   * Dépôt de la pièce numérisée, AVANT l'enregistrement qui la référence.
+   *
+   * ⚠️ CORRIGÉ — LE DÉPÔT N'EXISTAIT NULLE PART.
+   *
+   *    `GET records/:id` rendait `document.storageKey` depuis toujours,
+   *    `records/:id/document` sait la restituer — mais aucun enregistrement
+   *    de conformité n'avait jamais de fichier réellement rattaché : ni la
+   *    création, ni aucune autre route n'acceptait de le déposer. La preuve
+   *    documentaire d'une conformité — le SEUL fait qui rend une assurance ou
+   *    un agrément opposables — n'existait jamais que dans le classeur papier
+   *    de quelqu'un.
+   *
+   *    Déposé D'ABORD, séparément : le formulaire de création reste un envoi
+   *    JSON simple, et un agent qui a le scan en main mais pas encore tous
+   *    les autres champs peut le déposer sans perdre sa saisie.
+   */
+  async uploadDocument(
+    fichier: FichierRecu | undefined,
+    complianceType: ComplianceType,
+    actorId: string,
+  ) {
+    if (!fichier) {
+      throw new BadRequestException('Aucun fichier reçu.');
+    }
+    if (!(complianceType in DOCUMENT_TYPE_PAR_COMPLIANCE_TYPE)) {
+      throw new BadRequestException(`Nature de conformité inconnue (${complianceType}).`);
+    }
+    if (!NATURES_ADMISES.includes(fichier.mimetype)) {
+      throw new BadRequestException(
+        `Type de fichier refusé (${fichier.mimetype}). Types admis : ${NATURES_ADMISES.join(', ')}.`,
+      );
+    }
+
+    const objet = await this.storage.put(fichier.buffer, fichier.mimetype);
+
+    // ⚠️ `Document.storageKey` EST UNIQUE — CONTRAIREMENT À
+    //    `OperationAttachment.storageKey`, VOLONTAIREMENT PAS UNIQUE LÀ-BAS
+    //    (§ commentaire du modèle) PARCE QUE LE MÊME CLICHÉ SERT DEUX POINTS
+    //    DE CONTRÔLE, UN CAS NORMAL. Le même risque existe ici : une police
+    //    d'assurance flotte couvre plusieurs véhicules, le même scan peut
+    //    légitimement attester deux enregistrements de conformité distincts.
+    //    Sans ce garde-fou, le second dépôt du MÊME fichier échouerait sur la
+    //    contrainte d'unicité — une erreur 500 opaque là où l'agent s'attend
+    //    juste à pouvoir réutiliser un scan déjà déposé.
+    const existant = objet.alreadyPresent
+      ? await this.prisma.document.findFirst({
+          where: { storageKey: objet.storageKey },
+          select: { id: true, title: true },
+        })
+      : null;
+    if (existant) {
+      return existant;
+    }
+
+    const document = await this.prisma.document.create({
+      data: {
+        type: DOCUMENT_TYPE_PAR_COMPLIANCE_TYPE[complianceType],
+        title: fichier.originalname.slice(0, 255),
+        storageKey: objet.storageKey,
+        mimeType: objet.mimeType,
+        sizeBytes: BigInt(objet.sizeBytes),
+        sha256: objet.sha256,
+        // Pièce de conformité interne par défaut : ni le client, ni le
+        // terrain n'ont besoin de voir une police d'assurance ou un contrôle
+        // technique pour affecter un moyen — seul son EFFET (conforme ou non)
+        // leur est montré, jamais la pièce elle-même.
+        isClientVisible: false,
+        isFieldVisible: false,
+        uploadedById: actorId,
+      },
+      select: { id: true, title: true },
+    });
+
+    await this.audit.record({
+      actorType: ActorType.INTERNAL_USER,
+      actorId,
+      action: AuditAction.CREATE,
+      entityType: 'Document',
+      entityId: document.id,
+      after: { title: document.title, sha256: objet.sha256 },
+    });
+
+    return document;
+  }
+
   async create(dto: CreateComplianceDto, actorId: string) {
     // Le rattachement à exactement un porteur est vérifié en base
     // (chk_compliance_single_owner) : inutile de le dupliquer ici, la
@@ -142,6 +276,7 @@ export class ComplianceService {
         partnerId: dto.partnerId ?? null,
         vehicleId: dto.vehicleId ?? null,
         driverId: dto.driverId ?? null,
+        documentId: dto.documentId ?? null,
         recordedById: actorId,
       },
     });
@@ -235,6 +370,23 @@ export class ComplianceController {
   @Screen('echeancier')
   expiryWatch(@Query() query: ExpiryWatchQuery) {
     return this.service.expiryWatch(query.withinDays, query.blockingOnly === 'true');
+  }
+
+  /**
+   * Dépôt du scan — AVANT la création de l'enregistrement, voir
+   * `ComplianceService.uploadDocument`. Le fichier reste en mémoire, jamais
+   * écrit sur un disque temporaire : le conteneur de l'API est en lecture
+   * seule (même principe que `FieldAttachmentsController`).
+   */
+  @Post('documents')
+  @Roles(UserRole.LOGISTICS_COORD, UserRole.CCOO, UserRole.ASSISTANT_DG)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: PLAFOND_TUYAU } }))
+  uploadDocument(
+    @UploadedFile() fichier: FichierRecu | undefined,
+    @Body('type') complianceType: ComplianceType,
+    @Req() req: { auth: { sub: string } },
+  ) {
+    return this.service.uploadDocument(fichier, complianceType, req.auth.sub);
   }
 
   @Post('records')

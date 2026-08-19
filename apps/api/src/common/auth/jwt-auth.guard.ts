@@ -128,7 +128,22 @@ function extractBearer(header: unknown): string | null {
   return scheme?.toLowerCase() === 'bearer' && value ? value : null;
 }
 
-function extractIp(request: { ip?: string; socket?: { remoteAddress?: string } }): string | undefined {
+function extractIp(request: {
+  ip?: string;
+  socket?: { remoteAddress?: string };
+  headers?: Record<string, unknown>;
+}): string | undefined {
+  // Derrière Cloudflare (DEPLOIEMENT.md), le nombre de sauts internes n'est
+  // pas fixe — le relais public en ajoute un, `web` en ajoute un second pour
+  // les requêtes /api relayées, `portal` aucun. Compter les sauts pour
+  // `trust proxy` serait fragile et se déréglerait au moindre changement de
+  // topologie. `CF-Connecting-IP` fait autorité à la place : posé par
+  // Cloudflare à SA frontière, il écrase toute valeur qu'un client tenterait
+  // d'y glisser, quel que soit ce qui se passe ensuite entre l'edge et le
+  // conteneur.
+  const cf = request.headers?.['cf-connecting-ip'];
+  if (typeof cf === 'string' && cf) return cf;
+
   // `trust proxy = 1` étant posé dans main.ts, `request.ip` porte l'adresse
   // réelle du client, résolue depuis le dernier saut seulement. Sans ce
   // réglage, on journaliserait l'adresse de nginx sur chaque écriture.

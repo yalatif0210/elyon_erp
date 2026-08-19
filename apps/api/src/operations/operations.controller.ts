@@ -1138,7 +1138,7 @@ export class OperationsController {
    * l'opération.
    */
   @Patch(':id/hse-derogation')
-  @Roles(UserRole.LOGISTICS_COORD, UserRole.CCOO, UserRole.DG)
+  @Roles(UserRole.LOGISTICS_COORD, UserRole.CCOO, UserRole.DG, UserRole.FINANCE_CFO)
   attachHseDerogation(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AttachHseDerogationDto,

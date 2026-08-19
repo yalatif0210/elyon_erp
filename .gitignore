@@ -4,6 +4,7 @@
 !.env.example
 *.pem
 *.key
+/certs/
 
 # Dépendances et artefacts de build
 node_modules/

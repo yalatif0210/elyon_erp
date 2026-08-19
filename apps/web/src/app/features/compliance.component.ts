@@ -4,6 +4,7 @@ import { ApiService, ComplianceRecordDetail, ComplianceSubject, ExpiryItem } fro
 import {
   ActionFeedbackComponent,
   ActionState,
+  failureMessage,
   HttpFailure,
 } from '../shared/action-panel.component';
 import { IconComponent } from '../shared/icon.component';
@@ -88,12 +89,33 @@ const COMPLIANCE_TYPES: { code: string; label: string }[] = [
             <label class="label" for="exp">Expire le</label>
             <input id="exp" type="date" class="field" [(ngModel)]="newExpiryDate" />
           </div>
+          <div class="md:col-span-3">
+            <label class="label" for="scan">Pièce numérisée (facultatif)</label>
+            <input
+              id="scan"
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,.webp"
+              class="field h-auto py-2"
+              [disabled]="uploadBusy()"
+              (change)="onFile($event)"
+            />
+            @if (uploadBusy()) {
+              <p class="mt-1 text-[11px] text-ink-muted">Envoi du scan…</p>
+            } @else if (uploadedTitle()) {
+              <p class="mt-1 flex items-center gap-1.5 text-[11px] text-ok">
+                <erp-icon name="check-circle" [size]="12" />
+                {{ uploadedTitle() }} déposé — sera rattaché à l’enregistrement.
+              </p>
+            } @else if (uploadError()) {
+              <p class="mt-1 text-[11px] text-crit">{{ uploadError() }}</p>
+            }
+          </div>
         </div>
         <p class="mt-2 text-[11px] leading-relaxed text-ink-faint">
           Le statut de conformité n’est pas saisi : il se DÉRIVE de l’échéance. Une pièce
           expirée rend son porteur non affectable, sauf dérogation du DG.
         </p>
-        <button class="btn-primary mt-3" (click)="addRecord()" [disabled]="state.busy()">
+        <button class="btn-primary mt-3" (click)="addRecord()" [disabled]="state.busy() || uploadBusy()">
           Enregistrer la pièce
         </button>
       </div>
@@ -176,6 +198,11 @@ export class ComplianceComponent implements OnInit {
   protected newIssueDate = new Date().toISOString().slice(0, 10);
   protected newExpiryDate = '';
 
+  protected readonly uploadBusy = signal(false);
+  protected readonly uploadError = signal<string | null>(null);
+  protected readonly uploadedTitle = signal<string | null>(null);
+  private uploadedDocumentId: string | null = null;
+
   protected readonly rows = signal<ComplianceSubject[]>([]);
 
   /** Recherche et pagination des porteurs de pièces. */
@@ -217,6 +244,41 @@ export class ComplianceComponent implements OnInit {
     this.api.complianceOverview().subscribe((rows) => this.rows.set(rows));
   }
 
+  /**
+   * Dépôt du scan, déclenché au choix du fichier — pas à l'enregistrement.
+   *
+   * L'agent qui a le document en main mais pas encore tous les autres champs
+   * (référence exacte, date d'expiration à vérifier) ne doit pas perdre le
+   * scan parce qu'il quitte l'écran entre-temps.
+   */
+  protected onFile(evenement: Event): void {
+    const champ = evenement.target as HTMLInputElement;
+    const fichier = champ.files?.[0];
+    if (!fichier) return;
+
+    this.uploadBusy.set(true);
+    this.uploadError.set(null);
+    this.uploadedTitle.set(null);
+    // ⚠️ Un échec sur un SECOND essai doit aussi vider l'identifiant du
+    //    PREMIER. Sans ça, un dépôt réussi puis un remplacement raté laissent
+    //    un identifiant orphelin qui partirait quand même à l'enregistrement
+    //    — pendant que l'écran affiche un refus qui laisse croire que rien
+    //    n'est rattaché.
+    this.uploadedDocumentId = null;
+    this.api.uploadComplianceDocument(fichier, this.newType).subscribe({
+      next: (doc) => {
+        this.uploadBusy.set(false);
+        this.uploadedDocumentId = doc.id;
+        this.uploadedTitle.set(doc.title);
+      },
+      error: (e: HttpFailure) => {
+        this.uploadBusy.set(false);
+        this.uploadError.set(failureMessage(e, 'Dépôt du scan refusé.'));
+        champ.value = '';
+      },
+    });
+  }
+
   protected addRecord(): void {
     if (this.state.busy()) return;
     const [kind, id] = this.newSubject.split(':');
@@ -236,11 +298,14 @@ export class ComplianceComponent implements OnInit {
         partnerId: kind === 'CARRIER' ? id : undefined,
         vehicleId: kind === 'VEHICLE' ? id : undefined,
         driverId: kind === 'DRIVER' ? id : undefined,
+        documentId: this.uploadedDocumentId ?? undefined,
       })
       .subscribe({
         next: () => {
           this.state.succeed('Pièce enregistrée : le statut de conformité est recalculé.');
           this.newReference = '';
+          this.uploadedDocumentId = null;
+          this.uploadedTitle.set(null);
           this.reload();
         },
         error: (e: HttpFailure) => this.state.fail(e),

@@ -18,6 +18,13 @@ export function app(): express.Express {
   server.set('view engine', 'html');
   server.set('views', browserDistFolder);
 
+  // Derrière le relais public (DEPLOIEMENT.md), la connexion au conteneur est
+  // en clair même quand le visiteur est en HTTPS : sans ce réglage, Express
+  // lirait `req.protocol` comme `http` malgré `X-Forwarded-Proto`, et le
+  // rendu SSR ci-dessous produirait des URL absolues en `http://`. Même
+  // principe que `main.ts` côté API (voir son commentaire sur `trust proxy`).
+  server.set('trust proxy', 1);
+
   /**
    * Une seule origine côté navigateur — même principe que la console interne
    * (`docker/web.Dockerfile`, relais nginx) : le navigateur ne voit jamais

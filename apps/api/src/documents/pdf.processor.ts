@@ -373,15 +373,48 @@ export class DocumentsPdfProcessor extends WorkerHost {
     };
   }
 
+  /**
+   * ⚠️ TOLÉRANTE À UN FICHIER MANQUANT — UNE PHOTO ABSENTE NE DOIT PAS
+   *    BLOQUER LA CLÔTURE DE L'OPÉRATION ENTIÈRE.
+   *
+   *    `DocumentsService.download()` traite déjà ce cas ailleurs comme un
+   *    incident normal à signaler, pas une exception à laisser remonter :
+   *    « la ligne existe, le fichier non ». Ici, une lecture non protégée
+   *    ferait échouer TOUTE la génération — rapport ET bon de livraison — sur
+   *    une seule pièce corrompue ou perdue. BullMQ retenterait trois fois,
+   *    pour le même échec à chaque essai : l'opération resterait bloquée
+   *    indéfiniment, sans qu'aucune intervention manuelle ne puisse la
+   *    débloquer autrement qu'en réparant le stockage.
+   *
+   *    Le rapport se génère donc SANS la photo manquante plutôt que pas du
+   *    tout. L'absence est journalisée côté serveur pour investigation — elle
+   *    ne l'est pas encore sur le PDF lui-même, qui ne distingue pas
+   *    aujourd'hui « aucune photo prise » de « une photo attendue a disparu
+   *    du stockage ».
+   */
   private async photosOf(
     attachments: { storageKey: string; mimeType: string; caption: string | null }[],
   ): Promise<OperationReportPhotoData[]> {
-    return Promise.all(
+    const resultats = await Promise.allSettled(
       attachments.map(async (a) => ({
         captionOrKind: a.caption ?? 'Photo',
         dataUri: await this.toDataUri(a.storageKey, a.mimeType),
       })),
     );
+
+    const photos: OperationReportPhotoData[] = [];
+    for (let i = 0; i < resultats.length; i += 1) {
+      const r = resultats[i];
+      if (r.status === 'fulfilled') {
+        photos.push(r.value);
+      } else {
+        this.logger.error(
+          `Photo introuvable dans le stockage (${attachments[i].storageKey}) — rapport généré sans elle.`,
+          r.reason as Error,
+        );
+      }
+    }
+    return photos;
   }
 }
 
