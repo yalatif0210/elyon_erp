@@ -31,36 +31,78 @@ n'ajoute aucune application séparée à construire ou à surveiller.
 
 ## 1. DNS (Cloudflare)
 
-Quatre enregistrements, tous **proxiés** (nuage orange) :
+Suppose le domaine `elyon-trading.com` déjà actif dans Cloudflare (zone
+créée, serveurs de noms déjà pointés dessus) - ce qui suit ajoute seulement
+les enregistrements, pas la zone elle-même.
+
+1. Se connecter sur [dash.cloudflare.com](https://dash.cloudflare.com),
+   sélectionner le compte puis la zone **`elyon-trading.com`**.
+2. Dans le menu de gauche : **DNS → Records**.
+3. Bouton **Add record**, une fois par ligne du tableau ci-dessous :
+   - **Type** : `A`
+   - **Name** : la valeur de la colonne « Nom » (`@` pour la racine du
+     domaine si Cloudflare ne propose pas `elyon-trading.com` tel quel)
+   - **IPv4 address** : l'IP du VPS de production
+   - **Proxy status** : basculer sur **Proxied** (nuage orange - jamais
+     « DNS only », qui exposerait l'IP réelle et court-circuiterait le TLS
+     Cloudflare)
+   - **TTL** : `Auto`
+   - **Save**
 
 | Type | Nom | Valeur | Proxy |
 |---|---|---|---|
-| A | `elyon-trading.com` | IP du VPS | ✅ |
-| A | `www` | IP du VPS | ✅ |
-| A | `erp` | IP du VPS | ✅ |
-| A | `terrain` | IP du VPS | ✅ |
-| A | `portail` | IP du VPS | ✅ |
+| A | `elyon-trading.com` | IP du VPS | ✅ Proxied |
+| A | `www` | IP du VPS | ✅ Proxied |
+| A | `erp` | IP du VPS | ✅ Proxied |
+| A | `terrain` | IP du VPS | ✅ Proxied |
+| A | `portail` | IP du VPS | ✅ Proxied |
 
-Puis, dans **SSL/TLS → Overview** : mode **Full (strict)**.
+4. Toujours dans le menu de gauche : **SSL/TLS → Overview**, sélectionner le
+   mode **Full (strict)** (pas « Flexible » : le VPS chiffre lui aussi côté
+   origine, avec le certificat du § 2 - « Flexible » laisserait la moitié du
+   trajet en clair).
+
+Propagation : quelques minutes en général, jusqu'à 24 h dans de rares cas
+(`dig erp.elyon-trading.com` doit renvoyer l'IP du VPS pour confirmer).
 
 ## 2. Certificat d'origine Cloudflare
 
-Dans **SSL/TLS → Origin Server → Create Certificate** :
-- Liste d'hôtes : `elyon-trading.com, *.elyon-trading.com`
-- Validité : 15 ans (par défaut)
-- Format de clé : RSA (2048)
+Un seul certificat, couvrant tout le domaine avec le joker (`*`) - le même
+fichier sert à la production ET au staging (`DEPLOIEMENT_STAGING.md` § 1),
+à copier une seconde fois, jamais à régénérer.
 
-Cloudflare affiche deux blocs : le certificat et la clé privée. Sur le VPS :
+1. Toujours dans la zone `elyon-trading.com` : **SSL/TLS → Origin Server**.
+2. Bouton **Create Certificate**.
+3. Dans la boîte de dialogue :
+   - **Private key type** : laisser sur « Generate private key and CSR with
+     Cloudflare » (le plus simple - Cloudflare génère la clé pour vous,
+     inutile de fournir son propre CSR).
+   - **Hostnames** : `elyon-trading.com` et `*.elyon-trading.com`, un par
+     ligne (le joker couvre `erp.`, `terrain.`, `portail.`, `staging-erp.`,
+     etc. - tous les sous-domaines actuels et futurs).
+   - **Key format** : `RSA (2048)`.
+   - **Certificate Validity** : `15 years` (par défaut).
+4. Bouton **Create**. Cloudflare affiche deux zones de texte :
+   - **Origin Certificate** - commence par `-----BEGIN CERTIFICATE-----`.
+   - **Private Key** - commence par `-----BEGIN PRIVATE KEY-----`.
+
+   ⚠️ **La clé privée ne s'affiche qu'à cet instant, une seule fois.**
+   Fermer la boîte de dialogue sans l'avoir copiée oblige à créer un nouveau
+   certificat (l'ancien reste valide mais inutilisable sans sa clé) - copier
+   les DEUX blocs, avec leurs lignes `BEGIN`/`END`, avant de fermer.
+
+5. Sur le VPS (connecté avec l'accès personnel du § 3.1) :
 
 ```bash
 mkdir -p certs/cloudflare
-# Coller le certificat dans certs/cloudflare/cloudflare-origin.pem
-# Coller la clé      dans certs/cloudflare/cloudflare-origin.key
+nano certs/cloudflare/cloudflare-origin.pem   # coller le bloc « Origin Certificate », enregistrer (Ctrl+O, Entrée, Ctrl+X)
+nano certs/cloudflare/cloudflare-origin.key   # coller le bloc « Private Key », enregistrer
 chmod 600 certs/cloudflare/cloudflare-origin.key
 ```
 
 Ce répertoire est exclu du dépôt (`.gitignore`) — il ne doit **jamais** être
-committé, ni transiter autrement qu'en copie directe sur le VPS.
+committé, ni transiter autrement qu'en copie directe sur le VPS (jamais par
+messagerie, jamais collé dans un outil tiers).
 
 ## 3. Le VPS
 

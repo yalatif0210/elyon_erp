@@ -22,20 +22,38 @@ les autres comptes se créent, dans l'écran « Gérer les utilisateurs ».
 
 ## 1. DNS (Cloudflare)
 
-Trois enregistrements supplémentaires, tous **proxiés**, pointant vers l'IP
-du **second** VPS (distincte de celle de production) :
+Même tableau de bord, même zone `elyon-trading.com`, même chemin de clics
+que `DEPLOIEMENT.md` § 1 (**DNS → Records → Add record**) - seules les trois
+lignes ci-dessous changent, pointées vers le **second** VPS (IP distincte de
+celle de production) :
 
 | Type | Nom | Valeur | Proxy |
 |---|---|---|---|
-| A | `staging-erp` | IP du VPS de staging | ✅ |
-| A | `staging-terrain` | IP du VPS de staging | ✅ |
-| A | `staging-portail` | IP du VPS de staging | ✅ |
+| A | `staging-erp` | IP du VPS de staging | ✅ Proxied |
+| A | `staging-terrain` | IP du VPS de staging | ✅ Proxied |
+| A | `staging-portail` | IP du VPS de staging | ✅ Proxied |
+
+Le mode **SSL/TLS → Overview → Full (strict)** est déjà réglé au niveau de
+la zone (§ 1 de `DEPLOIEMENT.md`) - s'applique automatiquement à ces
+nouveaux sous-domaines, rien à répéter.
 
 Aucun nouveau certificat à émettre : celui déjà obtenu pour la production
-(`elyon-trading.com, *.elyon-trading.com`, § 2 de `DEPLOIEMENT.md`) couvre
-déjà ces sous-domaines. Le déposer sur le VPS de staging exactement comme sur
-celui de production (`certs/cloudflare/`) — c'est le même fichier, copié une
-seconde fois, pas un nouveau à générer.
+(`elyon-trading.com, *.elyon-trading.com`, § 2 de `DEPLOIEMENT.md` - joker
+donc valable pour `staging-erp.`, `staging-terrain.`, `staging-portail.`
+aussi) couvre déjà ces sous-domaines. Le déposer sur le VPS de staging
+exactement comme sur celui de production :
+
+```bash
+mkdir -p certs/cloudflare
+nano certs/cloudflare/cloudflare-origin.pem   # coller le MÊME bloc « Origin Certificate » que la production
+nano certs/cloudflare/cloudflare-origin.key   # coller la MÊME clé
+chmod 600 certs/cloudflare/cloudflare-origin.key
+```
+
+C'est le même fichier, copié une seconde fois - jamais un nouveau certificat
+à créer, jamais transmis autrement qu'en copie directe entre les deux VPS
+(ou depuis le poste qui l'a récupéré de Cloudflare au § 2 de
+`DEPLOIEMENT.md`).
 
 ## 2. Le VPS
 
