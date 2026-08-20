@@ -28,6 +28,7 @@ import {
   DealStatus,
   DiscountMode,
   FieldRole,
+  FiscalYearStatus,
   GeneratedDocumentKind,
   HseCheckOutcome,
   HseControlLevel,
@@ -88,6 +89,53 @@ async function main(): Promise<void> {
   const site = await prisma.partnerSite.findFirstOrThrow({ where: { partnerId: client.id } });
   const vehicle = await prisma.vehicle.findUniqueOrThrow({ where: { registration: 'CI-4821-AB' } });
   const driver = await prisma.driver.findFirstOrThrow({ where: { employeeNumber: 'CH-014' } });
+
+  // =========================================================================
+  //  0. EXERCICE COMPTABLE COURANT ET SON TAUX DE FINANCEMENT
+  //
+  //  ⚠️ SANS CET EXERCICE, TOUT CALCUL DE MARGE EST REFUSÉ (§ 14.2).
+  //
+  //     MarginService.conditionsDeLExercice() refuse de calculer plutôt que
+  //     de porter le coût de portage à taux zéro — un choix délibéré, voir
+  //     son en-tête. Semer cet exercice n'est pas la même chose que semer un
+  //     taux d'absorption : l'un est une condition de financement que le
+  //     directeur financier a réellement déclarée pour boucler ce jeu de
+  //     données (la lettre de crédit à 12 %, D13 de l'audit du 9 août),
+  //     l'autre serait une charge de pool qu'aucun budget ne fonde encore.
+  //     Toujours 12 %, jamais 10 % : la valeur qui figure dans les scripts
+  //     de recette (cloture_lot2.py, recette_dettes.py) après leur propre
+  //     correction du même défaut D13.
+  // =========================================================================
+  const fiscalYear = await prisma.fiscalYear.upsert({
+    where: { year: 2026 },
+    update: {},
+    create: {
+      year: 2026,
+      label: 'Exercice 2026',
+      startsOn: D('2026-01-01'),
+      endsOn: D('2026-12-31'),
+      status: FiscalYearStatus.OPEN,
+      isCurrent: true,
+      authorId: cfo.id,
+    },
+  });
+  const existingRate = await prisma.financingRate.findFirst({
+    where: { fiscalYearId: fiscalYear.id, isCurrent: true },
+  });
+  if (!existingRate) {
+    await prisma.financingRate.create({
+      data: {
+        fiscalYearId: fiscalYear.id,
+        annualRatePct: '12.0000',
+        carryingDaysPerYear: 360,
+        source: 'Lettre de crédit bancaire, taux négocié pour l’exercice 2026',
+        version: 1,
+        isCurrent: true,
+        authorId: cfo.id,
+      },
+    });
+  }
+  console.log('  ✓ Exercice 2026 courant — taux de financement 12 % l’an (lettre de crédit)');
 
   // =========================================================================
   //  1. PRIX FOURNISSEUR VALIDÉ PAR LE DG

@@ -106,7 +106,7 @@ def remettre_a_zero(racine: Path) -> bool:
         # ASCII strict : la console Windows est en cp1252, et un accent
         # dans le message de PostgreSQL faisait planter l'affichage de
         # l'erreur — on perdait le diagnostic au moment ou il servait.
-        print("  /!\ Remise a zero impossible :",
+        print("  /!\\ Remise a zero impossible :",
               detail.encode("ascii", "replace").decode("ascii"))
         return False
     return True

@@ -5,7 +5,7 @@ Les briques ajoutées en dernier : registre des factures fournisseurs et
 prépaiements (§ 14.6), documents et signatures (§ 12). Le reste du lot a déjà
 été recetté ; on revérifie ici qu'il n'a pas régressé.
 """
-import json, time, urllib.request, urllib.error
+import io, json, time, urllib.request, urllib.error
 from uuid import uuid4
 
 # Les references doivent etre uniques a chaque passage : les contraintes
@@ -49,8 +49,49 @@ def msg(b):
     return (m if isinstance(m, str) else json.dumps(m, ensure_ascii=False))[:170]
 
 
+def multipart(path, tok, champs, fichier=None, nom="rapport.pdf", mime="application/pdf"):
+    """Envoi multipart écrit à la main : pas de dépendance pour six lignes.
+
+    register()/supersede() reçoivent désormais le fichier en pièce jointe -
+    storageKey/sizeBytes/sha256 sont calculés par le serveur, jamais saisis
+    (voir l'en-tête de RegisterDocumentDto)."""
+    limite = "----recette" + uuid4().hex
+    corps = io.BytesIO()
+    for cle, valeur in champs.items():
+        corps.write(f"--{limite}\r\n".encode())
+        corps.write(f'Content-Disposition: form-data; name="{cle}"\r\n\r\n'.encode())
+        corps.write(f"{valeur}\r\n".encode())
+    if fichier is not None:
+        corps.write(f"--{limite}\r\n".encode())
+        corps.write(
+            f'Content-Disposition: form-data; name="file"; filename="{nom}"\r\n'.encode())
+        corps.write(f"Content-Type: {mime}\r\n\r\n".encode())
+        corps.write(fichier)
+        corps.write(b"\r\n")
+    corps.write(f"--{limite}--\r\n".encode())
+
+    r = urllib.request.Request(B + path, method="POST", data=corps.getvalue())
+    r.add_header("Content-Type", f"multipart/form-data; boundary={limite}")
+    r.add_header("Authorization", "Bearer " + tok)
+    try:
+        with urllib.request.urlopen(r) as x:
+            return x.status, json.loads(x.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        raw = e.read()
+        try:
+            return e.code, json.loads(raw or b"{}")
+        except Exception:
+            return e.code, {"message": raw.decode("utf-8", "replace")[:300]}
+
+
+# Le contenu embarque RUN : deux passages ne doivent jamais produire le même
+# sha256, sous peine du même conflit d'unicité que storage_key protège.
+PDF = b"%PDF-1.4 recette-elyon-test-content-" + RUN.encode()
+
+
 dg = login("internal", "dg@elyon-trading.example")
 cfo = login("internal", "cfo@elyon-trading.example")
+comptable = login("internal", "comptable@elyon-trading.example")
 logi = login("internal", "logistique@elyon-trading.example")
 agent = login("field", "agent.terrain@elyon-trading.example")
 
@@ -92,7 +133,10 @@ s, b = call("PATCH", f"/api/internal/supplier-invoices/{NEW}/settle", cfo,
             {"settledAt": "2026-08-15", "reason": "Regularisation comptable de test"})
 check("Apurement refusé quand rien n'a été réglé d'avance", s == 400, f"{s} — {msg(b)}")
 
-s, b = call("POST", f"/api/internal/supplier-invoices/{NEW}/payments", cfo,
+
+# Séparation des tâches (audit, axe C, S1) : qui a saisi la facture ne peut
+# pas en enregistrer le règlement — un compte différent doit le faire.
+s, b = call("POST", f"/api/internal/supplier-invoices/{NEW}/payments", comptable,
             {"amount": 1_180_000, "paidAt": "2026-08-14", "bankReference": "VIR-88213"})
 check("Règlement enregistré et qualifié d'avance", s == 201, f"{s} — {b.get('amount')}")
 
@@ -102,7 +146,7 @@ check("Avance portée au BFR tant qu'elle n'est pas apurée",
       f"avance {b.get('prepaidAmount')} · apurée : {b.get('settledAt')}")
 check("Facture passée à RÉGLÉE", b.get("status") == "PAID", str(b.get("status")))
 
-s, b = call("POST", f"/api/internal/supplier-invoices/{NEW}/payments", cfo,
+s, b = call("POST", f"/api/internal/supplier-invoices/{NEW}/payments", comptable,
             {"amount": 500_000, "paidAt": "2026-08-16"})
 check("Règlement au-delà du solde refusé", s == 400, f"{s} — {msg(b)}")
 
@@ -153,52 +197,59 @@ if bl:
     check("Second scellement refusé", s == 400, f"{s} — {msg(b)}")
 
 # Une pièce non rattachée est introuvable le jour où on la cherche.
-s, b = call("POST", "/api/internal/documents", logi, {
-    "kind": "TRANSPORT_ORDER", "storageKey": f"documents/test/{RUN}-orphelin.pdf",
-    "sizeBytes": 1024, "sha256": ("f" + RUN.lower() * 8)[:64],
-})
+s, b = multipart("/api/internal/documents", logi, {"kind": "TRANSPORT_ORDER"}, PDF,
+                  nom=f"{RUN}-orphelin.pdf")
 check("Pièce sans rattachement refusée", s == 400, f"{s} — {msg(b)}")
 
-s, b = call("POST", "/api/internal/documents", logi, {
-    "kind": "OPERATION_REPORT", "dealId": D1,
-    "storageKey": f"documents/test/{RUN}-rapport.pdf",
-    "sizeBytes": 240_128, "sha256": (RUN.lower() * 8)[:64],
-})
+# operationId, pas seulement dealId : la signature côté terrain vérifie le
+# périmètre de l'agent via l'opération, jamais via l'affaire (§ discussion).
+s, opsD1 = call("GET", f"/api/internal/operations?dealId={D1}&pageSize=1", logi)
+OP1 = opsD1["items"][0]["id"]
+
+s, b = multipart("/api/internal/documents", logi,
+                  {"kind": "OPERATION_REPORT", "dealId": D1, "operationId": OP1},
+                  PDF, nom=f"{RUN}-rapport.pdf")
 check("Rapport d'exécution enregistré", s == 201, f"{s} — {b.get('reference')}")
 RAP = b.get("id")
 
 s, b = call("PATCH", f"/api/internal/documents/{RAP}/seal", dg)
 check("Scellement refusé sur un rapport non signé", s == 400, f"{s} — {msg(b)}")
 
-s, b = call("POST", f"/api/internal/documents/{RAP}/signatures", logi, {
-    "kind": "INTERNAL_USER", "signatoryName": "Coordinateur Logistique",
-    "signatoryCapacity": "Responsable de l'exécution",
+# Seul l'agent terrain scelle un rapport d'exécution (§ discussion 17/08) :
+# c'est un constat de son exécution à lui, jamais d'un compte interne.
+s, b = call("POST", f"/api/field/documents/{RAP}/signatures", agent, {
+    "kind": "FIELD_USER", "signatoryName": "Agent d’opération",
+    "signatoryCapacity": "Constat de l'exécution",
 })
-check("Signature apposée", s == 201, f"{s}")
+check("Signature apposée", s == 201, f"{s} — {msg(b)}")
+
+# Scellement AUTOMATIQUE dès que le signataire requis y est (§ discussion
+# 17/08, voir DocumentsController.sign) : un rapport n'attend qu'un seul
+# signataire, donc il est déjà scellé à cet instant - un appel manuel ne
+# ferait que constater ce que la signature vient de déclencher elle-même.
+s, b = call("GET", f"/api/internal/documents/{RAP}", dg)
+check("Scellé automatiquement dès la signature requise obtenue",
+      b.get("isSealed") is True, f"isSealed={b.get('isSealed')} · scellé le {str(b.get('sealedAt'))[:19]}")
 
 s, b = call("PATCH", f"/api/internal/documents/{RAP}/seal", dg)
-check("Scellement accepté une fois signé", s == 200, f"{s} — scellé le {str(b.get('sealedAt'))[:19]}")
+check("Second scellement (manuel, redondant) refusé", s == 400, f"{s} — {msg(b)}")
 
-s, b = call("POST", f"/api/internal/documents/{RAP}/supersede", dg, {
-    "kind": "OPERATION_REPORT", "dealId": D1,
-    "storageKey": f"documents/test/{RUN}-rapport-v2.pdf",
-    "sizeBytes": 241_000, "sha256": ("c" + RUN.lower() * 8)[:64],
-    "reason": "Volume livre corrige apres releve contradictoire du 12 aout",
-})
+s, b = multipart(f"/api/internal/documents/{RAP}/supersede", dg,
+                  {"kind": "OPERATION_REPORT", "dealId": D1, "operationId": OP1,
+                   "reason": "Volume livre corrige apres releve contradictoire du 12 aout"},
+                  PDF + b"-v2-" + RUN.encode(), nom=f"{RUN}-rapport-v2.pdf")
 check("« Annule et remplace » sur une pièce scellée", s == 201,
       f"{s} — {b.get('reference')} remplace la précédente")
 V2 = b.get("id")
 
-s, b = call("POST", f"/api/internal/documents/{RAP}/supersede", dg, {
-    "kind": "OPERATION_REPORT", "dealId": D1, "storageKey": f"documents/test/{RUN}-v3.pdf",
-    "sizeBytes": 1000, "sha256": ("d" + RUN.lower() * 8)[:64], "reason": "Second remplacement interdit",
-})
+s, b = multipart(f"/api/internal/documents/{RAP}/supersede", dg,
+                  {"kind": "OPERATION_REPORT", "dealId": D1, "operationId": OP1, "reason": "Second remplacement interdit"},
+                  PDF + b"-v3-" + RUN.encode(), nom=f"{RUN}-v3.pdf")
 check("Double remplacement refusé", s == 400, f"{s} — {msg(b)}")
 
-s, b = call("POST", f"/api/internal/documents/{RAP}/supersede", dg, {
-    "kind": "OPERATION_REPORT", "dealId": D1, "storageKey": f"documents/test/{RUN}-v4.pdf",
-    "sizeBytes": 1000, "sha256": ("e" + RUN.lower() * 8)[:64], "reason": "court",
-})
+s, b = multipart(f"/api/internal/documents/{RAP}/supersede", dg,
+                  {"kind": "OPERATION_REPORT", "dealId": D1, "operationId": OP1, "reason": "court"},
+                  PDF + b"-v4-" + RUN.encode(), nom=f"{RUN}-v4.pdf")
 check("Remplacement sans motif circonstancié refusé", s == 400, f"{s} — {msg(b)}")
 
 if bl:

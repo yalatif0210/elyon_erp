@@ -14,11 +14,16 @@ rattachement.
 """
 import io
 import json
+import pathlib
 import subprocess
 import urllib.error
 import urllib.request
 import uuid
 import zlib
+
+# Racine du dépôt, calculée depuis ce fichier - jamais un chemin personnel
+# codé en dur, qui ne survit qu'au poste de qui l'a écrit.
+DEPOT = pathlib.Path(__file__).resolve().parents[2]
 
 B = "http://localhost:4200"
 PWD = "ChangeMe!2026"
@@ -101,7 +106,7 @@ def psql(sql):
     out = subprocess.run(
         ["docker", "compose", "exec", "-T", "postgres", "psql", "-U", "erp_migrator",
          "-d", "erp", "-t", "-A", "-c", sql],
-        cwd=r"c:\Users\DEBORA\Downloads\ELYON TRADING\erp",
+        cwd=str(DEPOT),
         capture_output=True, text=True, encoding="utf-8", errors="replace")
     return (out.stdout or "") + (out.stderr or "")
 
