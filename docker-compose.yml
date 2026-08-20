@@ -262,6 +262,13 @@ services:
       LOCAL_CURRENCY: ${LOCAL_CURRENCY:-XOF}
       FISCAL_COUNTRY: ${FISCAL_COUNTRY:-CI}
       SEED_DEFAULT_PASSWORD: ${SEED_DEFAULT_PASSWORD:-ChangeMe!2026}
+      # Lues par prisma/bootstrap-admin.ts (db:bootstrap-admin) - absentes
+      # d'ici, le script échoue à trouver la variable même quand .env est
+      # correctement rempli sur l'hôte : ce bloc est une liste blanche, pas
+      # un passage transparent du fichier .env entier.
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
     volumes:
       - ./apps/api:/app
       # Volume nommé PAR-DESSUS le bind mount. Sans lui, npm écrit ses dizaines

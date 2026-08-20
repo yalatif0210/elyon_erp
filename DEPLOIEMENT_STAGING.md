@@ -46,6 +46,99 @@ servir — **2 vCPU / 4 Go RAM / 40 Go SSD** est un point de départ raisonnable
 la production : Docker Engine + le plugin Compose, rien d'autre installé sur
 l'hôte.
 
+### 2.1 Installer Docker
+
+```bash
+# Connecté avec l'accès initial du fournisseur (root, sur VPS neuf) :
+curl -fsSL https://get.docker.com -o get-docker.sh
+sh get-docker.sh
+rm get-docker.sh
+docker compose version   # doit répondre - sinon le plugin Compose manque
+```
+
+### 2.2 Utilisateur dédié au déploiement automatique
+
+Le pipeline CI/CD (`deploy-staging.yml`) se connecte en SSH pour chaque
+déploiement. Il lui faut son propre utilisateur, non-root, avec sa propre
+clé - jamais la clé personnelle d'un administrateur, jamais celle de la
+production : une fuite d'un côté ne doit rien ouvrir de l'autre.
+
+```bash
+# Sur un poste de confiance (pas forcément le VPS) - clé SANS phrase de
+# passe : GitHub Actions ne peut pas en saisir une à l'exécution.
+ssh-keygen -t ed25519 -N "" -C "elyon-erp-staging-deploy" -f staging_deploy
+```
+
+```bash
+# Sur le VPS, toujours avec l'accès root initial :
+adduser --disabled-password --gecos "" deploy
+usermod -aG docker deploy
+mkdir -p /home/deploy/.ssh
+echo "<contenu de staging_deploy.pub>" >> /home/deploy/.ssh/authorized_keys
+chown -R deploy:deploy /home/deploy/.ssh
+chmod 700 /home/deploy/.ssh
+chmod 600 /home/deploy/.ssh/authorized_keys
+```
+
+`staging_deploy` (la clé PRIVÉE) devient la valeur du secret
+`STAGING_SSH_KEY` (§ 4) ; `deploy` devient `STAGING_SSH_USER`. Ne jamais
+déposer la clé privée sur le VPS lui-même - seule la clé publique y va.
+
+### 2.3 Accès personnel (administrateur humain)
+
+`deploy` (§ 2.2) est un compte de service, réservé au pipeline - jamais un
+accès pour une personne. Une fois le mot de passe root désactivé (§ 2.4),
+c'est le SEUL autre moyen de se connecter : il en faut donc un avant de
+fermer cette porte, pas après.
+
+```bash
+# Sur le poste de l'administrateur - sa propre clé, distincte de celle du
+# pipeline et de celle de production :
+ssh-keygen -t ed25519 -C "<nom> - acces staging" -f ~/.ssh/id_ed25519_elyon_staging
+```
+
+```bash
+# Sur le VPS, toujours avec l'accès root initial :
+adduser --disabled-password --gecos "" <utilisateur>
+usermod -aG sudo,docker <utilisateur>
+mkdir -p /home/<utilisateur>/.ssh
+echo "<contenu de id_ed25519_elyon_staging.pub>" >> /home/<utilisateur>/.ssh/authorized_keys
+chown -R <utilisateur>:<utilisateur> /home/<utilisateur>/.ssh
+chmod 700 /home/<utilisateur>/.ssh
+chmod 600 /home/<utilisateur>/.ssh/authorized_keys
+```
+
+Vérifier `ssh -i ~/.ssh/id_ed25519_elyon_staging <utilisateur>@<vps>` puis
+`sudo whoami` (doit répondre `root`) avant de passer à la suite.
+
+> **Si cette étape a été oubliée et que le mot de passe root est déjà
+> désactivé** : un compte membre du groupe `docker` (ici `deploy`) permet de
+> revenir à une racine root sans mot de passe ni console fournisseur - le
+> groupe `docker` est root-équivalent par construction (accès direct au
+> socket) :
+> ```bash
+> ssh -i staging_deploy deploy@<vps> \
+>   "docker run --rm -v /:/host --privileged alpine chroot /host \
+>     sh -c 'adduser --disabled-password --gecos \"\" <utilisateur> && \
+>            usermod -aG sudo,docker <utilisateur>'"
+> ```
+> À réserver au dépannage : la voie normale reste la création manuelle
+> ci-dessus, root et console fournisseur en main.
+
+### 2.4 Durcissement minimal
+
+```bash
+sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+systemctl restart sshd
+```
+
+⚠️ Vérifier que `ssh -i staging_deploy deploy@<vps>` ET l'accès personnel
+(§ 2.3) fonctionnent TOUS LES DEUX avant de fermer la session root : une
+fois `PasswordAuthentication` désactivé, une clé mal copiée ferme la porte
+pour de bon (l'accès console du fournisseur mis à part, qui reste toujours
+disponible en dernier recours).
+
 ## 3. Premier déploiement manuel
 
 ⚠️ Cette étape UNIQUEMENT construit les images localement, plutôt que de les
@@ -56,6 +149,11 @@ images déjà construites et testées, sans jamais reconstruire sur ce VPS.
 
 Identique à `DEPLOIEMENT.md` § 4, avec trois différences : la branche
 (`dev`), le fichier `.env` modèle, et l'overlay de surcharge supplémentaire.
+
+⚠️ À exécuter connecté en tant que `deploy` (§ 2.2), au chemin qui deviendra
+`STAGING_DEPLOY_PATH` (§ 4, ex. `/home/deploy/elyon-erp`) - le pipeline
+automatique reprendra ce même clone, avec les mêmes droits, pour chaque
+déploiement suivant.
 
 ```bash
 git clone <dépôt> elyon-erp && cd elyon-erp

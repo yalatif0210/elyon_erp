@@ -109,6 +109,16 @@ jobs:
             \${COMPOSE} --profile tools run --rm migrator \
               sh -c "npm ci && npm run db:deploy"
 
+            # Sans effet si un DG existe déjà (compte gardé par
+            # prisma/bootstrap-admin.ts) — rejoué à chaque déploiement pour
+            # que le tout premier push après un provisionnement ou une
+            # restauration de base crée le compte sans geste manuel séparé.
+            # Lit BOOTSTRAP_ADMIN_EMAIL/NAME/PASSWORD depuis le .env déjà en
+            # place sur ce VPS (§ 3 de DEPLOIEMENT_STAGING.md) — aucune de
+            # ces valeurs ne transite par ce workflow.
+            \${COMPOSE} --profile tools run --rm migrator \
+              sh -c "npm ci && npm run db:bootstrap-admin"
+
             \${COMPOSE} up -d
 
             for i in \$(seq 1 60); do
