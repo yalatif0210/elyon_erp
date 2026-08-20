@@ -226,6 +226,14 @@ environnement nommé `staging` et y poser quatre secrets :
 | `STAGING_SSH_USER` | Utilisateur SSH (non-root, membre du groupe `docker`). |
 | `STAGING_DEPLOY_PATH` | Chemin absolu du dépôt cloné sur le VPS, ex. `/home/deploy/elyon-erp` — celui du § 3. |
 
+⚠️ **Saisir ces trois valeurs à la main plutôt que de les coller** si possible
+- un copier-coller depuis certains éditeurs embarque un saut de ligne final
+invisible dans le champ. `deploy-staging.yml` les nettoie désormais de tout
+espace ou saut de ligne parasite avant de s'en servir (constaté en direct :
+sans ce nettoyage, un seul retour à la ligne en trop dans
+`STAGING_DEPLOY_PATH` suffit à corrompre toute la commande de déploiement
+envoyée en SSH), mais un secret propre à la source évite d'en dépendre.
+
 Aucun secret supplémentaire pour récupérer les images depuis GHCR : le
 workflow s'authentifie avec son propre jeton `GITHUB_TOKEN`, forgé et détruit
 à chaque exécution — rien de longue durée à stocker sur le VPS ni à faire

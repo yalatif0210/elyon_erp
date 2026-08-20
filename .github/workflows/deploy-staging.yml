@@ -69,6 +69,23 @@ jobs:
           WEB_IMAGE: ghcr.io/${{ github.repository }}/web
           PORTAL_IMAGE: ghcr.io/${{ github.repository }}/portal
         run: |
+          # ⚠️ UN SECRET GITHUB PEUT CONTENIR UN SAUT DE LIGNE FINAL SANS QUE
+          #    RIEN NE LE SIGNALE À LA SAISIE.
+          #
+          #    Un copier-coller depuis certains éditeurs embarque le retour à
+          #    la ligne final dans la valeur collée dans Settings → Secrets.
+          #    Sans dégât pour un jeton opaque, mais `${STAGING_DEPLOY_PATH}`
+          #    est interpolé PAR CE SHELL (pas par le distant) dans le heredoc
+          #    envoyé en SSH plus bas : un saut de ligne dedans coupe la
+          #    commande `cd` en deux lignes, et tout ce qui suit s'exécute
+          #    dans un contexte imprévisible. Constaté en direct, au premier
+          #    vrai déploiement. Ces trois-là traversent ce shell ; les
+          #    autres (jetons, noms d'image) ne sont jamais utilisés comme
+          #    argument de commande interpolé de cette façon.
+          STAGING_SSH_HOST="$(printf '%s' "$STAGING_SSH_HOST" | tr -d '\n\r')"
+          STAGING_SSH_USER="$(printf '%s' "$STAGING_SSH_USER" | tr -d '\n\r')"
+          STAGING_DEPLOY_PATH="$(printf '%s' "$STAGING_DEPLOY_PATH" | tr -d '\n\r')"
+
           ssh "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" bash -s <<REMOTE
             set -euo pipefail
             cd "${STAGING_DEPLOY_PATH}"

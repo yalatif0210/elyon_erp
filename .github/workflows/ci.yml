@@ -32,6 +32,12 @@ name: CI
 #    première fois que ce pipeline a tourné pour de vrai). D'où la fusion de
 #    ce seul fichier vers `main`, dès son écriture - sans attendre que le
 #    reste du code y soit lui-même promu.
+#
+#    Second écueil rencontré juste après : un secret GitHub collé avec un
+#    saut de ligne final (invisible à la saisie) corrompt la commande de
+#    déploiement, `STAGING_DEPLOY_PATH` y étant interpolé par le shell du
+#    runner avant l'envoi en SSH. `deploy-staging.yml` nettoie désormais ces
+#    trois valeurs de tout espace ou saut de ligne parasite avant usage.
 
 on:
   pull_request:
