@@ -7,15 +7,14 @@ Cloudflare).
 
 ## Ce que le staging valide, et ce qu'il ne valide pas
 
-Voir le plan approuvé (`git log` ou l'historique de conversation) pour le
-raisonnement complet. En résumé : le staging démarre **vide**, comme la
-production (`db:deploy`, jamais `db:setup`) — il n'a donc **aucun compte
-utilisateur**, ni pour un humain, ni pour la suite de recette. Ce n'est pas un
-oubli : sa fonction est de prouver que le **déploiement lui-même** fonctionne
-(migrations, conteneurs sains, réseau, TLS) sur une base neuve, exactement les
-défauts qui ne se voient qu'à un déploiement réel — pas de rejouer les
-parcours métier, ce que la CI fait déjà, en continu, sur une pile éphémère et
-semée.
+Le staging démarre **vide**, comme la production (`db:deploy`, jamais
+`db:setup`) — il n'a donc **aucun compte utilisateur**, ni pour un humain, ni
+pour la suite de recette. Ce n'est pas un oubli : sa fonction est de prouver
+que le **déploiement lui-même** fonctionne (migrations, conteneurs sains,
+réseau, TLS) sur une base neuve, exactement les défauts qui ne se voient qu'à
+un déploiement réel — pas de rejouer les parcours métier, ce que la CI fait
+déjà, en continu, sur une pile éphémère et semée (`ci.yml`, job `recette`,
+181 cas via `tests/recette/executer.py`).
 
 Si un jour vous voulez aussi parcourir le staging à la main, `npm run
 db:bootstrap-admin` (§ 3) crée le premier compte, de rôle DG — depuis lequel

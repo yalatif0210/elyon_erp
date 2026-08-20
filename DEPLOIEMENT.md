@@ -74,6 +74,19 @@ Prérequis : Docker Engine + le plugin Compose (`docker compose version`
 doit répondre). Rien d'autre — aucun Node, aucun nginx installés sur l'hôte,
 tout vit en conteneur.
 
+### 3.1 Accès SSH
+
+Aucun pipeline automatique ne se connecte à ce VPS aujourd'hui (la promotion
+vers la production reste manuelle - voir `DEPLOIEMENT_STAGING.md` § 6) - pas
+de compte de service `deploy` à créer ici, contrairement au staging. Il faut
+malgré tout un accès personnel, par clé, pour quiconque opère ce VPS : suivre
+`DEPLOIEMENT_STAGING.md` § 2.1 (Docker), § 2.3 (créer un utilisateur
+non-root, membre de `sudo` et `docker`, avec sa propre clé) et § 2.4
+(`PermitRootLogin no`, `PasswordAuthentication no`) - identique, sans le
+§ 2.2 (utilisateur `deploy`) qui ne concerne que le pipeline de staging. Le
+jour où un `deploy-prod.yml` existera, le § 2.2 s'appliquera aussi ici, avec
+sa propre clé, distincte de celle du staging.
+
 ## 4. Premier déploiement
 
 ```bash
