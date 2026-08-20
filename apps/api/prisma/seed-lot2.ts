@@ -474,7 +474,117 @@ async function main(): Promise<void> {
   });
   console.log(`  ✓ Checklist HSE validée à distance — ${blockingCount} contrôles bloquants satisfaits`);
 
-  // --- Le verrou HSE étant levé, l'opération peut avancer ------------------
+  // =========================================================================
+  //  DOCUMENTS ET SIGNATURES (§ 12) — AVANT LA CLÔTURE
+  //
+  //  Le verrou de clôture (prisma/sql/36_cloture_operation.sql) refuse toute
+  //  opération qui passerait CLOSED sans un rapport d'exécution ET un bon de
+  //  livraison, tous deux scellés — sans exception, y compris pour ce jeu de
+  //  démonstration. D'où leur création ICI, avant l'écriture du statut, et
+  //  non après comme un simple journal des pièces déjà closes le laisserait
+  //  penser.
+  //
+  //  Le binaire n'est jamais en base : clé de stockage et empreinte SHA-256.
+  //  Le bon de livraison est SIGNÉ par le chauffeur et le client puis SCELLÉ
+  //  — à partir de là il ne se modifie plus, et sa correction passerait par
+  //  une pièce « annule et remplace ».
+  // =========================================================================
+  const sha = (seed: string) => seed.padEnd(64, '0').slice(0, 64);
+
+  const operationReport = await prisma.generatedDocument.upsert({
+    where: { reference: 'RAP-2026-00001' },
+    update: {},
+    create: {
+      kind: GeneratedDocumentKind.OPERATION_REPORT,
+      reference: 'RAP-2026-00001',
+      dealId: deal1.id,
+      operationId: operation.id,
+      storageKey: 'documents/2026/08/RAP-2026-00001.pdf',
+      sizeBytes: BigInt(102_400),
+      sha256: sha('r4pp0rtdex3cut10n'),
+      authenticityToken: 'demo-rap-2026-00001-authenticity-token',
+      generatedById: logistics.id,
+    },
+  });
+  const existingReportSignature = await prisma.signature.count({
+    where: { documentId: operationReport.id },
+  });
+  if (existingReportSignature === 0) {
+    await prisma.signature.create({
+      data: {
+        documentId: operationReport.id,
+        kind: SignatoryKind.FIELD_USER,
+        fieldUserId: agent.id,
+        signatoryName: agent.fullName,
+        signatoryCapacity: 'Agent d’opération — clôture du chargement',
+        deviceTimestamp: T('2026-08-12T16:50:00Z'),
+        latitude: '7.4125000',
+        longitude: '-7.5539000',
+      },
+    });
+    // Scellé APRÈS signature, comme le bon de livraison ci-dessous.
+    await prisma.generatedDocument.update({
+      where: { id: operationReport.id },
+      data: { isSealed: true, sealedAt: T('2026-08-12T16:55:00Z') },
+    });
+  }
+  console.log('  ✓ Rapport d’exécution signé par l’agent terrain, puis scellé');
+
+  const deliveryNote = await prisma.generatedDocument.upsert({
+    where: { reference: 'BL-2026-00001' },
+    update: {},
+    create: {
+      kind: GeneratedDocumentKind.DELIVERY_NOTE,
+      reference: 'BL-2026-00001',
+      dealId: deal1.id,
+      operationId: operation.id,
+      storageKey: 'documents/2026/08/BL-2026-00001.pdf',
+      sizeBytes: BigInt(184_320),
+      sha256: sha('a1b2c3d4e5f6'),
+      authenticityToken: 'demo-bl-2026-00001-authenticity-token',
+      generatedById: logistics.id,
+    },
+  });
+
+  const existingSignatures = await prisma.signature.count({
+    where: { documentId: deliveryNote.id },
+  });
+  if (existingSignatures === 0) {
+    await prisma.signature.createMany({
+      data: [
+        {
+          documentId: deliveryNote.id,
+          kind: SignatoryKind.DRIVER,
+          driverId: driver.id,
+          signatoryName: driver.fullName,
+          signatoryCapacity: 'Chauffeur — remise de la marchandise',
+          deviceTimestamp: T('2026-08-12T14:32:11Z'),
+          latitude: '7.4125000',
+          longitude: '-7.5539000',
+        },
+        {
+          documentId: deliveryNote.id,
+          kind: SignatoryKind.CLIENT_REPRESENTATIVE,
+          signatoryName: 'Koffi N’Guessan',
+          signatoryCapacity: 'Chef de dépôt — réception pour le compte du client',
+          idDocumentRef: 'CNI CI-0034128',
+          signatureStorageKey: 'signatures/2026/08/BL-2026-00001-client.png',
+          signatureSha256: sha('9f8e7d6c5b4a'),
+          deviceTimestamp: T('2026-08-12T14:33:40Z'),
+          latitude: '7.4125000',
+          longitude: '-7.5539000',
+        },
+      ],
+    });
+    // Scellé APRÈS signature : un bon de livraison non signé n'est pas opposable.
+    await prisma.generatedDocument.update({
+      where: { id: deliveryNote.id },
+      data: { isSealed: true, sealedAt: T('2026-08-12T14:35:00Z') },
+    });
+  }
+  console.log('  ✓ Bon de livraison signé par le chauffeur et le client, puis scellé');
+
+  // --- Les deux pièces étant scellées, la clôture est acceptée -------------
   await prisma.operation.update({
     where: { id: operation.id },
     data: {
@@ -628,70 +738,6 @@ async function main(): Promise<void> {
     },
   });
   console.log('  ✓ Avance de fret non apurée — trésorerie immobilisée depuis le 09/08');
-
-  // =========================================================================
-  //  9bis. DOCUMENTS ET SIGNATURES (§ 12)
-  //
-  //  Le binaire n'est jamais en base : clé de stockage et empreinte SHA-256.
-  //  Le bon de livraison est SIGNÉ par le client puis SCELLÉ — à partir de
-  //  là il ne se modifie plus, et sa correction passerait par une pièce
-  //  « annule et remplace ».
-  // =========================================================================
-  const sha = (seed: string) => seed.padEnd(64, '0').slice(0, 64);
-
-  const deliveryNote = await prisma.generatedDocument.upsert({
-    where: { reference: 'BL-2026-00001' },
-    update: {},
-    create: {
-      kind: GeneratedDocumentKind.DELIVERY_NOTE,
-      reference: 'BL-2026-00001',
-      dealId: deal1.id,
-      operationId: operation.id,
-      storageKey: 'documents/2026/08/BL-2026-00001.pdf',
-      sizeBytes: BigInt(184_320),
-      sha256: sha('a1b2c3d4e5f6'),
-      authenticityToken: 'demo-bl-2026-00001-authenticity-token',
-      generatedById: logistics.id,
-    },
-  });
-
-  const existingSignatures = await prisma.signature.count({
-    where: { documentId: deliveryNote.id },
-  });
-  if (existingSignatures === 0) {
-    await prisma.signature.createMany({
-      data: [
-        {
-          documentId: deliveryNote.id,
-          kind: SignatoryKind.DRIVER,
-          driverId: driver.id,
-          signatoryName: driver.fullName,
-          signatoryCapacity: 'Chauffeur — remise de la marchandise',
-          deviceTimestamp: T('2026-08-12T14:32:11Z'),
-          latitude: '7.4125000',
-          longitude: '-7.5539000',
-        },
-        {
-          documentId: deliveryNote.id,
-          kind: SignatoryKind.CLIENT_REPRESENTATIVE,
-          signatoryName: 'Koffi N’Guessan',
-          signatoryCapacity: 'Chef de dépôt — réception pour le compte du client',
-          idDocumentRef: 'CNI CI-0034128',
-          signatureStorageKey: 'signatures/2026/08/BL-2026-00001-client.png',
-          signatureSha256: sha('9f8e7d6c5b4a'),
-          deviceTimestamp: T('2026-08-12T14:33:40Z'),
-          latitude: '7.4125000',
-          longitude: '-7.5539000',
-        },
-      ],
-    });
-    // Scellé APRÈS signature : un bon de livraison non signé n'est pas opposable.
-    await prisma.generatedDocument.update({
-      where: { id: deliveryNote.id },
-      data: { isSealed: true, sealedAt: T('2026-08-12T14:35:00Z') },
-    });
-  }
-  console.log('  ✓ Bon de livraison signé par le chauffeur et le client, puis scellé');
 
   // =========================================================================
   //  10. FACTURATION CLIENT
