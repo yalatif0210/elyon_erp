@@ -47,7 +47,8 @@ exactement comme sur celui de production :
 mkdir -p certs/cloudflare
 nano certs/cloudflare/cloudflare-origin.pem   # coller le MÊME bloc « Origin Certificate » que la production
 nano certs/cloudflare/cloudflare-origin.key   # coller la MÊME clé
-chmod 600 certs/cloudflare/cloudflare-origin.key
+sudo chgrp 101 certs/cloudflare/cloudflare-origin.key   # groupe du nginx de l'image proxy - voir DEPLOIEMENT.md § 2
+chmod 640 certs/cloudflare/cloudflare-origin.key
 ```
 
 C'est le même fichier, copié une seconde fois - jamais un nouveau certificat

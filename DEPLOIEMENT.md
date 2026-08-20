@@ -97,7 +97,26 @@ fichier sert à la production ET au staging (`DEPLOIEMENT_STAGING.md` § 1),
 mkdir -p certs/cloudflare
 nano certs/cloudflare/cloudflare-origin.pem   # coller le bloc « Origin Certificate », enregistrer (Ctrl+O, Entrée, Ctrl+X)
 nano certs/cloudflare/cloudflare-origin.key   # coller le bloc « Private Key », enregistrer
-chmod 600 certs/cloudflare/cloudflare-origin.key
+```
+
+⚠️ **`chmod 600` seul empêche `proxy` de démarrer.** Le conteneur `proxy`
+lit la clé en tant qu'utilisateur `nginx` de l'image (UID/GID **101** sur
+`nginx:1.27.2-alpine` - vérifier sur la version en cours avec
+`docker run --rm elyon-erp-proxy id nginx` si l'image a changé), jamais en
+tant que `deploy`/`root` de l'hôte. Un `600` réservé au seul propriétaire
+hôte échoue en silence côté nginx :
+
+```
+nginx: [emerg] cannot load certificate key "/etc/nginx/certs/cloudflare-origin.key":
+BIO_new_file() failed (SSL: ... Permission denied ...)
+```
+
+La bonne permission ouvre la lecture au groupe `nginx` (101), sans la
+donner au reste du monde :
+
+```bash
+sudo chgrp 101 certs/cloudflare/cloudflare-origin.key
+chmod 640 certs/cloudflare/cloudflare-origin.key
 ```
 
 Ce répertoire est exclu du dépôt (`.gitignore`) — il ne doit **jamais** être
