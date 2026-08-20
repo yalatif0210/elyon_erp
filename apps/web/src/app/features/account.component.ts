@@ -1,5 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { toDataURL } from 'qrcode';
 import { AuthService, ROLE_LABELS } from '../core/auth.service';
 import { IconComponent } from '../shared/icon.component';
 
@@ -169,18 +170,31 @@ const MIN_LENGTH = 12;
             <ol class="space-y-4 text-[13px]">
               <li>
                 <p class="font-medium text-ink">1. Ouvrez votre application d’authentification</p>
-                <p class="mt-0.5 text-ink-muted">Choisissez « ajouter un compte », puis « saisir une clé ».</p>
+                <p class="mt-0.5 text-ink-muted">Google Authenticator, Microsoft Authenticator ou équivalent.</p>
               </li>
               <li>
-                <p class="font-medium text-ink">2. Saisissez cette clé</p>
+                <p class="font-medium text-ink">2. Scannez ce code</p>
+                @if (qrCode(); as qr) {
+                  <img
+                    [src]="qr"
+                    width="180"
+                    height="180"
+                    alt="Code QR d’enrôlement du second facteur"
+                    class="mt-1.5 rounded-[3px] border border-rule"
+                  />
+                }
+                <p class="mt-1.5 text-ink-muted">
+                  Ou choisissez « saisir une clé » et recopiez celle-ci :
+                </p>
                 <code
                   class="mt-1.5 block break-all rounded-[3px] bg-gray-100 px-3 py-2 font-mono
                          text-[13px] tracking-wider text-ink"
                   >{{ s }}</code
                 >
                 <p class="mt-1 text-[11px] text-ink-faint">
-                  Cette clé ne sera plus affichée. Elle est chiffrée au repos et l'application ne
-                  la restitue jamais.
+                  Ni le code ni la clé ne seront réaffichés ensuite. Le secret n'est jamais envoyé
+                  ailleurs qu'à votre application d'authentification — le code QR est produit
+                  entièrement dans ce navigateur.
                 </p>
               </li>
               <li>
@@ -239,6 +253,7 @@ export class AccountComponent {
   protected readonly passwordError = signal<string | null>(null);
   protected readonly passwordDone = signal<string | null>(null);
   protected readonly secret = signal<string | null>(null);
+  protected readonly qrCode = signal<string | null>(null);
   protected readonly totpError = signal<string | null>(null);
   protected readonly totpDone = signal(false);
 
@@ -302,6 +317,11 @@ export class AccountComponent {
       next: (r) => {
         this.busy.set(false);
         this.secret.set(r.secret);
+        // Généré dans le navigateur, jamais transmis : un service tiers de
+        // rendu de QR code verrait passer le secret en clair dans son URL.
+        toDataURL(r.otpauthUrl, { width: 180, margin: 1 })
+          .then((dataUrl) => this.qrCode.set(dataUrl))
+          .catch(() => this.qrCode.set(null));
       },
       error: (e: { error?: { message?: string | string[] } }) => {
         this.busy.set(false);
@@ -318,6 +338,7 @@ export class AccountComponent {
       next: () => {
         this.busy.set(false);
         this.secret.set(null);
+        this.qrCode.set(null);
         this.totpCode = '';
         this.totpDone.set(true);
       },

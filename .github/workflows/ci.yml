@@ -93,6 +93,12 @@ jobs:
       #    Cette pile est jetée à la fin du job. Les valeurs ci-dessous n'ont
       #    besoin d'être vraies que le temps du job — jamais les secrets de
       #    staging ni de production, jamais committées.
+      #
+      #    EXCEPTION : SEED_DEFAULT_PASSWORD. Contrairement aux autres, cette
+      #    valeur n'est PAS libre — les neuf fichiers de tests/recette/*.py
+      #    la codent en dur (PWD = "ChangeMe!2026") pour se connecter aux
+      #    comptes semés. Toute autre valeur ici fait échouer la recette au
+      #    login, pas à l'assertion métier — constaté en direct.
       - name: Préparer .env
         run: |
           cat > .env <<EOF
@@ -112,7 +118,7 @@ jobs:
           PIVOT_CURRENCY=USD
           LOCAL_CURRENCY=XOF
           FISCAL_COUNTRY=CI
-          SEED_DEFAULT_PASSWORD=CiTest!2026
+          SEED_DEFAULT_PASSWORD=ChangeMe!2026
           EOF
 
       - name: Construire les images

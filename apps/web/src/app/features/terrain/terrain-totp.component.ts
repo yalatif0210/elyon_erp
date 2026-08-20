@@ -1,6 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
+import { toDataURL } from 'qrcode';
 import { FieldSessionService } from '../../core/field-session.service';
 import { IconComponent } from '../../shared/icon.component';
 import { messageServeur } from './terrain-depot';
@@ -67,15 +68,27 @@ import { messageServeur } from './terrain-depot';
             <p class="mt-0.5 text-[14px] text-ink-muted">Choisissez « ajouter un compte », puis « saisir une clé ».</p>
           </div>
           <div>
-            <p class="text-[15px] font-semibold text-ink">2. Saisissez cette clé</p>
+            <p class="text-[15px] font-semibold text-ink">2. Scannez ce code</p>
+            @if (qrCode(); as qr) {
+              <img
+                [src]="qr"
+                width="180"
+                height="180"
+                alt="Code QR d’enrôlement du second facteur"
+                class="mt-1.5 rounded-[3px] border border-rule"
+              />
+            }
+            <p class="mt-1.5 text-[14px] text-ink-muted">
+              Ou choisissez « saisir une clé » et recopiez celle-ci :
+            </p>
             <code
               class="mt-1.5 block break-all rounded-[3px] bg-gray-100 px-3 py-2.5 font-mono
                      text-[14px] tracking-wider text-ink"
               >{{ s }}</code
             >
             <p class="mt-1 text-[13px] text-ink-faint">
-              Cette clé ne sera plus affichée. Elle est chiffrée au repos et l’application ne la
-              restitue jamais.
+              Ni le code ni la clé ne seront réaffichés ensuite. Le secret n’est jamais envoyé
+              ailleurs qu’à votre application d’authentification.
             </p>
           </div>
           <div>
@@ -118,6 +131,7 @@ export class TerrainTotpComponent {
   private readonly router = inject(Router);
 
   protected readonly secret = signal<string | null>(null);
+  protected readonly qrCode = signal<string | null>(null);
   protected readonly occupe = signal(false);
   protected readonly erreur = signal<string | null>(null);
   protected readonly fait = signal(false);
@@ -130,6 +144,9 @@ export class TerrainTotpComponent {
       next: (res) => {
         this.occupe.set(false);
         this.secret.set(res.secret);
+        toDataURL(res.otpauthUrl, { width: 180, margin: 1 })
+          .then((dataUrl) => this.qrCode.set(dataUrl))
+          .catch(() => this.qrCode.set(null));
       },
       error: (e: unknown) => {
         this.occupe.set(false);
@@ -145,6 +162,7 @@ export class TerrainTotpComponent {
       next: () => {
         this.occupe.set(false);
         this.secret.set(null);
+        this.qrCode.set(null);
         this.fait.set(true);
         this.code = '';
         setTimeout(() => void this.router.navigate(['/terrain']), 2500);

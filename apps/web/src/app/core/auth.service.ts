@@ -163,7 +163,10 @@ export class AuthService {
 
   /** Ouvre l'enrôlement et rend le secret — affiché UNE SEULE fois. */
   beginTotpEnrollment() {
-    return this.http.post<{ secret: string }>('/api/internal/auth/totp/enroll', {});
+    return this.http.post<{ secret: string; otpauthUrl: string }>(
+      '/api/internal/auth/totp/enroll',
+      {},
+    );
   }
 
   confirmTotpEnrollment(code: string) {

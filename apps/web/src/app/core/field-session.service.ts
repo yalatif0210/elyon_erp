@@ -145,8 +145,11 @@ export class FieldSessionService {
   }
 
   /** Ouvre l'enrôlement et rend le secret — affiché UNE SEULE fois. */
-  ouvrirEnrolementTotp(): Observable<{ secret: string }> {
-    return this.http.post<{ secret: string }>('/api/field/auth/totp/enroll', {});
+  ouvrirEnrolementTotp(): Observable<{ secret: string; otpauthUrl: string }> {
+    return this.http.post<{ secret: string; otpauthUrl: string }>(
+      '/api/field/auth/totp/enroll',
+      {},
+    );
   }
 
   confirmerEnrolementTotp(code: string): Observable<void> {
