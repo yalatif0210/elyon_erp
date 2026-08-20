@@ -9,7 +9,7 @@ name: Déploiement staging
 # ⚠️ AUCUNE RECONSTRUCTION SUR LE VPS — LES IMAGES SONT CELLES DÉJÀ TESTÉES.
 #
 #    `api`, `web` et `portal` sont récupérées telles quelles depuis GHCR, au
-#    SHA exact qui vient de passer les 181 cas de recette dans `ci.yml` —
+#    SHA exact qui vient de passer les 222 cas de recette dans `ci.yml` —
 #    jamais rebâties ici. Le VPS n'a donc plus besoin du kit de compilation
 #    complet (chromium, node_modules de développement…) pour ces trois
 #    services : seul `proxy` continue de se construire localement (sa

@@ -3,7 +3,7 @@ name: CI
 # Réf. l'étude de faisabilité CI/CD et le plan « staging d'abord ».
 #
 # Deux jobs : compiler les trois applications (échoue vite sur une erreur de
-# type), puis rejouer la suite de recette (tests/recette/executer.py, 181 cas)
+# type), puis rejouer la suite de recette (tests/recette/executer.py, 222 cas)
 # contre une pile Docker Compose réellement démarrée. La pile est SEMÉE
 # (commande par défaut du conteneur `migrator`, db:setup) — la CI a besoin de
 # comptes et de données pour s'authentifier et exercer les parcours métier ;
@@ -18,7 +18,20 @@ name: CI
 #    recette passée, pousse CES MÊMES IMAGES — pas une reconstruction a
 #    posteriori. deploy-staging.yml ne fait ensuite que les récupérer : ce qui
 #    tourne en staging, puis en production, est bit pour bit ce qui vient de
-#    passer les 181 cas, jamais une image « équivalente » rebâtie ailleurs.
+#    passer les 222 cas, jamais une image « équivalente » rebâtie ailleurs.
+#
+# ⚠️ deploy-staging.yml NE SE DÉCLENCHE QUE S'IL EST PRÉSENT SUR LA BRANCHE
+#    PAR DÉFAUT (`main`), même s'il n'agit que sur des événements `dev`.
+#
+#    `workflow_run` est évalué contre le fichier tel qu'il existe sur la
+#    branche par défaut du dépôt, jamais contre celui de la branche qui a
+#    déclenché le workflow amont - une contrainte GitHub, pas un choix de ce
+#    projet. Un `deploy-staging.yml` qui ne vivrait que sur `dev` resterait
+#    silencieusement invisible : CI passerait, aucun déploiement ne suivrait,
+#    sans le moindre message d'erreur pour le dire (constaté en direct, la
+#    première fois que ce pipeline a tourné pour de vrai). D'où la fusion de
+#    ce seul fichier vers `main`, dès son écriture - sans attendre que le
+#    reste du code y soit lui-même promu.
 
 on:
   pull_request:
@@ -69,7 +82,7 @@ jobs:
         run: npm run build
 
   recette:
-    name: Suite de recette (181 cas)
+    name: Suite de recette (222 cas)
     needs: build
     runs-on: ubuntu-latest
     permissions:

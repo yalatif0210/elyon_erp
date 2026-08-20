@@ -14,7 +14,7 @@ que le **déploiement lui-même** fonctionne (migrations, conteneurs sains,
 réseau, TLS) sur une base neuve, exactement les défauts qui ne se voient qu'à
 un déploiement réel — pas de rejouer les parcours métier, ce que la CI fait
 déjà, en continu, sur une pile éphémère et semée (`ci.yml`, job `recette`,
-181 cas via `tests/recette/executer.py`).
+222 cas via `tests/recette/executer.py`).
 
 Si un jour vous voulez aussi parcourir le staging à la main, `npm run
 db:bootstrap-admin` (§ 3) crée le premier compte, de rôle DG — depuis lequel
