@@ -60,7 +60,8 @@ const MIN_LENGTH = 12;
                 type="password"
                 class="field"
                 autocomplete="current-password"
-                [(ngModel)]="currentPassword"
+                [ngModel]="currentPassword()"
+                (ngModelChange)="currentPassword.set($event)"
               />
               <p class="mt-1 text-[11px] text-ink-faint">
                 Redemandé même si vous êtes connecté : un poste laissé ouvert ne doit pas
@@ -76,8 +77,8 @@ const MIN_LENGTH = 12;
                 type="password"
                 class="field"
                 autocomplete="new-password"
-                [(ngModel)]="newPassword"
-                (ngModelChange)="onType()"
+                [ngModel]="newPassword()"
+                (ngModelChange)="onType($event)"
               />
             </div>
 
@@ -89,7 +90,7 @@ const MIN_LENGTH = 12;
               <li class="flex items-center gap-2 text-[12px]" [class]="ruleClass(hasLength())">
                 <erp-icon [name]="hasLength() ? 'check-circle' : 'ban'" [size]="12" />
                 12 caractères au minimum
-                <span class="text-ink-faint">({{ typed().length }})</span>
+                <span class="text-ink-faint">({{ newPassword().length }})</span>
               </li>
               <li class="flex items-center gap-2 text-[12px]" [class]="ruleClass(isDifferent())">
                 <erp-icon [name]="isDifferent() ? 'check-circle' : 'ban'" [size]="12" />
@@ -245,8 +246,8 @@ export class AccountComponent {
   protected readonly auth = inject(AuthService);
   protected readonly profile = this.auth.profile;
 
-  protected currentPassword = '';
-  protected newPassword = '';
+  protected readonly currentPassword = signal('');
+  protected readonly newPassword = signal('');
   protected totpCode = '';
 
   protected readonly busy = signal(false);
@@ -257,26 +258,23 @@ export class AccountComponent {
   protected readonly totpError = signal<string | null>(null);
   protected readonly totpDone = signal(false);
 
-  /** Signal de saisie : les règles se réévaluent à chaque frappe. */
-  protected readonly typed = signal('');
-
   protected readonly roleLabel = computed(() => {
     const role = this.auth.role();
     return role ? ROLE_LABELS[role] : '';
   });
 
-  protected readonly hasLength = computed(() => this.typed().length >= MIN_LENGTH);
+  protected readonly hasLength = computed(() => this.newPassword().length >= MIN_LENGTH);
 
   protected readonly isDifferent = computed(
-    () => this.typed().length > 0 && this.typed() !== this.currentPassword,
+    () => this.newPassword().length > 0 && this.newPassword() !== this.currentPassword(),
   );
 
   protected readonly canSubmit = computed(
-    () => this.currentPassword.length > 0 && this.hasLength() && this.isDifferent(),
+    () => this.currentPassword().length > 0 && this.hasLength() && this.isDifferent(),
   );
 
-  protected onType(): void {
-    this.typed.set(this.newPassword);
+  protected onType(value: string): void {
+    this.newPassword.set(value);
     this.passwordError.set(null);
   }
 
@@ -291,12 +289,11 @@ export class AccountComponent {
     this.passwordError.set(null);
     this.passwordDone.set(null);
 
-    this.auth.changePassword(this.currentPassword, this.newPassword).subscribe({
+    this.auth.changePassword(this.currentPassword(), this.newPassword()).subscribe({
       next: (r) => {
         this.busy.set(false);
-        this.currentPassword = '';
-        this.newPassword = '';
-        this.typed.set('');
+        this.currentPassword.set('');
+        this.newPassword.set('');
         this.passwordDone.set(
           r.revokedSessions > 0
             ? `Mot de passe changé. ${r.revokedSessions} autre(s) session(s) fermée(s).`
