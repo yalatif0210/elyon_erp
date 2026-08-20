@@ -331,6 +331,22 @@ async function main(): Promise<void> {
     },
   });
 
+  // ⚠️ AMORCE LE COMPTEUR DE RÉFÉRENCE — SANS QUOI LA PREMIÈRE OPÉRATION
+  //    CRÉÉE PAR L'API RENTRE EN COLLISION AVEC CELLE-CI.
+  //
+  //    La référence ci-dessus est écrite en dur, hors de ReferenceService : la
+  //    séquence `number_sequences` (scope OP, année 2026) ignore donc qu'elle
+  //    est prise. La première opération réellement créée ensuite calcule
+  //    `last_value = 1` et retombe sur EXACTEMENT « OP-2026-000001 » -
+  //    conflit d'unicité, trouvé en recette (tests/recette/recette_types_hse.py,
+  //    section D). Idempotent comme le reste du seed : un second passage ne
+  //    fait qu'écraser la même valeur.
+  await prisma.numberSequence.upsert({
+    where: { scope_year_month: { scope: 'OP', year: 2026, month: 0 } },
+    update: { lastValue: 1 },
+    create: { scope: 'OP', year: 2026, month: 0, lastValue: 1 },
+  });
+
   // Le type porté est ce qui donne à l'opération ses contrôles HSE : sans lui,
   // aucune checklist ne s'y attache et la base refuse de la faire avancer.
   const typeRoute = await prisma.operationType.findUnique({ where: { code: 'ROUTE' } });
