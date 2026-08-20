@@ -105,7 +105,7 @@ BEGIN
      AND NOT EXISTS (SELECT 1 FROM operation_attachments a
                       WHERE a.check_item_id = NEW.id AND a.kind::text = 'PHOTO') THEN
     RAISE EXCEPTION
-      'PHOTO EXIGÉE — le point « % » ne peut pas être enregistré sans photo. Prenez le cliché, attendez qu''il soit reçu, puis enregistrez le point. Le contrôleur HSE valide à distance, sur pièces : sans photo, il n''a rien à examiner.',
+      'PHOTO EXIGÉE : le point « % » ne peut pas être enregistré sans photo. Prenez le cliché, attendez qu''il soit reçu, puis enregistrez le point. Le contrôleur HSE valide à distance, sur pièces : sans photo, il n''a rien à examiner.',
       it.label
       USING ERRCODE = 'check_violation';
   END IF;
@@ -120,7 +120,7 @@ BEGIN
   IF it.requires_value
      AND (NEW.recorded_value IS NULL OR length(trim(NEW.recorded_value)) = 0) THEN
     RAISE EXCEPTION
-      'VALEUR EXIGÉE — le point « % » attend un relevé (volume, température, numéro de scellé). Il ne peut pas être enregistré sans.',
+      'VALEUR EXIGÉE : le point « % » attend un relevé (volume, température, numéro de scellé). Il ne peut pas être enregistré sans.',
       it.label
       USING ERRCODE = 'check_violation';
   END IF;
@@ -135,7 +135,7 @@ BEGIN
      AND NOT EXISTS (SELECT 1 FROM operation_attachments a
                       WHERE a.check_item_id = NEW.id AND a.kind::text = 'SIGNATURE') THEN
     RAISE EXCEPTION
-      'SIGNATURE EXIGÉE — le point « % » ne peut pas être enregistré sans la signature attendue. Faites signer, attendez que la signature soit reçue, puis enregistrez le point.',
+      'SIGNATURE EXIGÉE : le point « % » ne peut pas être enregistré sans la signature attendue. Faites signer, attendez que la signature soit reçue, puis enregistrez le point.',
       it.label
       USING ERRCODE = 'check_violation';
   END IF;

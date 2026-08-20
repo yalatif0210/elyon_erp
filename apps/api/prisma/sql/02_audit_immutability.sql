@@ -16,7 +16,7 @@ CREATE OR REPLACE FUNCTION append_only_guard()
 RETURNS TRIGGER AS $$
 BEGIN
   RAISE EXCEPTION
-    'Table en ajout seul : % interdit sur % (SPECIFICATIONS.md § 1.4).',
+    'Table en ajout seul : % interdit sur %.',
     TG_OP, TG_TABLE_NAME
     USING ERRCODE = 'insufficient_privilege';
 END;

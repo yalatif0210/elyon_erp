@@ -11,7 +11,14 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ApiService, DealRow, DeviseOption, InvoiceDetail, InvoiceRow } from '../core/api.service';
+import {
+  ApiService,
+  DealRow,
+  DeviseOption,
+  InvoiceDetail,
+  InvoiceRow,
+  VocabItem,
+} from '../core/api.service';
 import {
   ActionFeedbackComponent,
   ActionState,
@@ -20,6 +27,7 @@ import {
 import { IconComponent } from '../shared/icon.component';
 import { grouper } from '../shared/format';
 import { MontantDirective } from '../shared/montant.directive';
+import { TableauControlesComponent, TableauPagine } from '../shared/tableau';
 
 /**
  * Édition et cycle de vie d'une pièce de facturation (§ 9).
@@ -99,13 +107,12 @@ import { MontantDirective } from '../shared/montant.directive';
             <select id="dev" class="field" [(ngModel)]="currencyCode">
               @for (d of devises(); track d.code) {
                 <option [ngValue]="d.code">
-                  {{ d.code }} · {{ d.name }}@if (d.isPivot) { · pivot }
+                  {{ d.code }} · {{ d.name }}
                 </option>
               }
             </select>
             <p class="mt-1 text-[11px] text-ink-faint">
-              La monnaie dans laquelle la créance est due. Le pivot sert à comparer des
-              engagements pris dans des monnaies différentes, il ne s’impose pas.
+              La monnaie dans laquelle la créance est due.
             </p>
           </div>
         </div>
@@ -168,12 +175,9 @@ import { MontantDirective } from '../shared/montant.directive';
             <label class="label" for="regl">Mode de règlement</label>
             <select id="regl" class="field" [(ngModel)]="paymentMethod">
               <option value="">Réglage par défaut</option>
-              <option value="TRANSFER">Virement</option>
-              <option value="DEFERRED">À terme</option>
-              <option value="MOBILE_MONEY">Mobile money</option>
-              <option value="CHECK">Chèque</option>
-              <option value="CARD">Carte</option>
-              <option value="CASH">Espèces</option>
+              @for (m of paymentMethods(); track m.code) {
+                <option [value]="m.code">{{ m.label }}</option>
+              }
             </select>
             <p class="mt-1 text-[11px] text-ink-faint">
               Requis par la DGI pour toute facture normalisée. « Réglage par défaut » applique
@@ -232,6 +236,7 @@ export class InvoiceActionsComponent {
   protected currencyCode = '';
   protected documentCurrencyCode = '';
   protected readonly devises = signal<DeviseOption[]>([]);
+  protected readonly paymentMethods = signal<VocabItem[]>([]);
   protected isVatApplicable = false;
   protected vatRatePct = 18;
   protected printedTaxRegime = 'TTC';
@@ -254,6 +259,7 @@ export class InvoiceActionsComponent {
         this.documentCurrencyCode = defaut.code;
       }
     });
+    this.api.vocabulaires().subscribe((v) => this.paymentMethods.set(v.invoicePaymentMethod));
   }
 
   /** Affaire choisie - source unique du volume et du prix, non ressaisis. */
@@ -331,7 +337,7 @@ export class InvoiceActionsComponent {
 @Component({
   selector: 'erp-invoice-lifecycle',
   standalone: true,
-  imports: [FormsModule, IconComponent, ActionFeedbackComponent, MontantDirective],
+  imports: [FormsModule, IconComponent, ActionFeedbackComponent, MontantDirective, TableauControlesComponent],
   template: `
     <section class="card overflow-hidden">
       <div class="card-header">
@@ -528,12 +534,13 @@ export class InvoiceActionsComponent {
           <div class="mt-5 border-t border-rule pt-4">
             <h3 class="mb-2 text-[13px] font-semibold text-ink">Historique</h3>
             @if (d.payments.length > 0) {
+              <erp-tableau-controles [tableau]="tableauPaiements" libelle="les règlements" />
               <table class="table">
                 <thead>
                   <tr><th>Date de valeur</th><th class="num">Montant</th><th>Référence bancaire</th></tr>
                 </thead>
                 <tbody>
-                  @for (p of d.payments; track p.id) {
+                  @for (p of tableauPaiements.lignes(); track p.id) {
                     <tr>
                       <td class="text-ink-soft">{{ p.valueDate.slice(0, 10) }}</td>
                       <td class="num font-mono text-ink">{{ money(+p.amount) }} {{ p.currencyCode }}</td>
@@ -582,6 +589,7 @@ export class InvoiceLifecycleComponent implements OnChanges, OnDestroy {
 
   protected readonly state = new ActionState();
   protected readonly detail = signal<InvoiceDetail | null>(null);
+  protected readonly tableauPaiements = new TableauPagine<InvoiceDetail['payments'][number]>();
 
   ngOnChanges(changes: SimpleChanges): void {
     // Rechargé à chaque changement de pièce ET après une action (le même
@@ -590,7 +598,10 @@ export class InvoiceLifecycleComponent implements OnChanges, OnDestroy {
     // pas dans l'historique avant de rouvrir la pièce.
     if (changes['invoice']) {
       this.detail.set(null);
-      this.api.invoiceDetail(this.invoice.id).subscribe((d) => this.detail.set(d));
+      this.api.invoiceDetail(this.invoice.id).subscribe((d) => {
+        this.detail.set(d);
+        this.tableauPaiements.définir(d.payments);
+      });
     }
   }
 

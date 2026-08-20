@@ -17,6 +17,10 @@
     "//": "Toute évolution du schéma passe par db:migration — jamais par prisma migrate dev seul, sinon le SQL métier de prisma/sql/ n'est pas injecté et Prisma détectera une dérive.",
     "db:migration": "node scripts/prepare-migrations.mjs",
     "db:setup": "npm run prisma:generate && node scripts/prepare-migrations.mjs init && npm run db:migrate && npm run db:seed",
+    "//deploy": "PRODUCTION UNIQUEMENT : applique les migrations déjà commises, sans jamais en générer et sans jamais semer le jeu de données de démonstration. Voir DEPLOIEMENT.md.",
+    "db:deploy": "npm run prisma:generate && npm run db:migrate",
+    "//bootstrap-admin": "Après db:deploy sur une base vide UNIQUEMENT : crée le premier compte DG. Sûr à rejouer, voir prisma/bootstrap-admin.ts.",
+    "db:bootstrap-admin": "tsx prisma/bootstrap-admin.ts",
     "db:reset": "prisma migrate reset --force --skip-seed && npm run db:seed",
     "test": "jest",
     "test:invariants": "jest --testPathPattern=invariants"

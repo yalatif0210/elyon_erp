@@ -127,6 +127,21 @@ import { VocabulaireChoixComponent } from './vocabulaire-choix.component';
             Une checklist validée ne se modifie plus. Si un écart apparaît maintenant, déclarez
             un incident depuis le dossier de l’opération.
           </p>
+        } @else if (c.rejectedAt) {
+          <p class="mt-3 flex items-start gap-2 rounded-[3px] border border-crit/30 bg-crit-wash px-3.5 py-3 text-[15px] leading-relaxed text-crit">
+            <erp-icon name="alert-triangle" [size]="18" class="mt-0.5" />
+            <span>
+              <span class="font-semibold">
+                Rejetée le {{ dateHeureDe(c.rejectedAt) }}
+                @if (c.rejectedByFieldUser) { par {{ c.rejectedByFieldUser.fullName }} }
+                @if (c.rejectedByUser) { par {{ c.rejectedByUser.fullName }} (suppléance) }
+              </span>
+              <span class="mt-1 block">{{ c.rejectionReason }}</span>
+            </span>
+          </p>
+          <p class="t-hint">
+            Reprenez les points concernés ci-dessous, puis soumettez à nouveau la validation.
+          </p>
         }
 
         @for (pt of c.items; track pt.id) {
@@ -340,22 +355,53 @@ import { VocabulaireChoixComponent } from './vocabulaire-choix.component';
             séparation qui donne sa valeur au contrôle : personne ne valide son propre
             renseignement.
           </p>
-        } @else if (restants(c) > 0) {
-          <p class="rounded-[3px] border border-warn/50 bg-warn-wash p-4 text-[15px] text-warn-ink">
-            {{ restants(c) }} point(s) restent à renseigner : la checklist ne peut pas encore
-            être validée.
-          </p>
-        } @else if (bloquantsRenseignesParMoi(c) > 0) {
-          <p class="rounded-[3px] border border-crit/30 bg-crit-wash p-4 text-[15px] leading-relaxed text-crit">
-            Vous avez renseigné vous-même {{ bloquantsRenseignesParMoi(c) }} point(s) bloquant(s)
-            de cette checklist. La validation sera refusée, un contrôle et sa
-            validation ne peuvent pas venir de la même main.
-          </p>
         } @else {
-          <div class="t-actionbar">
-            <button class="t-btn-primary" [disabled]="occupe()" (click)="valider(c)">
-              {{ occupe() ? 'Envoi…' : 'Valider la checklist' }}
-            </button>
+          @if (restants(c) > 0) {
+            <p class="rounded-[3px] border border-warn/50 bg-warn-wash p-4 text-[15px] text-warn-ink">
+              {{ restants(c) }} point(s) restent à renseigner : la checklist ne peut pas encore
+              être validée.
+            </p>
+          } @else if (bloquantsRenseignesParMoi(c) > 0) {
+            <p class="rounded-[3px] border border-crit/30 bg-crit-wash p-4 text-[15px] leading-relaxed text-crit">
+              Vous avez renseigné vous-même {{ bloquantsRenseignesParMoi(c) }} point(s) bloquant(s)
+              de cette checklist. La validation sera refusée, un contrôle et sa
+              validation ne peuvent pas venir de la même main.
+            </p>
+          } @else {
+            <div class="t-actionbar">
+              <button class="t-btn-primary" [disabled]="occupe()" (click)="valider(c)">
+                {{ occupe() ? 'Envoi…' : 'Valider la checklist' }}
+              </button>
+            </div>
+          }
+
+          <!-- ================= Rejet =================
+               Disponible dès maintenant, sans attendre que tout soit
+               renseigné : un point bloquant déjà constaté non conforme
+               suffit à savoir que l'opération ne peut pas se poursuivre en
+               l'état, et le dire tout de suite évite d'attendre pour rien. -->
+          <div class="mt-4 rounded-[3px] border border-rule-strong bg-surface p-4">
+            <p class="t-label">Rejeter cette checklist</p>
+            <p class="mt-1 text-[14px] leading-relaxed text-ink-soft">
+              Un point empêche déjà de poursuivre en l’état. Le rejet ne valide rien : les points
+              restent modifiables pour reprendre ce qui ne va pas.
+            </p>
+            <textarea
+              class="t-field mt-2"
+              maxlength="1000"
+              placeholder="Ce qui ne va pas, et ce qu’il faut reprendre (dix caractères au moins)"
+              [ngModel]="motifRejet()"
+              (ngModelChange)="motifRejet.set($event)"
+            ></textarea>
+            <div class="t-actionbar">
+              <button
+                class="t-btn-ghost"
+                [disabled]="occupe() || motifRejet().trim().length < 10"
+                (click)="rejeter(c)"
+              >
+                {{ occupe() ? 'Envoi…' : 'Rejeter la checklist' }}
+              </button>
+            </div>
           </div>
         }
       }
@@ -397,6 +443,7 @@ export class TerrainChecklistComponent implements OnInit {
   protected readonly occupe = signal(false);
   protected readonly erreur = signal<string | null>(null);
   protected readonly info = signal<string | null>(null);
+  protected readonly motifRejet = signal('');
 
   protected readonly checklist = computed(
     () => this.checks().find((c) => c.id === this.checkId) ?? null,
@@ -613,6 +660,22 @@ export class TerrainChecklistComponent implements OnInit {
       // ce champ relève de l'organisation du contrôle, pas de la tablette.
       payload: { checkId: c.id },
     });
+  }
+
+  protected async rejeter(c: FieldCheck): Promise<void> {
+    const motif = this.motifRejet().trim();
+    await this.envoyer({
+      operationId: this.id,
+      reference: this.id,
+      type: 'CHECK_REJECTED',
+      intitule: `Rejet de la checklist ${c.phase}`,
+      payload: { checkId: c.id, reason: motif },
+    });
+    // Le motif n'est effacé qu'en cas d'échec net (refus) : un événement
+    // simplement mis en file, ou suspendu derrière un refus antérieur,
+    // repartira avec la même charge — perdre la saisie ici la rendrait
+    // introuvable au renvoi.
+    if (this.erreur() === null) this.motifRejet.set('');
   }
 
   /**

@@ -203,11 +203,16 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- Affiché en XOF : le calcul et la comparaison ci-dessus restent en pivot
+  -- (seule devise commune à des affaires en devises différentes), mais rien
+  -- de ce qui s'affiche à un humain ne doit porter un montant en devise pivot.
   RAISE EXCEPTION
-    'PLAFOND DE CRÉDIT — le client % est engagé à % et cette affaire ajoute %, pour un plafond de % (devise pivot). Dépassement de %. Une dérogation du DG est requise, ou une garantie doit être enregistrée.',
+    'PLAFOND DE CRÉDIT : le client % est engagé à % et cette affaire ajoute %, pour un plafond de %. Dépassement de %. Une dérogation du DG est requise, ou une garantie doit être enregistrée.',
     e.partner_name,
-    round(e.exposure_pivot, 2), round(engagement, 2), round(e.credit_limit_pivot, 2),
-    round(e.exposure_pivot + engagement - e.credit_limit_pivot, 2)
+    round(e.exposure_pivot / NULLIF(cours_vers_pivot('XOF'), 0), 0),
+    round(engagement / NULLIF(cours_vers_pivot('XOF'), 0), 0),
+    round(e.credit_limit_pivot / NULLIF(cours_vers_pivot('XOF'), 0), 0),
+    round((e.exposure_pivot + engagement - e.credit_limit_pivot) / NULLIF(cours_vers_pivot('XOF'), 0), 0)
     USING ERRCODE = 'check_violation';
 END;
 $$ LANGUAGE plpgsql;

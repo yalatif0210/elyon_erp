@@ -10,10 +10,15 @@
 # ===========================================================================
 
 ARG NGINX_VERSION=1.27.2-alpine3.20
+# Défaut = production. L'overlay staging (docker-compose.staging.yml) substitue
+# docker/nginx/proxy.staging.conf — mêmes blocs, sous-domaines distincts — sans
+# dupliquer ce Dockerfile.
+ARG NGINX_CONF=docker/nginx/proxy.conf
 
 FROM nginx:${NGINX_VERSION} AS runtime
+ARG NGINX_CONF
 
-COPY docker/nginx/proxy.conf /etc/nginx/conf.d/default.conf
+COPY ${NGINX_CONF} /etc/nginx/conf.d/default.conf
 COPY docker/nginx/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY docker/vitrine/ /usr/share/nginx/vitrine/
 

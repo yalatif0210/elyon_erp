@@ -262,7 +262,7 @@ const CHECK_MESSAGES: Record<string, string> = {
   chk_invoices_total_derived: 'Le total facture doit valoir le brut moins la réduction.',
   chk_invoices_gross_derived: 'Le montant brut doit valoir le volume multiplié par le prix.',
   chk_products_density_range:
-    'La densité à 15 °C doit être comprise entre 0,4 et 1,2 — au-delà, ce n’est pas un produit pétrolier.',
+    'La densité à 15 °C doit être comprise entre 0,4 et 1,2 : au-delà, ce n’est pas un produit pétrolier.',
   chk_measurement_ullage_computed:
     'L’écart de volume est calculé par le système : il ne se saisit pas.',
   chk_measurement_ack_complete:

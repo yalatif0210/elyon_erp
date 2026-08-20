@@ -20,7 +20,7 @@ import {
   ActorType,
   AuditAction, ComplianceType, DocumentType, UserRole } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsDateString, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { SettingsService } from '../common/config/settings.service';
 import { AuditService } from '../common/audit/audit.service';
@@ -93,6 +93,19 @@ class CreateComplianceDto {
   @IsOptional()
   @IsUUID()
   documentId?: string;
+
+  /**
+   * ⚠️ CORRIGÉ — AUCUNE SAISIE NE PERMETTAIT DE LA POSER À FAUX.
+   *
+   *    Le modèle prévoit depuis toujours qu'une pièce facultative (une
+   *    formation, par exemple) puisse ne pas bloquer l'affectation — son
+   *    propre commentaire le dit. Mais `isBlocking` valait TOUJOURS `true` en
+   *    base, faute d'un champ pour la poser autrement : toute pièce déposée
+   *    devenait bloquante, y compris celles que ce cas était censé couvrir.
+   */
+  @IsOptional()
+  @IsBoolean()
+  isBlocking?: boolean;
 }
 
 /** Plafond de sécurité du tuyau, en octets — même principe que le terrain. */
@@ -277,6 +290,9 @@ export class ComplianceService {
         vehicleId: dto.vehicleId ?? null,
         driverId: dto.driverId ?? null,
         documentId: dto.documentId ?? null,
+        // Le repli reste `true` : une pièce dont le caractère bloquant n'est
+        // pas explicitement levé continue de bloquer, comme avant ce champ.
+        isBlocking: dto.isBlocking ?? true,
         recordedById: actorId,
       },
     });
@@ -367,7 +383,7 @@ export class ComplianceController {
 
   @Get('expiry-watch')
   @Roles(UserRole.DG, UserRole.CCOO, UserRole.LOGISTICS_COORD, UserRole.ASSISTANT_DG, UserRole.FINANCE_CFO)
-  @Screen('echeancier')
+  @Screen('conformite')
   expiryWatch(@Query() query: ExpiryWatchQuery) {
     return this.service.expiryWatch(query.withinDays, query.blockingOnly === 'true');
   }

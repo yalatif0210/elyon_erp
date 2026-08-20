@@ -278,7 +278,6 @@ export function renderOperationReportHtml(d: OperationReportPdfData): string {
   .footer .legal { font-size: 9px; color: #7A8898; max-width: 400px; line-height: 1.6; }
   .footer .qr { text-align: center; }
   .footer .qr img { width: 70px; height: 70px; }
-  .footer .qr .cap { font-size: 8px; color: #7A8898; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -286,7 +285,7 @@ export function renderOperationReportHtml(d: OperationReportPdfData): string {
   <div class="head">
     <div>
       <div class="brand">ELYON TRADING</div>
-      <div class="brand-sub">Négoce, distribution et transport d'hydrocarbures — Côte d'Ivoire</div>
+      <div class="brand-sub">Négoce, distribution et transport d'hydrocarbures · Côte d'Ivoire</div>
     </div>
     <div class="doctype">
       RAPPORT D'EXÉCUTION D'OPÉRATION
@@ -337,20 +336,19 @@ export function renderOperationReportHtml(d: OperationReportPdfData): string {
 
   <div class="signoff">
     <div class="who">
-      <div class="line">Agent terrain — ${d.fieldAgentName ? esc(d.fieldAgentName) : ''}</div>
+      <div class="line">Agent terrain : ${d.fieldAgentName ? esc(d.fieldAgentName) : ''}</div>
     </div>
   </div>
 
   <div class="footer">
     <div class="legal">
-      Rapport constaté et attesté par l'agent terrain seul (§ 10). Scellé et horodaté par le
+      Rapport constaté et attesté par l'agent terrain seul. Scellé et horodaté par le
       système dès sa signature ; toute correction ultérieure fait l'objet d'un document distinct
       portant la mention « annule et remplace ». L'authenticité de cet exemplaire est vérifiable
-      au lien ci-contre.
+      en scannant le QR code ci-contre.
     </div>
     <div class="qr">
       <img src="${d.qrDataUri}" alt="QR d'authenticité">
-      <div class="cap">${esc(d.verifyUrl)}</div>
     </div>
   </div>
 

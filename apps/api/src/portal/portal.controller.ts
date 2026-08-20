@@ -272,7 +272,7 @@ export class PortalService {
       }
       if (deal.status !== DealStatus.PROFORMA_SENT) {
         throw new BadRequestException(
-          'Cette affaire n’est pas au stade « proforma envoyée » — rien à accepter pour le moment.',
+          'Cette affaire n’est pas au stade « proforma envoyée » : rien à accepter pour le moment.',
         );
       }
 

@@ -130,7 +130,7 @@ const ROLE_LABEL: Record<string, string> = {
               } @else {
                 <p class="mt-2 flex items-center gap-2 text-[15px] font-semibold text-ok">
                   <erp-icon name="check-circle" [size]="18" />
-                  Vous avez signé — au tour du client
+                  Vous avez signé, au tour du client
                 </p>
 
                 <div class="mt-4">
@@ -209,7 +209,7 @@ export class TerrainClotureComponent implements OnInit {
     this.info.set(null);
     this.api.genererCloture(this.id).subscribe({
       next: () => {
-        this.info.set('Génération en cours — cette page se met à jour automatiquement.');
+        this.info.set('Génération en cours : cette page se met à jour automatiquement.');
         this.attendreGeneration();
       },
       error: (e: unknown) => {
@@ -291,7 +291,7 @@ export class TerrainClotureComponent implements OnInit {
           if (pret) {
             this.occupe.set(false);
             this.generationEnCours.set(false);
-            this.info.set('Documents générés — vous pouvez signer.');
+            this.info.set('Documents générés : vous pouvez signer.');
           } else {
             this.attendreGeneration(tentative + 1);
           }

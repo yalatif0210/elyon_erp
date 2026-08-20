@@ -74,11 +74,23 @@ export class DocumentsPdfProcessor extends WorkerHost {
     }
   }
 
-  /** Jeton, URL et QR d'authenticité — identiques pour toute nature de pièce. */
+  /**
+   * Jeton, URL et QR d'authenticité — identiques pour toute nature de pièce.
+   *
+   * ⚠️ CORRIGÉ — LE QR CODE POINTAIT SUR L'API BRUTE, PAS SUR LA PAGE.
+   *
+   *    `path` désignait `/api/internal/documents/verify/:token` : la route
+   *    JSON elle-même, jamais la page Angular `/verification/:token` bâtie
+   *    exprès pour ce cas (`VerifyDocumentComponent`, hors session, aucun
+   *    `authGuard`). Scanner le QR code d'un papier n'ouvrait donc pas la
+   *    page de vérification promise, mais une réponse JSON brute dans le
+   *    navigateur — la promesse imprimée sur le papier n'avait toujours pas
+   *    de page derrière elle, malgré l'existence de cette page.
+   */
   private async buildVerification(): Promise<{ token: string; url: string; qrDataUri: string }> {
     const token = randomBytes(24).toString('hex');
     const baseUrl = await this.settings.string('DOCUMENT_VERIFY_BASE_URL', '');
-    const path = `/api/internal/documents/verify/${token}`;
+    const path = `/verification/${token}`;
     const url = baseUrl ? `${baseUrl.replace(/\/+$/, '')}${path}` : path;
     const qrDataUri = await QRCode.toDataURL(url, { margin: 1, width: 200 });
     return { token, url, qrDataUri };
@@ -148,8 +160,9 @@ export class DocumentsPdfProcessor extends WorkerHost {
 
     const kind = KIND_BY_INVOICE_TYPE[invoice.type];
     const registered = await this.documents.register(
-      { kind, invoiceId, storageKey: stored.storageKey, mimeType: stored.mimeType, sizeBytes: stored.sizeBytes, sha256: stored.sha256 },
+      { kind, invoiceId },
       { type: ActorType.INTERNAL_USER, id: actorId },
+      stored,
       documentToken,
     );
 
@@ -333,15 +346,9 @@ export class DocumentsPdfProcessor extends WorkerHost {
     const reportPdf = await this.renderer.renderPdf(reportHtml);
     const reportStored = await this.storage.put(reportPdf, 'application/pdf');
     const reportRegistered = await this.documents.register(
-      {
-        kind: GeneratedDocumentKind.OPERATION_REPORT,
-        operationId,
-        storageKey: reportStored.storageKey,
-        mimeType: reportStored.mimeType,
-        sizeBytes: reportStored.sizeBytes,
-        sha256: reportStored.sha256,
-      },
+      { kind: GeneratedDocumentKind.OPERATION_REPORT, operationId },
       { type: ActorType.FIELD_USER, id: fieldUserId },
+      reportStored,
       reportVerification.token,
       reportReference,
     );
@@ -350,15 +357,9 @@ export class DocumentsPdfProcessor extends WorkerHost {
     const notePdf = await this.renderer.renderPdf(noteHtml);
     const noteStored = await this.storage.put(notePdf, 'application/pdf');
     const noteRegistered = await this.documents.register(
-      {
-        kind: GeneratedDocumentKind.DELIVERY_NOTE,
-        operationId,
-        storageKey: noteStored.storageKey,
-        mimeType: noteStored.mimeType,
-        sizeBytes: noteStored.sizeBytes,
-        sha256: noteStored.sha256,
-      },
+      { kind: GeneratedDocumentKind.DELIVERY_NOTE, operationId },
       { type: ActorType.FIELD_USER, id: fieldUserId },
+      noteStored,
       noteVerification.token,
       noteReference,
     );

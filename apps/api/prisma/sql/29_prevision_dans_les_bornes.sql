@@ -106,7 +106,7 @@ BEGIN
 
   IF NEW.month_index > mois_max THEN
     RAISE EXCEPTION
-      'Mois % hors de l''exercice % : il court du % au %, soit % mois. Le mois est un RANG dans l''exercice, pas un mois civil — un exercice ouvert en juillet a son mois 1 en juillet.',
+      'Mois % hors de l''exercice % : il court du % au %, soit % mois. Le mois est un RANG dans l''exercice, pas un mois civil : un exercice ouvert en juillet a son mois 1 en juillet.',
       NEW.month_index, ex.year,
       to_char(ex.starts_on, 'DD/MM/YYYY'), to_char(ex.ends_on, 'DD/MM/YYYY'), mois_max
       USING ERRCODE = 'check_violation';
@@ -130,7 +130,7 @@ BEGIN
 
     IF NOT budget_existe THEN
       RAISE EXCEPTION
-        'Aucun budget de vente n''existe pour l''exercice % : il n''y a rien à réviser. Saisir d''abord le budget, puis ses révisions — sinon l''écart au budget, qui est ce qu''on pilote, devient incalculable.',
+        'Aucun budget de vente n''existe pour l''exercice % : il n''y a rien à réviser. Saisir d''abord le budget, puis ses révisions ; sinon l''écart au budget, qui est ce qu''on pilote, devient incalculable.',
         ex.year
         USING ERRCODE = 'check_violation';
     END IF;

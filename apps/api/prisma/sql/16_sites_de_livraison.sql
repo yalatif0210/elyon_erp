@@ -226,7 +226,7 @@ BEGIN
   -- du site de livraison. La vue les réunit, le verrou n'en connaît qu'une.
   SELECT string_agg(
            CASE bout WHEN 'LOADING' THEN 'chargement' ELSE 'livraison' END
-           || ' — ' || exigence || ' : ' || detail,
+           || ' · ' || exigence || ' : ' || detail,
            ' · ' ORDER BY bout, display_order)
     INTO manquantes
     FROM v_exigences_site v
@@ -239,7 +239,7 @@ BEGIN
 
   IF manquantes IS NOT NULL AND manquantes <> '' THEN
     RAISE EXCEPTION
-      'EXIGENCES DE SITE — l''opération % ne peut pas partir : %. Levez ces points et acquittez-les avant le chargement : s''y présenter sans eux, c''est repartir à vide avec un produit déjà payé.',
+      'EXIGENCES DE SITE : l''opération % ne peut pas partir : %. Levez ces points et acquittez-les avant le chargement : s''y présenter sans eux, c''est repartir à vide avec un produit déjà payé.',
       NEW.reference, manquantes
       USING ERRCODE = 'check_violation';
   END IF;

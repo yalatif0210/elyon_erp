@@ -254,7 +254,7 @@ SELECT
   CASE
     WHEN si.purchase_order_id IS NOT NULL THEN 'Chargement de l''opération'
     WHEN si.deal_id IS NOT NULL           THEN 'Clôture de l''opération'
-    ELSE 'Apurement manuel — facture rattachée à aucun dossier'
+    ELSE 'Apurement manuel : facture rattachée à aucun dossier'
   END                                            AS settlement_trigger,
   o.reference                                    AS operation,
   o.status::text                                 AS operation_status

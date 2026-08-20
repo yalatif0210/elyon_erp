@@ -57,7 +57,7 @@ BEGIN
 
       IF NOT supplee THEN
         RAISE EXCEPTION
-          'VERROU HSE — la validation est réservée au contrôleur HSE, ou à son suppléant en cours de délégation. Rôle fourni : %.',
+          'VERROU HSE : la validation est réservée au contrôleur HSE, ou à son suppléant en cours de délégation. Rôle fourni : %.',
           COALESCE(validator_role, 'inconnu')
           USING ERRCODE = 'check_violation';
       END IF;
@@ -74,7 +74,7 @@ BEGIN
 
     IF recorder IS NOT NULL THEN
       RAISE EXCEPTION
-        'VERROU HSE — l''agent qui a renseigné un contrôle bloquant ne peut pas valider la checklist (§ 3.2).'
+        'VERROU HSE : l''agent qui a renseigné un contrôle bloquant ne peut pas valider la checklist.'
         USING ERRCODE = 'check_violation';
     END IF;
   END IF;
@@ -85,7 +85,7 @@ BEGIN
     SELECT role::text INTO validator_role FROM users WHERE id = NEW.validated_by_user_id;
     IF validator_role IS DISTINCT FROM 'DG' THEN
       RAISE EXCEPTION
-        'VERROU HSE — la suppléance du contrôleur HSE est réservée au DG. Rôle fourni : %.',
+        'VERROU HSE : la suppléance du contrôleur HSE est réservée au DG. Rôle fourni : %.',
         COALESCE(validator_role, 'inconnu')
         USING ERRCODE = 'check_violation';
     END IF;

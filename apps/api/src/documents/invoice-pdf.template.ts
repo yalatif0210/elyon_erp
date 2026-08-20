@@ -55,7 +55,7 @@ function fmtMoney(value: string, currency: string): string {
 }
 
 function fmtDate(iso: string | null): string {
-  if (!iso) return '—';
+  if (!iso) return '-';
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
 }
 
@@ -139,7 +139,6 @@ export function renderInvoiceHtml(d: InvoicePdfData): string {
   .footer .legal { font-size: 9px; color: #7A8898; max-width: 380px; line-height: 1.6; }
   .footer .qr { text-align: center; }
   .footer .qr img { width: 70px; height: 70px; }
-  .footer .qr .cap { font-size: 8px; color: #7A8898; margin-top: 4px; }
   .exo { margin-top: 6px; font-size: 10px; color: #4C5A6B; }
 </style>
 </head>
@@ -148,7 +147,7 @@ export function renderInvoiceHtml(d: InvoicePdfData): string {
   <div class="head">
     <div>
       <div class="brand">ELYON TRADING</div>
-      <div class="brand-sub">Négoce, distribution et transport d'hydrocarbures — Côte d'Ivoire</div>
+      <div class="brand-sub">Négoce, distribution et transport d'hydrocarbures · Côte d'Ivoire</div>
     </div>
     <div class="doctype">
       ${TYPE_LABEL[d.type]}
@@ -209,7 +208,7 @@ export function renderInvoiceHtml(d: InvoicePdfData): string {
 
   ${
     !d.isVatApplicable && d.vatExemptionReference
-      ? `<p class="exo">Exonération de TVA — référence : ${esc(d.vatExemptionReference)}</p>`
+      ? `<p class="exo">Exonération de TVA - référence : ${esc(d.vatExemptionReference)}</p>`
       : ''
   }
 
@@ -217,12 +216,11 @@ export function renderInvoiceHtml(d: InvoicePdfData): string {
     <div class="legal">
       Pièce émise par Elyon Trading. Scellée et horodatée par le système à sa génération ; toute
       correction ultérieure fait l'objet d'un document distinct portant la mention « annule et
-      remplace » — jamais d'une modification silencieuse. L'authenticité de cet exemplaire est
-      vérifiable au lien ci-contre.
+      remplace », jamais d'une modification silencieuse. L'authenticité de cet exemplaire est
+      vérifiable en scannant le QR code ci-contre.
     </div>
     <div class="qr">
       <img src="${d.qrDataUri}" alt="QR d'authenticité">
-      <div class="cap">${esc(d.verifyUrl)}</div>
     </div>
   </div>
 

@@ -13,8 +13,9 @@ import { CommercialSegment, Prisma, UserRole } from '@prisma/client';
 import { IsIn, IsOptional } from 'class-validator';
 import { Realm, RequireRealm, Roles, Screen, SkipAudit } from '../common/auth/realm';
 import { Page, PaginationQuery, paginate } from '../common/http/pagination.dto';
+import { FxService } from '../common/money/fx.service';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { findReferential, rolesDeLecture } from './registry';
+import { findReferential, rolesDeLecture, vocabulaires } from './registry';
 
 /**
  * Lecture des référentiels du lot 1.
@@ -26,7 +27,32 @@ import { findReferential, rolesDeLecture } from './registry';
  */
 @Injectable()
 export class ReferentialsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fx: FxService,
+  ) {}
+
+  /**
+   * Cours courant du pivot vers la devise locale d'affichage.
+   *
+   * Sert les écrans qui agrègent eux-mêmes des lignes déjà converties au
+   * pivot (ex. les statistiques de tête de la console Achats) : elles n'ont
+   * plus qu'à multiplier par ce cours pour restituer un total en XOF, jamais
+   * en pivot.
+   */
+  async pivotLocalRate() {
+    const [pivot, local, rate] = await Promise.all([
+      this.fx.pivotCode(),
+      this.fx.localCode(),
+      this.fx.pivotToLocalRate(),
+    ]);
+    return { pivot, local, rate };
+  }
+
+  /** Libellés des énumérations sans référentiel propre (voir registry.ts). */
+  vocabulaires() {
+    return vocabulaires();
+  }
 
   currencies() {
     return this.prisma.currency.findMany({
@@ -464,7 +490,7 @@ export class ReferentialsService {
     const spec = findReferential(key);
     if (!spec) {
       throw new NotFoundException(
-        `Référentiel « ${key} » inconnu. Les référentiels disponibles sont ceux du registre (§ 1.1 bis).`,
+        `Référentiel « ${key} » inconnu. Les référentiels disponibles sont ceux du registre.`,
       );
     }
 
@@ -614,6 +640,20 @@ export class ReferentialsController {
   @Get('fx-rates')
   fxRates() {
     return this.service.fxRates();
+  }
+
+  @Get('pivot-local-rate')
+  pivotLocalRate() {
+    return this.service.pivotLocalRate();
+  }
+
+  // Ouvert à tout rôle interne authentifié, sans @Roles ni @Screen : ces
+  // libellés alimentent des formulaires opérationnels (déclaration HSE,
+  // règlement d'une facture, relance, pièce de conformité), pas un écran
+  // d'administration.
+  @Get('vocabulaires')
+  vocabulaires() {
+    return this.service.vocabulaires();
   }
 
   @Get('products')

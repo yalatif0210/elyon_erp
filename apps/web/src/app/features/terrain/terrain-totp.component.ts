@@ -35,7 +35,7 @@ import { messageServeur } from './terrain-depot';
       <p class="t-sub">
         Un code à six chiffres, renouvelé toutes les trente secondes, sera demandé en plus du mot
         de passe. Il est produit par une application d’authentification installée sur votre
-        téléphone — Google Authenticator, Microsoft Authenticator ou équivalent.
+        téléphone : Google Authenticator, Microsoft Authenticator ou équivalent.
       </p>
 
       @if (erreur(); as e) {

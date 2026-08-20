@@ -214,6 +214,10 @@ export interface FieldCheck {
   validatedAt: string | null;
   validatedByFieldUser: { fullName: string; role: string } | null;
   validatedByUser: { fullName: string; role: string } | null;
+  rejectedAt: string | null;
+  rejectedByFieldUser: { fullName: string; role: string } | null;
+  rejectedByUser: { fullName: string; role: string } | null;
+  rejectionReason: string | null;
   template: { code: string; label: string; version: number } | null;
   items: FieldCheckItem[];
 }

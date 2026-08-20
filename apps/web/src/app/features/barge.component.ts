@@ -4,6 +4,7 @@ import { ApiService, BargePnLRow, VehicleMaintenanceRow } from '../core/api.serv
 import { ActionFeedbackComponent, ActionState, HttpFailure } from '../shared/action-panel.component';
 import { IconComponent } from '../shared/icon.component';
 import { grouper } from '../shared/format';
+import { TableauControlesComponent, TableauPagine } from '../shared/tableau';
 
 const MAINTENANCE_LABEL: Record<string, string> = {
   PREVENTIVE: 'Préventive',
@@ -25,7 +26,7 @@ const MAINTENANCE_LABEL: Record<string, string> = {
 @Component({
   selector: 'erp-barge',
   standalone: true,
-  imports: [FormsModule, IconComponent, ActionFeedbackComponent],
+  imports: [FormsModule, IconComponent, ActionFeedbackComponent, TableauControlesComponent],
   template: `
     <header class="mb-6">
       <h1 class="page-title">Barge</h1>
@@ -44,7 +45,9 @@ const MAINTENANCE_LABEL: Record<string, string> = {
         <p class="text-[13px] text-ink-soft">Aucun moyen de type barge dans le référentiel véhicules.</p>
       </div>
     } @else {
-      <div class="card overflow-x-auto">
+      <div class="card overflow-hidden">
+        <erp-tableau-controles [tableau]="tableauBarges" libelle="les barges" />
+        <div class="overflow-x-auto">
         <table class="table">
           <thead>
             <tr>
@@ -52,15 +55,15 @@ const MAINTENANCE_LABEL: Record<string, string> = {
               <th>Modèle</th>
               <th class="num">Voyages</th>
               <th class="num">Volume total</th>
-              <th class="num">Revenus</th>
-              <th class="num">Coûts opérationnels</th>
-              <th class="num">Maintenance</th>
-              <th class="num">Marge</th>
+              <th class="num">Revenus (XOF)</th>
+              <th class="num">Coûts opérationnels (XOF)</th>
+              <th class="num">Maintenance (XOF)</th>
+              <th class="num">Marge (XOF)</th>
               <th>Conformité</th>
             </tr>
           </thead>
           <tbody>
-            @for (b of barges(); track b.vehicleId) {
+            @for (b of tableauBarges.lignes(); track b.vehicleId) {
               <tr class="cursor-pointer hover:bg-gray-50" (click)="select(b)">
                 <td class="font-mono font-medium text-ink">{{ b.registration }}</td>
                 <td class="text-ink-soft">{{ b.brandModel ?? '-' }}</td>
@@ -70,11 +73,11 @@ const MAINTENANCE_LABEL: Record<string, string> = {
                     <div>{{ grouper(b.volumeParUnite[u]) }} {{ u }}</div>
                   }
                 </td>
-                <td class="num font-mono text-ink-soft">{{ money(b.revenuePivot) }} {{ b.pivotCurrency }}</td>
-                <td class="num font-mono text-ink-soft">{{ money(b.operatingCostPivot) }}</td>
-                <td class="num font-mono text-ink-soft">{{ money(b.maintenanceCostPivot) }}</td>
-                <td class="num font-mono font-semibold" [class]="b.marginPivot >= 0 ? 'text-ok' : 'text-crit'">
-                  {{ money(b.marginPivot) }}
+                <td class="num font-mono text-ink-soft">{{ money(b.revenueXof) }}</td>
+                <td class="num font-mono text-ink-soft">{{ money(b.operatingCostXof) }}</td>
+                <td class="num font-mono text-ink-soft">{{ money(b.maintenanceCostXof) }}</td>
+                <td class="num font-mono font-semibold" [class]="b.marginXof >= 0 ? 'text-ok' : 'text-crit'">
+                  {{ money(b.marginXof) }}
                 </td>
                 <td>
                   @if (!b.isCompliant) {
@@ -89,6 +92,7 @@ const MAINTENANCE_LABEL: Record<string, string> = {
             }
           </tbody>
         </table>
+        </div>
       </div>
     }
 
@@ -145,6 +149,8 @@ const MAINTENANCE_LABEL: Record<string, string> = {
             @if (historique().length === 0) {
               <p class="text-[12px] text-ink-faint">Aucune intervention enregistrée.</p>
             } @else {
+              <erp-tableau-controles [tableau]="tableauHistorique" libelle="les interventions" />
+              <div class="overflow-x-auto">
               <table class="table">
                 <thead>
                   <tr>
@@ -157,7 +163,7 @@ const MAINTENANCE_LABEL: Record<string, string> = {
                   </tr>
                 </thead>
                 <tbody>
-                  @for (m of historique(); track m.id) {
+                  @for (m of tableauHistorique.lignes(); track m.id) {
                     <tr>
                       <td class="font-mono text-[12px] text-ink-soft">{{ m.performedAt.slice(0, 10) }}</td>
                       <td class="text-ink-soft">{{ label(m.type) }}</td>
@@ -169,6 +175,7 @@ const MAINTENANCE_LABEL: Record<string, string> = {
                   }
                 </tbody>
               </table>
+              </div>
             }
           </div>
         </div>
@@ -182,8 +189,10 @@ export class BargeComponent implements OnInit {
   protected readonly state = new ActionState();
   protected readonly chargement = signal(true);
   protected readonly barges = signal<BargePnLRow[]>([]);
+  protected readonly tableauBarges = new TableauPagine<BargePnLRow>();
   protected readonly selected = signal<BargePnLRow | null>(null);
   protected readonly historique = signal<VehicleMaintenanceRow[]>([]);
+  protected readonly tableauHistorique = new TableauPagine<VehicleMaintenanceRow>();
 
   protected mType = 'PREVENTIVE';
   protected mDescription = '';
@@ -212,6 +221,7 @@ export class BargeComponent implements OnInit {
     this.chargement.set(true);
     this.api.bargePnL().subscribe((rows) => {
       this.barges.set(rows);
+      this.tableauBarges.définir(rows);
       this.chargement.set(false);
     });
   }
@@ -222,7 +232,10 @@ export class BargeComponent implements OnInit {
       return;
     }
     this.selected.set(b);
-    this.api.vehicleMaintenance(b.vehicleId).subscribe((h) => this.historique.set(h));
+    this.api.vehicleMaintenance(b.vehicleId).subscribe((h) => {
+      this.historique.set(h);
+      this.tableauHistorique.définir(h);
+    });
   }
 
   protected enregistrerMaintenance(): void {
@@ -250,7 +263,10 @@ export class BargeComponent implements OnInit {
           this.mCost = '';
           this.mPerformedBy = '';
           this.mNextDueAt = '';
-          this.api.vehicleMaintenance(barge.vehicleId).subscribe((h) => this.historique.set(h));
+          this.api.vehicleMaintenance(barge.vehicleId).subscribe((h) => {
+            this.historique.set(h);
+            this.tableauHistorique.définir(h);
+          });
           this.load();
         },
         error: (e: HttpFailure) => this.state.fail(e),

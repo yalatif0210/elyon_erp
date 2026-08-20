@@ -9,6 +9,15 @@ import {
   DerogationController,
   DerogationService,
 } from './admin/derogations.controller';
+import { UserAdminController, UserAdminService } from './admin/user-admin.controller';
+import {
+  FieldUserAdminController,
+  FieldUserAdminService,
+} from './admin/field-user-admin.controller';
+import {
+  PortalUserAdminController,
+  PortalUserAdminService,
+} from './admin/portal-user-admin.controller';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './common/auth/jwt-auth.guard';
 import { ScreenAccessController } from './common/auth/screen-access.controller';
@@ -42,6 +51,10 @@ import { InvoicesController, InvoicesService } from './invoicing/invoices.contro
 import { FneClientService } from './invoicing/fne-client.service';
 import { CollectionsController, CollectionsService } from './invoicing/collections.controller';
 import { OperationsController, OperationsService } from './operations/operations.controller';
+import {
+  OperationalProceduresController,
+  OperationalProceduresService,
+} from './operations/operational-procedures.controller';
 import {
   SupplierInvoicesController,
   SupplierInvoicesService,
@@ -117,6 +130,7 @@ import {
     DelegationController,
     DealsController,
     OperationsController,
+    OperationalProceduresController,
     HseController,
     FieldHseController,
     FieldOperationsController,
@@ -136,6 +150,9 @@ import {
     QuotationsController,
     AuditLogController,
     ScreenAccessController,
+    UserAdminController,
+    FieldUserAdminController,
+    PortalUserAdminController,
   ],
   providers: [
     ReferentialsService,
@@ -146,6 +163,7 @@ import {
     DealsService,
     MarginService,
     OperationsService,
+    OperationalProceduresService,
     HseService,
     FieldOperationsService,
     FieldSyncService,
@@ -165,6 +183,9 @@ import {
     PortalService,
     QuotationsService,
     AuditLogService,
+    UserAdminService,
+    FieldUserAdminService,
+    PortalUserAdminService,
     { provide: APP_GUARD, useClass: LocalizedThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     // Traduit les refus d'invariants de la base en 422 intelligibles :

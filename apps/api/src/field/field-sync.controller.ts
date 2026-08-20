@@ -40,6 +40,7 @@ import {
   HseService,
   OpenCheckDto,
   RecordItemDto,
+  RejectCheckDto,
   ValidateCheckDto,
 } from '../hse/hse.controller';
 import {
@@ -121,6 +122,7 @@ const CHARGE_UTILE = {
   [FieldEventType.CHECK_OPENED]: OpenCheckDto,
   [FieldEventType.CHECK_ITEM_RECORDED]: RecordItemDto,
   [FieldEventType.CHECK_VALIDATED]: ValidateCheckDto,
+  [FieldEventType.CHECK_REJECTED]: RejectCheckDto,
   [FieldEventType.MEASUREMENT_RECORDED]: MeasurementDto,
   [FieldEventType.STATUS_ADVANCED]: TransitionDto,
   [FieldEventType.HSE_EVENT_DECLARED]: HseEventDto,
@@ -176,7 +178,7 @@ function valideCharge<T extends object>(
       .flatMap((e) => Object.values(e.constraints ?? {}))
       .join(' · ');
     throw new BadRequestException(
-      `Contenu de l'événement invalide : ${details}. Cet événement ne repartira pas tel quel — corrigez la saisie et refaites l'action.`,
+      `Contenu de l'événement invalide : ${details}. Cet événement ne repartira pas tel quel : corrigez la saisie et refaites l'action.`,
     );
   }
 
@@ -430,6 +432,26 @@ export class FieldSyncService {
           );
         }
         await this.hse.validateCheck(checkId, valideCharge(e.type, p), actor.id);
+        return;
+      }
+
+      case FieldEventType.CHECK_REJECTED: {
+        const checkId = String(p['checkId'] ?? '');
+        if (!UUID.test(checkId)) {
+          throw new BadRequestException(
+            'Checklist non identifiée : cet événement ne désigne aucune checklist existante.',
+          );
+        }
+        const sienne = await this.prisma.operationHseCheck.findFirst({
+          where: { id: checkId, operationId: e.operationId },
+          select: { id: true },
+        });
+        if (!sienne) {
+          throw new BadRequestException(
+            'Cette checklist n’appartient pas à cette opération.',
+          );
+        }
+        await this.hse.rejectCheck(checkId, valideCharge(e.type, p), actor.id);
         return;
       }
 

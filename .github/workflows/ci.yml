@@ -1,0 +1,180 @@
+name: CI
+
+# Réf. l'étude de faisabilité CI/CD et le plan « staging d'abord ».
+#
+# Deux jobs : compiler les trois applications (échoue vite sur une erreur de
+# type), puis rejouer la suite de recette (tests/recette/executer.py, 181 cas)
+# contre une pile Docker Compose réellement démarrée. La pile est SEMÉE
+# (commande par défaut du conteneur `migrator`, db:setup) — la CI a besoin de
+# comptes et de données pour s'authentifier et exercer les parcours métier ;
+# ce n'est PAS ce que le déploiement staging ou production doivent faire (voir
+# l'avertissement sur le service `migrator` dans docker-compose.yml).
+#
+# ⚠️ LES IMAGES DE LA RECETTE SONT CELLES PUBLIÉES — JAMAIS RECONSTRUITES.
+#
+#    Sur un `push` (jamais une pull request), le job `recette` construit
+#    directement sous les noms GHCR (via API_IMAGE/WEB_IMAGE/PORTAL_IMAGE/
+#    IMAGE_TAG, la même convention que docker-compose.yml) et, une fois la
+#    recette passée, pousse CES MÊMES IMAGES — pas une reconstruction a
+#    posteriori. deploy-staging.yml ne fait ensuite que les récupérer : ce qui
+#    tourne en staging, puis en production, est bit pour bit ce qui vient de
+#    passer les 181 cas, jamais une image « équivalente » rebâtie ailleurs.
+
+on:
+  pull_request:
+    paths: &chemins_pertinents
+      - "apps/**"
+      - "docker/**"
+      - "docker-compose*.yml"
+      - "tests/recette/**"
+      - ".github/workflows/ci.yml"
+  push:
+    # `dev` alimente le staging, `main` la production (voir
+    # deploy-staging.yml) : le code circule de l'un à l'autre une fois le
+    # staging validé, jamais directement vers `main` sans être passé par `dev`.
+    branches: [dev, main]
+    paths: *chemins_pertinents
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [api, web, portal]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/${{ matrix.app }}/package-lock.json
+
+      - name: Installer les dépendances
+        working-directory: apps/${{ matrix.app }}
+        run: npm ci
+
+      - name: Générer le client Prisma
+        if: matrix.app == 'api'
+        working-directory: apps/api
+        run: npm run prisma:generate
+
+      - name: Compiler
+        working-directory: apps/${{ matrix.app }}
+        run: npm run build
+
+  recette:
+    name: Suite de recette (181 cas)
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # Nécessaire uniquement pour pousser vers GHCR sur un push.
+    env:
+      # Sur une pull request, ces noms restent définis mais rien n'est jamais
+      # poussé (voir la condition `if: github.event_name == 'push'` des étapes
+      # de publication, tout en bas) — la CI construit sous ces noms dans les
+      # deux cas pour ne JAMAIS faire diverger l'image testée de l'image
+      # publiée selon le type d'événement.
+      API_IMAGE: ghcr.io/${{ github.repository }}/api
+      WEB_IMAGE: ghcr.io/${{ github.repository }}/web
+      PORTAL_IMAGE: ghcr.io/${{ github.repository }}/portal
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # ⚠️ SECRETS GÉNÉRÉS À LA VOLÉE, JAMAIS RÉUTILISÉS.
+      #
+      #    Cette pile est jetée à la fin du job. Les valeurs ci-dessous n'ont
+      #    besoin d'être vraies que le temps du job — jamais les secrets de
+      #    staging ni de production, jamais committées.
+      - name: Préparer .env
+        run: |
+          cat > .env <<EOF
+          POSTGRES_USER=erp_migrator
+          POSTGRES_PASSWORD=ci_$(openssl rand -hex 16)
+          POSTGRES_DB=erp
+          ERP_APP_PASSWORD=ci_$(openssl rand -hex 16)
+          REDIS_PASSWORD=ci_$(openssl rand -hex 16)
+          NODE_ENV=production
+          API_PORT=3000
+          WEB_PORT=4200
+          PORTAL_PORT=4300
+          JWT_ACCESS_SECRET=$(openssl rand -base64 48)
+          JWT_REFRESH_SECRET=$(openssl rand -base64 48)
+          TOTP_ENCRYPTION_KEY=$(openssl rand -hex 32)
+          CORS_ALLOWED_ORIGINS=http://localhost:4200,http://localhost:4300
+          PIVOT_CURRENCY=USD
+          LOCAL_CURRENCY=XOF
+          FISCAL_COUNTRY=CI
+          SEED_DEFAULT_PASSWORD=CiTest!2026
+          EOF
+
+      - name: Construire les images
+        run: docker compose build
+
+      - name: Démarrer Postgres et Redis
+        run: docker compose up -d postgres redis
+
+      # Commande PAR DÉFAUT du conteneur, volontairement non substituée ici :
+      # migration PUIS semis (db:setup) — voir l'en-tête de ce fichier.
+      - name: Migrer et semer
+        run: docker compose --profile tools run --rm migrator
+
+      - name: Démarrer les applications
+        run: docker compose up -d
+
+      - name: Attendre que la pile réponde
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:4200/health >/dev/null; then
+              echo "Pile prête après ${i} tentative(s)."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "La pile ne répond toujours pas après 120 s." >&2
+          docker compose ps
+          docker compose logs --tail=200
+          exit 1
+
+      - name: Jouer la recette
+        run: python3 tests/recette/executer.py
+
+      - name: Journaux (en cas d'échec)
+        if: failure()
+        run: docker compose logs --tail=500
+
+      # ---------------------------------------------------------------------
+      #  Publication — UNIQUEMENT sur push (jamais une pull request, dont le
+      #  code n'a pas encore été fusionné), et UNIQUEMENT si la recette
+      #  ci-dessus est passée (l'ordre des étapes suffit à le garantir : une
+      #  étape précédente en échec arrête le job avant d'atteindre celle-ci).
+      # ---------------------------------------------------------------------
+      - name: Connexion à GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publier les images testées ci-dessus (par commit)
+        if: github.event_name == 'push'
+        run: docker compose push api web portal
+
+      # Tag flottant supplémentaire (nom de la branche), pour un `docker pull`
+      # manuel de dépannage — deploy-staging.yml, lui, cible toujours le SHA
+      # exact, jamais ce tag flottant.
+      - name: Étiqueter aussi par branche
+        if: github.event_name == 'push'
+        run: |
+          for image in "$API_IMAGE" "$WEB_IMAGE" "$PORTAL_IMAGE"; do
+            docker tag "${image}:${IMAGE_TAG}" "${image}:${{ github.ref_name }}"
+            docker push "${image}:${{ github.ref_name }}"
+          done

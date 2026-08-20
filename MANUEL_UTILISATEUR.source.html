@@ -1,0 +1,810 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Elyon Trading — Manuel utilisateur</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+    color: #1c273c;
+    font-size: 10.6pt;
+    line-height: 1.55;
+    background: #ffffff;
+  }
+  h1, h2, h3, h4 {
+    font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: #1c273c;
+    page-break-after: avoid;
+  }
+  .ink-soft { color: #4e5f83; }
+  .ink-muted { color: #7987a1; }
+  .primary { color: #5b47fb; }
+
+  /* ---- Couverture ---- */
+  .cover {
+    /* 297mm de page moins les 14mm de marge haute/basse imposés par le
+       moteur de rendu (`PdfRendererService.renderPdf`) : une hauteur fixée
+       à 297mm ici déborderait de 28mm sur une seconde page presque vide. */
+    height: 265mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 18mm 18mm;
+    background: linear-gradient(160deg, #1c273c 0%, #232f4d 55%, #5b47fb 130%);
+    color: #ffffff;
+    page-break-after: always;
+    overflow: hidden;
+  }
+  .cover .brand { display: flex; align-items: center; gap: 10px; }
+  .cover .brand .mark {
+    width: 34px; height: 34px; border-radius: 6px;
+    background: rgba(255,255,255,0.16);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 15pt;
+  }
+  .cover .brand .name { font-size: 13pt; font-weight: 700; letter-spacing: -0.01em; }
+  .cover .title { margin-top: 48mm; }
+  .cover .title .eyebrow {
+    text-transform: uppercase; letter-spacing: 0.14em; font-size: 9pt;
+    color: rgba(255,255,255,0.65); font-weight: 600;
+  }
+  .cover .title h1 {
+    color: #ffffff; font-size: 34pt; line-height: 1.08; margin: 8px 0 0 0;
+    max-width: 140mm;
+  }
+  .cover .title p {
+    color: rgba(255,255,255,0.78); font-size: 12pt; max-width: 120mm; margin-top: 10mm;
+  }
+  .cover .foot {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    border-top: 1px solid rgba(255,255,255,0.2); padding-top: 8mm;
+    font-size: 9pt; color: rgba(255,255,255,0.65);
+  }
+
+  /* ---- Sommaire ---- */
+  .toc { padding: 22mm 20mm; page-break-after: always; }
+  .toc h2 { font-size: 18pt; margin-bottom: 10mm; }
+  .toc-part { margin-top: 7mm; }
+  .toc-part-title {
+    font-size: 9pt; text-transform: uppercase; letter-spacing: 0.1em;
+    color: #5b47fb; font-weight: 700; margin-bottom: 2mm;
+  }
+  .toc-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 1.3mm 0; border-bottom: 1px dotted #dfe3ec; font-size: 10pt;
+  }
+  .toc-row .n { color: #7987a1; font-variant-numeric: tabular-nums; }
+
+  /* ---- Corps ---- */
+  .section { padding: 18mm 20mm 10mm 20mm; page-break-before: always; }
+  .section-eyebrow {
+    text-transform: uppercase; letter-spacing: 0.12em; font-size: 8.5pt;
+    color: #5b47fb; font-weight: 700; margin-bottom: 2mm;
+  }
+  .section h1 { font-size: 22pt; margin: 0 0 4mm 0; border-bottom: 2px solid #1c273c; padding-bottom: 4mm; }
+  .section > .lede { font-size: 11pt; color: #4e5f83; margin-bottom: 6mm; }
+
+  h2.screen {
+    font-size: 13.5pt; margin-top: 9mm; margin-bottom: 1mm;
+    padding-top: 3mm; border-top: 1px solid #eceff5;
+  }
+  h2.screen .path {
+    font-family: 'Consolas', 'Courier New', monospace; font-size: 8.5pt;
+    color: #7987a1; font-weight: 400; margin-left: 6px;
+  }
+  h3.sub { font-size: 11pt; margin-top: 5mm; margin-bottom: 1mm; color: #1c273c; }
+
+  p { margin: 2.4mm 0; }
+  ul, ol { margin: 2.4mm 0; padding-left: 5mm; }
+  li { margin: 1mm 0; }
+
+  .badge {
+    display: inline-block; font-size: 7.7pt; font-weight: 700;
+    padding: 0.6mm 2mm; border-radius: 3px; letter-spacing: 0.02em;
+    margin-right: 1.5mm; white-space: nowrap;
+  }
+  .badge-role { background: #eeecff; color: #5b47fb; }
+  .badge-warn { background: #fff6e0; color: #8a6100; }
+  .badge-crit { background: #fdeaec; color: #a3212f; }
+  .badge-ok   { background: #e4f8ec; color: #0d8f47; }
+
+  .callout {
+    border-left: 3px solid #5b47fb; background: #f7f7fd;
+    padding: 3mm 4mm; margin: 3mm 0; border-radius: 0 3px 3px 0;
+    font-size: 9.8pt;
+  }
+  .callout.warn { border-left-color: #f7b731; background: #fffaf0; }
+  .callout.crit { border-left-color: #dc3545; background: #fdf3f4; }
+  .callout .lbl { font-weight: 700; font-size: 8.3pt; text-transform: uppercase; letter-spacing: 0.06em; display:block; margin-bottom: 1mm; }
+  .callout.warn .lbl { color: #8a6100; }
+  .callout.crit .lbl { color: #a3212f; }
+  .callout:not(.warn):not(.crit) .lbl { color: #5b47fb; }
+
+  table { width: 100%; border-collapse: collapse; margin: 3mm 0; font-size: 9.3pt; }
+  th, td { border: 1px solid #dfe3ec; padding: 1.6mm 2.4mm; text-align: left; vertical-align: top; }
+  th { background: #f4f5f9; font-weight: 700; color: #1c273c; font-size: 8.6pt; text-transform: uppercase; letter-spacing: 0.03em; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+
+  code, .code {
+    font-family: 'Consolas', 'Courier New', monospace; font-size: 8.6pt;
+    background: #f4f5f9; padding: 0.3mm 1.3mm; border-radius: 2px; color: #3a2fa8;
+  }
+
+  .steps { counter-reset: step; list-style: none; padding-left: 0; margin: 3mm 0; }
+  .steps li {
+    counter-increment: step; position: relative; padding-left: 8mm; margin: 2mm 0;
+  }
+  .steps li::before {
+    content: counter(step); position: absolute; left: 0; top: 0;
+    width: 5.5mm; height: 5.5mm; border-radius: 50%; background: #5b47fb; color: #fff;
+    font-size: 8pt; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+
+  .grid2 { display: flex; gap: 5mm; margin: 3mm 0; }
+  .grid2 > div { flex: 1; }
+  .card-lite {
+    border: 1px solid #dfe3ec; border-radius: 4px; padding: 3mm 4mm; background: #fbfbfe;
+  }
+  .card-lite h4 { margin: 0 0 1.5mm 0; font-size: 10pt; }
+
+  .footer-note { font-size: 8.3pt; color: #b4bdce; margin-top: 8mm; }
+
+  .kicker-nav {
+    display: flex; gap: 2.5mm; flex-wrap: wrap; margin: 2mm 0 4mm 0;
+  }
+  .kicker-nav span {
+    font-size: 8pt; background: #eceff5; color: #4e5f83; padding: 0.8mm 2.2mm;
+    border-radius: 3px; font-weight: 600;
+  }
+
+  .role-table td:first-child, .role-table th:first-child { white-space: nowrap; font-weight: 600; }
+
+  .app-strip {
+    display: flex; gap: 4mm; margin: 4mm 0;
+  }
+  .app-strip .app {
+    flex: 1; border-radius: 5px; padding: 4mm; color: #fff;
+  }
+  .app-strip .app h4 { margin: 0 0 1.5mm 0; color: #fff; font-size: 10.5pt; }
+  .app-strip .app p { color: rgba(255,255,255,0.85); font-size: 9pt; margin: 0; }
+  .app-strip .app.a1 { background: #1c273c; }
+  .app-strip .app.a2 { background: #5b47fb; }
+  .app-strip .app.a3 { background: #0d8f47; }
+</style>
+</head>
+<body>
+
+<!-- ============================= COUVERTURE ============================= -->
+<div class="cover">
+  <div class="brand">
+    <div class="mark">E</div>
+    <div class="name">Elyon Trading</div>
+  </div>
+  <div class="title">
+    <div class="eyebrow">Manuel utilisateur</div>
+    <h1>Console interne, application terrain et portail client</h1>
+    <p>Ce manuel décrit les trois applications telles qu'elles existent réellement dans le système au moment de sa rédaction : les écrans, la navigation, les règles qui conditionnent chaque action, et ce qui revient à chaque rôle.</p>
+  </div>
+  <div class="foot">
+    <span>Elyon Trading — document interne</span>
+    <span>Édition de mise en production</span>
+  </div>
+</div>
+
+<!-- ============================== SOMMAIRE =============================== -->
+<div class="toc">
+  <h2>Sommaire</h2>
+
+  <div class="toc-part">
+    <div class="toc-part-title">Prise en main</div>
+    <div class="toc-row"><span>1. Les trois applications, en un coup d'œil</span></div>
+    <div class="toc-row"><span>2. Connexion et sécurité</span></div>
+  </div>
+
+  <div class="toc-part">
+    <div class="toc-part-title">Console interne — Piloter</div>
+    <div class="toc-row"><span>3. Tableau de bord</span></div>
+    <div class="toc-row"><span>4. Ce que j'ai à traiter</span></div>
+    <div class="toc-row"><span>5. Pilotage financier</span></div>
+    <div class="toc-row"><span>6. Surveillance</span></div>
+    <div class="toc-row"><span>7. Recouvrement</span></div>
+  </div>
+
+  <div class="toc-part">
+    <div class="toc-part-title">Console interne — Vendre et livrer</div>
+    <div class="toc-row"><span>8. Pipeline commercial et demandes de cotation</span></div>
+    <div class="toc-row"><span>9. Affaires</span></div>
+    <div class="toc-row"><span>10. Opérations</span></div>
+    <div class="toc-row"><span>11. Contrôles HSE</span></div>
+    <div class="toc-row"><span>12. Documents et signatures</span></div>
+    <div class="toc-row"><span>13. Facturation</span></div>
+    <div class="toc-row"><span>14. Achats et prépaiements</span></div>
+    <div class="toc-row"><span>15. Barge</span></div>
+  </div>
+
+  <div class="toc-part">
+    <div class="toc-part-title">Console interne — Administrer</div>
+    <div class="toc-row"><span>16. Conformité des moyens et échéancier</span></div>
+    <div class="toc-row"><span>17. Tiers</span></div>
+    <div class="toc-row"><span>18. Dérogations</span></div>
+    <div class="toc-row"><span>19. Référentiels et paramétrage</span></div>
+    <div class="toc-row"><span>20. Journal d'audit et accès aux écrans</span></div>
+    <div class="toc-row"><span>21. Mon compte</span></div>
+  </div>
+
+  <div class="toc-part">
+    <div class="toc-part-title">Application terrain</div>
+    <div class="toc-row"><span>22. Se connecter et démarrer sur la tablette</span></div>
+    <div class="toc-row"><span>23. Mes opérations, checklists et clôture</span></div>
+    <div class="toc-row"><span>24. Fonctionnement hors ligne et file d'envoi</span></div>
+  </div>
+
+  <div class="toc-part">
+    <div class="toc-part-title">Portail client</div>
+    <div class="toc-row"><span>25. Demandes de cotation, affaires, livraisons, factures</span></div>
+    <div class="toc-row"><span>26. Vérifier un document par son QR code</span></div>
+  </div>
+
+  <div class="toc-part">
+    <div class="toc-part-title">Annexes</div>
+    <div class="toc-row"><span>A. Rôles et responsabilités</span></div>
+    <div class="toc-row"><span>B. Ce qui gouverne le système, en dix règles</span></div>
+  </div>
+</div>
+
+<!-- ============================= 1. LES TROIS APPLICATIONS ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Prise en main</div>
+  <h1>1. Les trois applications, en un coup d'œil</h1>
+  <p class="lede">Un seul système, trois portes d'entrée distinctes — parce que trois publics différents n'ont ni les mêmes besoins, ni les mêmes droits sur la même information.</p>
+
+  <div class="app-strip">
+    <div class="app a1">
+      <h4>Console interne</h4>
+      <p>Le bureau. Commercial, logistique, finance, direction, HSE, IT. Vingt-trois écrans groupés en trois intentions : Piloter, Vendre et livrer, Administrer.</p>
+    </div>
+    <div class="app a2">
+      <h4>Application terrain</h4>
+      <p>La tablette. Agent d'opération et contrôleur HSE. Une liste de travail, des checklists, des relevés, une clôture — rien de plus, et ça fonctionne sans réseau.</p>
+    </div>
+    <div class="app a3">
+      <h4>Portail client</h4>
+      <p>Le client. Sa demande de cotation, ses affaires, ses livraisons, ses factures — et rien qui appartienne à un autre tiers.</p>
+    </div>
+  </div>
+
+  <p>Les trois applications partagent la même base de données mais jamais la même session : se connecter à la console n'ouvre pas le terrain, et réciproquement. Chaque jeton de connexion porte un <strong>réalm</strong> — interne, terrain ou portail — vérifié à chaque requête avant même le rôle de la personne. Un compte du bureau ne peut techniquement pas se substituer à un agent de terrain, ni l'inverse.</p>
+
+  <div class="callout">
+    <span class="lbl">Ce qui traverse les trois applications</span>
+    Toute action qui change quelque chose — créer, approuver, signer, annuler, déroger — s'inscrit dans le <strong>journal d'audit</strong> : qui, quand, quoi, avant et après. Ce journal n'est modifiable par personne, DG compris ; c'est la mémoire du système, distincte de ce qu'affichent les écrans.
+  </div>
+</div>
+
+<!-- ============================= 2. CONNEXION ET SECURITE ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Prise en main</div>
+  <h1>2. Connexion et sécurité</h1>
+
+  <h2 class="screen">Connexion <span class="path">/connexion</span></h2>
+  <p>Adresse e-mail et mot de passe. En cas d'échec, le message ne distingue jamais un compte inexistant d'un mot de passe erroné — c'est une protection délibérée contre le sondage de comptes.</p>
+
+  <div class="steps">
+    <li>Saisissez votre adresse e-mail et votre mot de passe, puis validez.</li>
+    <li>Si le compte porte un mot de passe provisoire, un bandeau reste affiché en haut de l'écran tant qu'il n'a pas été changé — l'accès aux écrans n'est pas bloqué pour autant, c'est un rappel, pas un verrou.</li>
+    <li>Si votre rôle exige un second facteur et qu'il n'est pas encore configuré, un second bandeau l'indique de la même manière.</li>
+  </div>
+
+  <h3 class="sub">Mot de passe provisoire</h3>
+  <p>Un compte nouvellement créé reçoit un mot de passe provisoire qui doit être changé à la première connexion. Le changement se fait depuis <strong>Mon compte</strong>, à tout moment — rien n'empêche de travailler entre-temps, mais le rappel reste visible jusqu'au changement effectif.</p>
+
+  <h3 class="sub">Second facteur (TOTP)</h3>
+  <p>Certains rôles exigent un code à six chiffres, renouvelé toutes les trente secondes, produit par une application d'authentification (Google Authenticator, Microsoft Authenticator ou équivalent) en plus du mot de passe. L'enrôlement se fait depuis <strong>Mon compte</strong> : une clé secrète est proposée une seule fois — elle n'est plus jamais réaffichée ensuite — puis un code de confirmation active le second facteur. Côté terrain, le même mécanisme existe sous <strong>Second facteur</strong>, accessible dès la connexion si le rôle l'exige.</p>
+
+  <h3 class="sub">Déconnexion et révocation</h3>
+  <p>La déconnexion révoque immédiatement la session côté serveur — un jeton déconnecté ne redevient pas valide même s'il n'a pas encore expiré naturellement. La même révocation s'applique à un changement de mot de passe ou à la désactivation d'un compte : la session en cours cesse de fonctionner dès l'action suivante.</p>
+
+  <div class="callout warn">
+    <span class="lbl">Le rôle ne s'élève jamais silencieusement</span>
+    Un changement de rôle décidé par l'administration ne s'applique à un compte déjà connecté qu'après révocation explicite de sa session — jamais par un simple rafraîchissement de jeton. Si votre rôle vient de changer et que l'écran attendu n'apparaît pas, reconnectez-vous.
+  </div>
+
+  <h3 class="sub">Ce que vous voyez dépend de votre rôle</h3>
+  <p>Le menu de gauche n'affiche que les écrans auxquels votre rôle donne accès. Cette visibilité peut être ajustée finement par le Directeur Général depuis <strong>Accès aux écrans</strong> (voir § 20) — un écran peut être rendu visible ou masqué pour un rôle donné, au-delà de la règle par défaut. Un écran non listé au menu n'est pas nécessairement interdit à l'ouverture directe d'une adresse : chaque route d'écriture vérifie séparément le rôle, indépendamment de ce que montre le menu.</p>
+</div>
+
+<!-- ============================= 3. TABLEAU DE BORD ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Piloter</div>
+  <h1>3. Tableau de bord</h1>
+  <div class="kicker-nav"><span>Piloter → Tableau de bord</span></div>
+  <p class="lede">Le premier écran qu'on ouvre le matin — une vue d'ensemble de l'activité et des points qui demandent une attention.</p>
+
+  <p>Le tableau de bord présente l'état des opérations en cours regroupées par étape (chargement, transit, livraison, contrôle final...), un bloc <strong>Moyens non conformes</strong> qui signale les véhicules, barges ou équipements dont une pièce de conformité (assurance, agrément, certification) est expirée ou proche de l'être, et un bloc <strong>Prochaines échéances</strong> qui reprend le même principe sous l'angle du calendrier réglementaire.</p>
+
+  <p>C'est une vue de lecture : aucune action ne se déclenche depuis le tableau de bord lui-même. Il oriente vers les écrans où agir — Opérations, Conformité, Échéancier.</p>
+</div>
+
+<!-- ============================= 4. CE QUE J'AI A TRAITER ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Piloter</div>
+  <h1>4. Ce que j'ai à traiter</h1>
+  <div class="kicker-nav"><span>Piloter → Ce que j'ai à traiter</span></div>
+  <p class="lede">La file de travail personnelle — ce qui attend une décision de vous, précisément, pas une liste générale filtrée après coup.</p>
+
+  <p>Chaque ligne appartient à l'une de trois catégories, visibles d'un coup d'œil : <span class="badge badge-crit">Bloquante</span> — quelqu'un d'autre est arrêté tant que vous n'agissez pas ; <span class="badge badge-warn">Anomalie</span> — une échéance déjà dépassée ; et les tâches simplement à venir. La pastille numérique du bandeau, visible depuis n'importe quel écran de la console, affiche le total et se teinte en rouge dès qu'une tâche bloquante existe — le détail complet ne se lit que dans cette file elle-même.</p>
+
+  <p>La liste n'est pas un simple filtre sur les autres écrans : elle est calculée côté serveur à partir de votre rôle et de vos affectations, et se recalcule après chaque navigation, pas seulement à l'ouverture de session — un compteur qui resterait figé pendant que le travail avance perdrait sa raison d'être.</p>
+</div>
+
+<!-- ============================= 5. PILOTAGE FINANCIER ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Piloter</div>
+  <h1>5. Pilotage financier</h1>
+  <div class="kicker-nav"><span>Piloter → Pilotage financier</span></div>
+  <p class="lede">Une lecture de l'entreprise, pas un réglage — volontairement rangée sous « Piloter » et non sous « Administrer ».</p>
+
+  <p>Cet écran répond à une question que les verrous automatiques ne peuvent pas poser eux-mêmes : une affaire ou une opération qui respecte chaque seuil pris isolément peut malgré tout dériver — un placement systématiquement juste au-dessus du plancher de marge, un écart croissant entre la marge promise à l'approbation et la marge effectivement réalisée à la clôture. Le pilotage financier rassemble ces signaux d'ensemble, invisibles dossier par dossier.</p>
+
+  <div class="callout">
+    <span class="lbl">Accès</span>
+    Réservé aux profils de direction et de finance — Directeur Général, Directeur Commercial &amp; Opérations, Directeur Financier, Assistante de Direction.
+  </div>
+</div>
+
+<!-- ============================= 6. SURVEILLANCE ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Piloter</div>
+  <h1>6. Surveillance</h1>
+  <div class="kicker-nav"><span>Piloter → Surveillance</span></div>
+  <p class="lede">Ce qui mérite un second regard avant de devenir un problème : opérations ralenties, contrôles HSE en attente prolongée, dérogations proches de leur expiration.</p>
+  <p>À la différence du tableau de bord, orienté vers l'exécution du jour, la surveillance regarde ce qui traîne — une checklist ouverte sans être renseignée depuis plusieurs jours, une dérogation accordée qui approche de son terme sans que la situation qu'elle couvrait ait été résolue autrement.</p>
+</div>
+
+<!-- ============================= 7. RECOUVREMENT ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Piloter</div>
+  <h1>7. Recouvrement</h1>
+  <div class="kicker-nav"><span>Piloter → Recouvrement</span></div>
+  <p class="lede">Le suivi des créances client — factures émises, encaissements reçus, ce qui reste dû.</p>
+  <p>Chaque facture peut porter une ou plusieurs relances, journalisées avec leur date et leur contenu. L'écran donne la vision consolidée par tiers : ce qui est en cours, ce qui est en retard, l'historique des relances déjà envoyées. L'enregistrement d'un encaissement lui-même se fait depuis la fiche de la facture, dans <strong>Facturation</strong> (§ 13) — le recouvrement est le poste d'observation, pas le point de saisie.</p>
+</div>
+
+<!-- ============================= 8. CRM / DEMANDES DE COTATION ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Vendre et livrer</div>
+  <h1>8. Pipeline commercial et demandes de cotation</h1>
+  <div class="kicker-nav"><span>Vendre et livrer → Pipeline commercial</span><span>Vendre et livrer → Demandes de cotation</span></div>
+  <p class="lede">Deux origines pour une même affaire : le pipeline commercial, tenu par le commercial, et les demandes de cotation, qui arrivent directement du portail client.</p>
+
+  <h2 class="screen">Pipeline commercial <span class="path">/crm</span></h2>
+  <p>Le pipeline suit les opportunités depuis leur ouverture jusqu'à leur conversion en affaire (ou leur abandon), organisées par étape. Une opportunité porte toujours une <strong>prochaine action</strong> et une échéance associée — un champ obligatoire à la création, parce qu'une opportunité sans prochaine action dort jusqu'à ce qu'on la retrouve par hasard, et c'est la première cause d'un pipeline qui ne vit plus.</p>
+
+  <h3 class="sub">Nouvelle opportunité</h3>
+  <div class="steps">
+    <li>Choisissez le tiers (prospect ou client déjà établi) et l'étape de départ.</li>
+    <li>Le segment commercial du tiers est repris par défaut ; renseignez le produit envisagé si vous le connaissez déjà — sinon laissez « pas encore arrêté ».</li>
+    <li>Indiquez une estimation : volume, unité, prix de référence, devise. Ce chiffre d'affaires prévisionnel sert uniquement au pipeline — il n'a aucune valeur de vente et n'alimente jamais la facturation.</li>
+    <li>Décrivez la prochaine action et son échéance : c'est le champ que l'écran refuse de laisser vide.</li>
+  </div>
+
+  <h3 class="sub">Fiche d'une opportunité</h3>
+  <p>La fiche journalise chaque échange avec le prospect (appel, visite, message) et garde l'historique du parcours dans le pipeline — chaque changement d'étape est daté. Une opportunité gagnée se transforme en affaire ; l'écran ne recopie que ce qui doit l'être, le chiffrage réel se fait ensuite dans <strong>Affaires</strong>.</p>
+
+  <h2 class="screen">Demandes de cotation <span class="path">/demandes-de-cotation</span></h2>
+  <p>Cet écran est le second bout du canal portail : une demande soumise par un client depuis son propre espace (§ 25) arrive ici et ne devient visible nulle part ailleurs tant qu'elle n'a pas été traitée. Trois gestes sont possibles : la marquer <strong>en étude</strong>, la <strong>décliner</strong> (avec motif), ou, une fois qu'une proforma a été émise et acceptée par le client sur le portail, la <strong>convertir</strong> en affaire.</p>
+
+  <div class="callout">
+    <span class="lbl">La conversion crée réellement l'affaire</span>
+    Tiers, produit, volume, prix et devise viennent tous de la demande et de la proforma déjà approuvée par le client — rien ne se ressaisit. Seuls le mode de transport et le lieu de livraison, absents du parcours de cotation, sont demandés au moment de convertir.
+  </div>
+</div>
+
+<!-- ============================= 9. AFFAIRES ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Vendre et livrer</div>
+  <h1>9. Affaires</h1>
+  <div class="kicker-nav"><span>Vendre et livrer → Affaires</span></div>
+  <p class="lede">Le cœur du cycle commercial : une affaire porte le produit, le volume, le prix de vente, le prix d'achat, les coûts, et la chaîne de marge qui en découle — du brouillon jusqu'à l'approbation.</p>
+
+  <h2 class="screen">Liste des affaires <span class="path">/affaires</span></h2>
+  <p>Un chargé de clientèle ne voit que les affaires dont il est propriétaire ; les autres profils (direction, finance, coordination logistique) voient l'ensemble. Le coordinateur logistique ne voit en revanche ni marge, ni prix d'achat, sur aucune affaire — le prix de vente reste visible, parce qu'il faut savoir ce qu'on transporte, mais rien qui permette de reconstituer la marge par simple soustraction.</p>
+
+  <h2 class="screen">Nouvelle affaire <span class="path">/affaires/nouvelle</span></h2>
+  <div class="steps">
+    <li><strong>Client</strong> — le tiers, éventuellement rattaché à un contrat-cadre actif.</li>
+    <li><strong>Produit et volume</strong> — pour un produit physique, volume, unité et mode de transport sont exigés. Un produit de type service (une prestation de barge, par exemple) n'a besoin d'aucun des trois : le volume vaut alors un forfait, et le prix unitaire porte directement le montant total de la prestation.</li>
+    <li><strong>Conditions de vente</strong> — devise, prix de vente unitaire (librement saisi, modifiable jusqu'à la facturation), et une éventuelle remise (au litre, en pourcentage, ou en montant fixe).</li>
+  </div>
+  <p>Le prix d'achat n'est jamais saisi librement à la création : il découle d'un prix fournisseur choisi ensuite (voir plus bas). Une affaire naît toujours au statut <strong>Brouillon</strong>.</p>
+
+  <h2 class="screen">Fiche d'une affaire <span class="path">/affaires/:id</span></h2>
+
+  <h3 class="sub">Fournisseur et prix d'achat</h3>
+  <p>Seuls les prix fournisseurs déjà validés par le Directeur Général, pour le bon produit et en vigueur à la date du jour, sont proposés — le prix d'achat se <em>choisit</em> parmi ceux-là, il ne se saisit pas librement. Chaque prix affiche la bande de tolérance dans laquelle il peut être retenu sans justification ; au-delà, un motif est exigé et l'approbation demandera une dérogation de type <span class="badge badge-role">Prix d'achat hors bande</span>. Le coût de portage lié au décalage entre le crédit fournisseur et le crédit accordé au client est calculé et affiché à côté de chaque prix, pour comparer deux fournisseurs à leur coût réel et pas seulement à leur tarif affiché.</p>
+
+  <h3 class="sub">Chiffrage des coûts</h3>
+  <p>Les postes de coût direct (transport, manutention, inspection...) se saisissent ligne par ligne. Chaque poste propose sa valeur de barème — au litre, à la rotation, ou au forfait, selon ce que le référentiel a fixé pour ce poste — et un écart au-delà de la tolérance du barème exige un motif. Le chiffrage entier se remplace en bloc à chaque modification plutôt que de s'empiler : un devis repris se reprend en entier, pour qu'aucun reliquat de ligne oubliée ne gonfle silencieusement les charges.</p>
+
+  <h3 class="sub">Chaîne de marge</h3>
+  <p>La marge se recalcule automatiquement à chaque changement de prix, de coût ou de fournisseur, et se lit en <strong>marge directe</strong> (prix de vente moins achat et coûts directs) et <strong>marge complète</strong> (après charges indirectes). Le verdict par rapport aux seuils configurés — au-dessus, en dessous du plancher direct, en dessous du seuil minimum — conditionne les étapes suivantes.</p>
+
+  <h3 class="sub">Circuit d'approbation</h3>
+  <p>Une affaire brouillon se <strong>soumet au contrôle du risque</strong> par le commercial ou le Directeur Commercial &amp; Opérations, puis reçoit l'<strong>approbation financière</strong> du Directeur Financier (ou du Directeur Général). Si la marge est sous le plancher direct, sous le seuil minimum, si le prix d'achat sort de la bande de tolérance, ou si l'affaire dépasse le plafond de crédit du client, l'approbation exige une dérogation correspondante — accordée directement depuis cet écran par l'autorité compétente (voir § 18 pour le détail de qui peut accorder quoi). Une affaire n'est plus modifiable dès qu'elle quitte le statut brouillon : la marge qui a servi de base à une décision ne doit plus bouger sous les pieds de qui l'a validée.</p>
+
+  <div class="callout crit">
+    <span class="lbl">Les seuils ne sont jamais vérifiés que côté écran</span>
+    Chaque contrôle de marge, de bande de prix ou de plafond de crédit est revérifié en base de données au moment même de l'écriture. Un bouton visible sur cet écran ne préjuge donc jamais du résultat — un refus revient toujours accompagné de son motif exact.
+  </div>
+
+  <h3 class="sub">Facturation et opérations liées</h3>
+  <p>Une fois approuvée, l'affaire peut donner lieu à une ou plusieurs opérations de livraison et à une ou plusieurs factures — chacune listée directement sur la fiche, avec accès à leurs pièces scellées.</p>
+</div>
+
+<!-- ============================= 10. OPERATIONS ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Vendre et livrer</div>
+  <h1>10. Opérations</h1>
+  <div class="kicker-nav"><span>Vendre et livrer → Opérations</span></div>
+  <p class="lede">L'exécution physique d'une affaire — chargement, transport, livraison — depuis sa planification jusqu'à sa clôture.</p>
+
+  <h2 class="screen">Nouvelle opération <span class="path">/operations/nouvelle</span></h2>
+  <p>Une opération se rattache toujours à une affaire déjà approuvée. Elle porte un ou plusieurs <strong>types d'opération</strong> (chargement au dépôt, transport routier, soutage à quai...) — c'est cet indexage qui détermine quelles checklists HSE lui seront applicables : une opération sans type ne reçoit aucun contrôle HSE, et le système refuse de la faire avancer tant qu'elle n'en porte aucun. L'acheminement précise le mode de transport, le moyen affecté (véhicule, barge) et le chauffeur.</p>
+
+  <h2 class="screen">Fiche d'une opération <span class="path">/operations/:id</span></h2>
+  <p>Le déroulé affiche la succession des statuts (planifiée, chargement, en transit, livraison, contrôle final, clôturée) et les actions possibles à chaque étape — la <strong>Conduite de l'opération</strong> (composant d'action) propose exactement les transitions autorisées depuis le statut courant, jamais plus.</p>
+
+  <h3 class="sub">Le verrou HSE avant chargement</h3>
+  <p>Une opération ne peut pas entrer en chargement — ni dans aucune étape qui suit — tant que sa checklist HSE n'est pas validée : un contrôleur HSE habilité doit l'avoir validée, la checklist doit compter au moins un point de contrôle, et aucun point <strong>bloquant</strong> ne doit rester en attente. Ce verrou se lève de deux façons seulement : la validation normale de la checklist (§ 11), ou une dérogation <span class="badge badge-crit">Verrou HSE</span> explicitement accordée et rattachée à l'opération — jamais par un simple changement de statut forcé depuis cet écran.</p>
+
+  <h3 class="sub">Rattacher une dérogation</h3>
+  <p>Lorsqu'une dérogation de verrou HSE a été accordée (par le Directeur Général, le Directeur Commercial &amp; Opérations, le Directeur Financier ou la Coordination logistique, selon le cas), elle se rattache à l'opération directement depuis cet écran, ce qui débloque la transition suivante sans repasser par la checklist.</p>
+
+  <h3 class="sub">Lignes de coût réalisées</h3>
+  <p>Au fil de l'exécution, les coûts réels constatés (carburant, péage, manutention effective) s'enregistrent et alimentent la marge <em>réalisée</em> de l'affaire — distincte de la marge <em>estimée</em> calculée au chiffrage, pour que l'écart entre promesse et réalité reste visible plutôt que dilué.</p>
+
+  <h3 class="sub">Clôture et documents</h3>
+  <p>Depuis les statuts de livraison ou de contrôle final, l'agent de terrain déclenche la génération du rapport d'exécution et du bon de livraison (§ 12) ; côté bureau, la fiche affiche leur avancement et permet de consulter les pièces une fois générées et signées.</p>
+</div>
+
+<!-- ============================= 11. HSE ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Vendre et livrer</div>
+  <h1>11. Contrôles HSE</h1>
+  <div class="kicker-nav"><span>Vendre et livrer → Contrôles HSE</span></div>
+  <p class="lede">Ce qui bloque une opération avant qu'elle ne devienne dangereuse, et ce qui trace ce qui s'est mal passé.</p>
+
+  <h2 class="screen">Checklists en attente de validation</h2>
+  <p>La checklist d'une opération est constituée automatiquement à l'ouverture, comme l'union des modèles rattachés à chacun des types portés par l'opération — un point de contrôle peut donc provenir de plusieurs modèles à la fois. Chaque point est <strong>renseigné</strong> par l'agent de terrain sur la tablette (conforme, non conforme, sans objet), puis <strong>validé</strong> par le contrôleur HSE — deux gestes distincts, jamais confondus : renseigner un point conforme n'équivaut pas à le valider.</p>
+
+  <div class="callout">
+    <span class="lbl">Séparation des tâches</span>
+    Le contrôleur qui valide une checklist ne peut pas être la même personne qui a renseigné un point bloquant de cette checklist — la base de données l'interdit, quelle que soit l'interface utilisée. En pratique, un seul contrôleur HSE suffit le plus souvent : c'est le mode « à distance », où le contrôleur valide depuis le bureau une checklist entièrement renseignée par l'agent sur site.
+  </div>
+
+  <h3 class="sub">Suppléance du contrôleur HSE</h3>
+  <p>En l'absence du contrôleur HSE titulaire, le Directeur Général peut soit valider lui-même une checklist directement depuis la console (§ « Suppléance » sur cet écran), soit désigner un agent de terrain comme suppléant temporaire pour une période donnée — voir § 18, <strong>Dérogations</strong>, pour le détail des deux mécanismes.</p>
+
+  <h3 class="sub">Déclarer un événement</h3>
+  <p>Un incident, un déversement, une non-conformité constatée hors checklist se déclare ici, avec sa nature, sa gravité, une description d'au moins dix caractères, et éventuellement l'opération concernée. Déclarer un événement ne demande aucune habilitation particulière — seul son traitement en demande une.</p>
+</div>
+
+<!-- ============================= 12. DOCUMENTS ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Vendre et livrer</div>
+  <h1>12. Documents et signatures</h1>
+  <div class="kicker-nav"><span>Vendre et livrer → Documents</span></div>
+  <p class="lede">Chaque pièce que le système produit ou reçoit, avec son authenticité vérifiable indépendamment de l'écran qui l'affiche.</p>
+
+  <p>Le binaire d'une pièce (PDF, image) n'entre jamais dans la base de données elle-même : seules la clé de son emplacement dans le coffre et son empreinte SHA-256 y figurent. C'est cette empreinte qui permet, des années plus tard, de confronter un papier présenté par un client, un assureur ou un auditeur à ce que le système a réellement émis.</p>
+
+  <h3 class="sub">Signature et scellement</h3>
+  <p>Une pièce se signe (par l'agent, le client, un tiers, selon sa nature) puis se <strong>scelle</strong> — à partir de ce moment, ni sa clé de stockage, ni son empreinte, ni sa taille ne peuvent plus changer, sous la garde d'un déclencheur en base de données qui refuse toute tentative. Un rapport d'exécution se scelle dès que l'agent l'a signé ; un bon de livraison attend les deux signatures, l'agent et le représentant du client, parce qu'il engage les deux parties.</p>
+
+  <h3 class="sub">Annule et remplace</h3>
+  <p>Une pièce scellée ne se corrige jamais sur place : la seule correction possible est l'émission d'une nouvelle pièce portant la mention « annule et remplace » et le motif du remplacement. L'ancienne reste visible, marquée comme remplacée — l'histoire ne s'efface pas, elle se complète.</p>
+
+  <h3 class="sub">Vérification par QR code</h3>
+  <p>Chaque pièce scellée porte, imprimée sur son PDF, un QR code et un lien de vérification publics — sans compte, sans connexion. Scanner ce code confirme la nature de la pièce, sa référence, sa date et son empreinte, et signale explicitement si elle a été remplacée depuis. Rien de plus n'est révélé : jamais un montant, un client ou une marge (voir aussi § 26, côté portail).</p>
+</div>
+
+<!-- ============================= 13. FACTURATION ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Vendre et livrer</div>
+  <h1>13. Facturation</h1>
+  <div class="kicker-nav"><span>Vendre et livrer → Facturation</span></div>
+  <p class="lede">Proforma, facture normalisée (FNE), facture simple, avoir — quatre natures de pièces, un seul cycle de vie.</p>
+
+  <h2 class="screen">Éditer une pièce</h2>
+  <p>Une facture se rattache soit à une affaire déjà approuvée, soit à une demande de cotation (uniquement pour une proforma) — jamais aux deux à la fois, sauf au moment précis de la conversion d'une demande en affaire. Volume et prix sont saisis à l'édition et peuvent différer de ce que portait l'affaire : la quantité effectivement à livrer a pu changer.</p>
+
+  <h3 class="sub">TVA et devise</h3>
+  <p>La TVA, lorsqu'elle est applicable, se calcule au taux configuré par défaut — jamais à un taux implicitement nul. Une pièce peut être libellée dans une devise d'impression différente de sa devise de transaction : le montant qui engage juridiquement le client est celui de la devise de transaction ; l'autre n'est qu'une conversion informative au cours du jour.</p>
+
+  <h3 class="sub">Facture simple : une décision, pas un défaut</h3>
+  <p>Recourir à une facture simple plutôt qu'à une facture normalisée FNE est une décision interne qui exige un motif d'au moins dix caractères, demandé dès l'édition de la pièce — pas seulement au moment de l'émettre, pour ne jamais laisser une pièce éditée rester bloquée sans recours.</p>
+
+  <h3 class="sub">Émission</h3>
+  <p>Émettre une pièce la fait quitter le brouillon et la rend opposable : elle reçoit sa date d'émission, son échéance, et pour une pièce FNE, sa transmission à la DGI est engagée. Une proforma née d'une demande de cotation portail est émise automatiquement dès sa création — elle n'attend aucun second acteur, n'a pas encore de conséquence fiscale ni de créance.</p>
+
+  <h3 class="sub">Conversion et avoir</h3>
+  <p>Une proforma acceptée se convertit en pièce définitive en reprenant son volume et son prix, modifiables si la quantité livrée a changé. Un avoir corrige une pièce déjà émise et ne peut jamais dépasser ce qu'il reste à corriger sur cette pièce, cumul des avoirs déjà passés compris — la créance du client ne peut pas être effacée par un avoir disproportionné.</p>
+
+  <h3 class="sub">Encaissement</h3>
+  <p>Un règlement s'enregistre depuis la fiche de la facture. La personne qui a créé la facture ne peut jamais être celle qui en enregistre l'encaissement — une séparation des tâches destinée à éviter qu'une pièce fictive et son règlement sortent de la même main sans second regard. Le solde de la pièce se dérive automatiquement du journal des règlements, ce qui évite toute course entre deux encaissements concurrents.</p>
+
+  <h3 class="sub">Annulation</h3>
+  <p>Une pièce émise par erreur peut s'annuler directement — mais seulement tant qu'aucun encaissement n'a été reçu, et jamais pour une pièce FNE déjà certifiée par la DGI. Au-delà, seul un avoir corrige, parce qu'annuler effacerait la trace d'un paiement reçu ou d'une certification fiscale déjà accordée.</p>
+</div>
+
+<!-- ============================= 14. ACHATS ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Vendre et livrer</div>
+  <h1>14. Achats et prépaiements</h1>
+  <div class="kicker-nav"><span>Vendre et livrer → Achats</span></div>
+  <p class="lede">Les factures fournisseurs, leur rapprochement avec le coût réel constaté sur les opérations, et leur règlement.</p>
+
+  <p>Une facture fournisseur s'enregistre puis se rapproche des coûts constatés sur les opérations correspondantes — c'est ce rapprochement qui distingue un coût estimé au chiffrage d'un coût effectivement engagé et payé. Un prépaiement se règle avant service fait, un règlement classique après ; les deux se gèrent depuis cet écran, avec leur propre échéance de suivi.</p>
+</div>
+
+<!-- ============================= 15. BARGE ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Vendre et livrer</div>
+  <h1>15. Barge</h1>
+  <div class="kicker-nav"><span>Vendre et livrer → Barge</span></div>
+  <p class="lede">Le suivi de la flotte fluviale propre à l'entreprise — immatriculation, capacité, maintenance.</p>
+  <p>Chaque barge porte sa fiche de maintenance, consultable et modifiable depuis cet écran. C'est aussi depuis les référentiels de véhicules et de barges que se déclarent les produits autorisés à bord d'une citerne (§ 19) — une opération ne s'affecte pas à un moyen qui n'accepte pas le produit transporté.</p>
+</div>
+
+<!-- ============================= 16. CONFORMITE / ECHEANCIER ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Administrer</div>
+  <h1>16. Conformité des moyens et échéancier</h1>
+  <div class="kicker-nav"><span>Administrer → Conformité</span><span>Administrer → Échéancier</span></div>
+
+  <h2 class="screen">Conformité des moyens <span class="path">/conformite</span></h2>
+  <p>Chaque véhicule, barge ou équipement doit porter les pièces de conformité qui le rendent affectable — assurance, agrément, certification, selon sa nature. L'écran liste ces exigences et leur état, et permet d'<strong>enregistrer une pièce</strong> : un fichier (PDF, JPEG, PNG ou WebP) se dépose directement à l'appui de l'enregistrement.</p>
+  <p>Un même fichier déposé deux fois — la police d'assurance d'une flotte, valable pour plusieurs véhicules — est reconnu par son empreinte et réutilisé plutôt que dupliqué dans le coffre de stockage.</p>
+  <p>Un moyen dont une pièce obligatoire est expirée ou manquante devient <strong>non conforme</strong> : il apparaît en tant que tel sur le tableau de bord (§ 3) et ne peut plus être affecté à une opération sans dérogation.</p>
+
+  <h2 class="screen">Échéancier réglementaire <span class="path">/echeancier</span></h2>
+  <p>La même information que la Conformité, lue sous l'angle du calendrier : ce qui expire cette semaine, ce mois-ci, ce trimestre — pour anticiper un renouvellement avant qu'il ne devienne un blocage opérationnel.</p>
+</div>
+
+<!-- ============================= 17. TIERS ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Administrer</div>
+  <h1>17. Tiers</h1>
+  <div class="kicker-nav"><span>Administrer → Tiers</span></div>
+  <p class="lede">Clients, prospects, fournisseurs, transporteurs, inspecteurs — le répertoire commun à toute l'activité commerciale et logistique.</p>
+  <p>Chaque tiers porte son code, sa raison sociale, son segment commercial, ses conditions de paiement et, pour un client, son plafond de crédit et son statut de crédit — ce dernier conditionnant directement l'approbation des affaires qui le concernent (§ 9).</p>
+</div>
+
+<!-- ============================= 18. DEROGATIONS ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Administrer</div>
+  <h1>18. Dérogations</h1>
+  <div class="kicker-nav"><span>Administrer → Dérogations</span></div>
+  <p class="lede">Le registre de tout ce qui a été autorisé à sortir de la règle normale — jamais un contournement silencieux, toujours une décision tracée, motivée et opposable.</p>
+
+  <p>Une dérogation porte un type, un sujet précis (une affaire, une opération, un moyen...), un motif obligatoire, une autorité qui l'accorde, et une durée de validité. Elle peut être <strong>révoquée</strong> à tout moment par une autorité habilitée — la révocation coupe immédiatement son effet, y compris pour une suppléance HSE qu'elle porterait (voir plus bas).</p>
+
+  <h3 class="sub">Qui peut accorder quoi</h3>
+  <table>
+    <tr><th>Type de dérogation</th><th>Autorité</th></tr>
+    <tr><td>Non-conformité de transport</td><td>Directeur Général seul</td></tr>
+    <tr><td>Marge sous le plancher direct</td><td>Directeur Général seul</td></tr>
+    <tr><td>Suppléance du contrôleur HSE</td><td>Directeur Général seul</td></tr>
+    <tr><td>Marge sous le seuil minimum</td><td>Directeur Général seul</td></tr>
+    <tr><td>Constat d'ullage</td><td>Directeur Général, Directeur Financier ou Directeur Commercial &amp; Opérations</td></tr>
+    <tr><td>Verrou HSE, prix d'achat hors bande, plafond de crédit, et tout autre motif</td><td>Directeur Général, Directeur Financier ou Directeur Commercial &amp; Opérations</td></tr>
+  </table>
+
+  <h3 class="sub">Accorder une dérogation</h3>
+  <p>Le geste le plus courant se fait <em>en place</em>, directement dans l'écran qui en a besoin — l'approbation d'une affaire, l'attachement au verrou HSE d'une opération — plutôt que sur cet écran séparé : l'autorité qui accorde la dérogation est celle-là même qui approuve ou débloque l'instant d'après. Ce registre reste la vue d'ensemble : lister, revoir le motif, et révoquer.</p>
+
+  <h3 class="sub">Suppléance du contrôleur HSE</h3>
+  <p>Le Directeur Général peut désigner un agent de terrain comme suppléant du contrôleur HSE, pour une période délimitée (début et fin) et avec un motif. Deux mécanismes distincts existent pour la même situation :</p>
+  <ul>
+    <li><strong>Valider directement</strong> — le Directeur Général valide lui-même une checklist depuis la console interne, sans passer par un suppléant sur le terrain.</li>
+    <li><strong>Désigner un suppléant</strong> — un agent reçoit, pour la période désignée, le droit de valider les checklists comme s'il était contrôleur HSE, sans que son rôle déclaré change. Un agent qui tente de valider sans délégation active reçoit un refus circonstancié ; il ne suffit jamais d'être présent sur le terrain.</li>
+  </ul>
+  <p>Dans les deux cas, le contrôleur qui a renseigné un point bloquant ne peut jamais être celui qui le valide, suppléance ou non — cette règle-là ne se lève jamais.</p>
+</div>
+
+<!-- ============================= 19. REFERENTIELS / PARAMETRAGE ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Administrer</div>
+  <h1>19. Référentiels et paramétrage</h1>
+  <div class="kicker-nav"><span>Administrer → Référentiels</span><span>Administrer → Paramétrage</span></div>
+  <p class="lede">Aucune donnée de fonctionnement n'est figée dans le code de l'application — chaque seuil, chaque barème, chaque liste se règle depuis ces deux écrans.</p>
+
+  <h2 class="screen">Référentiels <span class="path">/referentiels</span></h2>
+  <p>Devises et cours de change, seuils de marge, tolérances d'écart de volume, répertoire des postes de coûts — les données qui gouvernent directement les calculs commerciaux et financiers, avec un accès en lecture large et une écriture réservée aux profils habilités.</p>
+
+  <h2 class="screen">Paramétrage <span class="path">/parametrage</span></h2>
+  <p>Un moteur générique couvre l'ensemble des référentiels du système — types d'opération, modèles de checklist HSE et leurs points de contrôle, exigences de site, véhicules et leur capacité, produits autorisés par citerne, taux et réglages système. Chaque référentiel se gère de deux façons :</p>
+  <ul>
+    <li><strong>Saisie unitaire</strong> — une ligne à la fois, avec ses règles de validation propres.</li>
+    <li><strong>Import de fichier</strong> — plusieurs lignes en une fois, avec un mode <em>simulation</em> qui rend un rapport ligne par ligne sans rien écrire, pour vérifier avant d'engager.</li>
+  </ul>
+  <p>Certaines tables sont <strong>historisées</strong> — un taux de change, un seuil de marge à telle date : une nouvelle valeur ne remplace jamais l'ancienne, elle clôt sa période de validité et ouvre la sienne, pour que le calcul d'une pièce passée reste reproductible avec le taux qui était réellement en vigueur ce jour-là.</p>
+
+  <div class="callout">
+    <span class="lbl">Réglages sensibles</span>
+    Deux réglages doivent être corrigés lors du déploiement en production, avant toute mise en service réelle : l'adresse publique depuis laquelle le lien de vérification des documents (§ 12, § 26) sera joignable, et l'adresse de l'API de certification fiscale DGI. Les deux se règlent depuis cet écran, jamais en base de données directement.
+  </div>
+</div>
+
+<!-- ============================= 20. JOURNAL D'AUDIT / ACCES ECRANS ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne · Administrer</div>
+  <h1>20. Journal d'audit et accès aux écrans</h1>
+  <div class="kicker-nav"><span>Administrer → Journal d'audit</span><span>Administrer → Accès aux écrans</span></div>
+
+  <h2 class="screen">Journal d'audit <span class="path">/journal-audit</span></h2>
+  <p>Chaque action qui modifie une donnée — création, mise à jour, changement de statut, approbation, dérogation accordée ou révoquée — s'y inscrit avec son auteur, son horodatage, et l'état avant et après. Le journal est consultable mais jamais modifiable, y compris par le Directeur Général : c'est la mémoire du système, distincte de ce que racontent les écrans eux-mêmes.</p>
+
+  <h2 class="screen">Accès aux écrans <span class="path">/acces-ecrans</span> · Directeur Général uniquement</h2>
+  <p>Chaque écran porte une visibilité par défaut selon le rôle. Cette matrice permet au Directeur Général de rendre un écran exceptionnellement visible pour un rôle qui n'y a normalement pas accès, ou au contraire de le masquer pour un rôle qui y a normalement accès — une dérogation à la visibilité, pas aux droits d'écriture sous-jacents, qui restent gouvernés séparément par chaque route.</p>
+</div>
+
+<!-- ============================= 21. MON COMPTE ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Console interne</div>
+  <h1>21. Mon compte</h1>
+  <div class="kicker-nav"><span>Menu utilisateur → Mon compte</span></div>
+  <p class="lede">Accessible depuis n'importe quel écran, en cliquant sur son propre nom dans le bandeau supérieur.</p>
+  <p>Changement de mot de passe, et configuration du second facteur (§ 2) lorsque le rôle l'exige. C'est aussi ici que se règlent les deux rappels qui peuvent apparaître en bandeau tant qu'ils ne sont pas résolus : mot de passe provisoire et second facteur manquant.</p>
+</div>
+
+<!-- ============================= 22. TERRAIN - CONNEXION ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Application terrain</div>
+  <h1>22. Se connecter et démarrer sur la tablette</h1>
+  <p class="lede">Une application volontairement dépouillée : un agent sur site exécute une liste de travail, il ne parcourt pas une arborescence de menus.</p>
+
+  <p>La connexion terrain est indépendante de la console interne — même si la même personne détenait un compte des deux côtés, ce qui n'est pas le cas courant, les deux sessions resteraient étanches l'une de l'autre. Deux rôles existent côté terrain : <span class="badge badge-role">Agent d'opération</span> et <span class="badge badge-role">Contrôleur HSE</span> — visible en permanence dans l'entête, parce que c'est ce qui explique à l'agent pourquoi tel bouton de validation ne lui est pas proposé.</p>
+
+  <p>Comme côté bureau, un mot de passe provisoire ou un second facteur non configuré affiche un bandeau d'alerte tant que la situation n'est pas résolue, accessible directement depuis ce bandeau.</p>
+
+  <div class="callout">
+    <span class="lbl">Deux destinations, pas plus</span>
+    L'entête de l'application terrain ne propose que <strong>Mes opérations</strong> et la <strong>File d'envoi</strong> — cette dernière sous forme de compteur, visible en permanence, qui vire à l'orange en cas d'attente et au rouge en cas de refus. Tout le reste se navigue depuis l'opération elle-même.
+  </div>
+</div>
+
+<!-- ============================= 23. TERRAIN - OPERATIONS / CHECKLIST / CLOTURE ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Application terrain</div>
+  <h1>23. Mes opérations, checklists et clôture</h1>
+
+  <h2 class="screen">Mes opérations</h2>
+  <p>La liste ne montre que ce qui concerne l'agent connecté : les opérations qui lui sont affectées, et, pour un contrôleur HSE, celles qui attendent sa validation. Chaque ligne indique explicitement pourquoi elle figure dans la liste — affectée, ou en attente de validation — le serveur le calcule et le rend tel quel, l'écran ne le devine jamais.</p>
+
+  <h2 class="screen">Fiche d'une opération</h2>
+  <p>La référence de l'opération, le site, l'acheminement — puis, selon l'avancement, les actions disponibles : ouvrir une checklist, relever un volume, déclarer un incident, faire avancer l'opération à l'étape suivante.</p>
+
+  <h3 class="sub">Checklist HSE</h3>
+  <p>La checklist applicable à la phase en cours se génère automatiquement à l'ouverture. Chaque point se renseigne par un choix à trois boutons — <span class="badge badge-ok">Conforme</span>, <span class="badge badge-crit">Non conforme</span>, <span class="badge badge-warn">Sans objet</span> — jamais par la saisie d'un code en anglais : un agent ganté qui doit choisir entre trois abréviations se trompe. Une checklist déjà validée ne se modifie plus ; un écart découvert après coup s'ouvre comme un événement HSE.</p>
+
+  <h3 class="sub">Relever un volume, déclarer un incident, faire avancer</h3>
+  <p>Un relevé de volume porte sa source (jauge, compteur, estimation) et, le cas échéant, l'écart constaté par rapport au volume prévu — un écart au-delà du seuil critique ouvre automatiquement une non-conformité, sans jamais retenir la facture pour autant : l'ullage est un contrôle opérationnel et HSE, jamais un contrôle de facturation. Faire avancer l'opération applique la transition de statut suivante, si le verrou HSE et les autres conditions de cette étape sont satisfaits.</p>
+
+  <h3 class="sub">Clôturer l'opération</h3>
+  <p>Depuis les statuts de livraison, l'agent déclenche la clôture : génération du rapport d'exécution et du bon de livraison, puis recueil des signatures — la sienne, et pour le bon de livraison, celle du représentant du client, capturée directement sur la tablette. Le rendu du document lui-même se fait en tâche de fond, pour ne jamais faire attendre l'agent sur un réseau incertain ; l'avancement se suit depuis la même fiche.</p>
+
+  <h3 class="sub">Documents</h3>
+  <p>Un agent ne voit que quatre natures de pièces, celles qui le concernent directement : ordre de transport, bon de livraison, rapport de mesure, rapport d'exécution — jamais une facture, jamais une référence d'affaire au-delà de ce qui est strictement nécessaire à son propre travail.</p>
+</div>
+
+<!-- ============================= 24. TERRAIN - HORS LIGNE ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Application terrain</div>
+  <h1>24. Fonctionnement hors ligne et file d'envoi</h1>
+  <p class="lede">Un dépôt ou une zone de transit n'a pas toujours de réseau — l'application est conçue pour continuer à fonctionner malgré cela.</p>
+
+  <p>Chaque saisie effectuée sans connexion (relevé, point de checklist, incident) est conservée localement sur l'appareil et rejouée automatiquement dès que le réseau revient — rien ne se perd parce qu'un dépôt n'a pas de couverture. Une journée saisie hors réseau reprend même après extinction de la tablette : ce qui attendait d'être envoyé au moment de la fermeture de session est repris à la reconnexion suivante.</p>
+
+  <h2 class="screen">File d'envoi <span class="path">/terrain/file</span></h2>
+  <p>Le compteur visible en permanence dans l'entête distingue ce qui est simplement <strong>en attente</strong> d'être transmis (orange) de ce qui a été explicitement <strong>refusé</strong> par le serveur (rouge) — un refus arrête l'opération concernée, une attente non. Cet écran liste chaque élément de la file avec son état, pour comprendre et, le cas échéant, corriger ce qui bloque.</p>
+</div>
+
+<!-- ============================= 25. PORTAIL CLIENT ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Portail client</div>
+  <h1>25. Demandes de cotation, affaires, livraisons, factures</h1>
+  <p class="lede">L'espace du client — uniquement ses propres données, jamais celles d'un autre tiers, jamais un prix d'achat, une marge ou un encours crédit.</p>
+
+  <p>Chaque écran du portail est cloisonné par le tiers rattaché au compte connecté, vérifié à chaque requête : un identifiant qui n'appartient pas à ce tiers renvoie une absence pure et simple, jamais un refus qui confirmerait son existence.</p>
+
+  <h2 class="screen">Tableau de bord</h2>
+  <p>Les proformas en attente d'acceptation, et les affaires récentes — le point d'entrée du portail.</p>
+
+  <h2 class="screen">Demandes de cotation</h2>
+  <p>Une nouvelle demande se soumet en choisissant un produit du catalogue, un volume souhaité, une unité et, éventuellement, une date de livraison désirée et un message libre. La demande arrive côté commercial (§ 8) ; son avancement — en étude, déclinée, proforma envoyée — se suit depuis cet écran. Une proforma reçue s'accepte ou reste en attente ; son acceptation est la seule transition que le client déclenche lui-même sur le cycle de vente.</p>
+
+  <h2 class="screen">Affaires</h2>
+  <p>Une fois une proforma acceptée et convertie côté commercial, l'affaire apparaît ici avec son suivi de livraisons — jamais son prix d'achat, ses coûts internes ou sa marge.</p>
+
+  <h2 class="screen">Livraisons</h2>
+  <p>Le statut de chaque opération de livraison rattachée aux affaires du client : planifiée, en cours, livrée.</p>
+
+  <h2 class="screen">Factures</h2>
+  <p>Seules les pièces réellement émises apparaissent — un brouillon encore en édition interne, dont le numéro n'est pas définitif et le montant susceptible de changer, n'est jamais montré à un tiers. Chaque facture émise donne accès à son PDF scellé, dès qu'il a été généré.</p>
+</div>
+
+<!-- ============================= 26. VERIFICATION QR ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Portail client</div>
+  <h1>26. Vérifier un document par son QR code</h1>
+  <p class="lede">Une page publique, sans connexion, sans compte — parce que celui qui scanne un papier n'est pas nécessairement un client du portail.</p>
+
+  <p>Chaque pièce scellée émise par le système (proforma, facture, avoir, bon de livraison, rapport d'exécution...) imprime, au bas de son PDF, un QR code et une adresse de vérification. Scanner ce code, ou saisir l'adresse imprimée, ouvre une page qui confirme :</p>
+  <ul>
+    <li>la nature de la pièce et sa référence ;</li>
+    <li>la date à laquelle elle a été générée, et scellée si elle l'est ;</li>
+    <li>son empreinte numérique, à confronter à celle du papier présenté ;</li>
+    <li>si elle a depuis été remplacée par une pièce plus récente (« annule et remplace »).</li>
+  </ul>
+  <p>Rien de plus n'est jamais montré — ni montant, ni client, ni marge : c'est une vérification d'authenticité, pas une consultation de dossier.</p>
+</div>
+
+<!-- ============================= ANNEXE A ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Annexe</div>
+  <h1>A. Rôles et responsabilités</h1>
+
+  <h3 class="sub">Console interne</h3>
+  <table class="role-table">
+    <tr><th>Rôle</th><th>Terrain d'action principal</th></tr>
+    <tr><td>Directeur Général</td><td>Toute la console. Seule autorité pour les dérogations les plus sensibles (marge sous plancher, suppléance HSE, non-conformité de transport), l'accès aux écrans, et la suppléance directe d'une checklist.</td></tr>
+    <tr><td>Assistante de Direction</td><td>Lecture large, appui à la direction sur le pilotage et la conformité.</td></tr>
+    <tr><td>Ingénieur Informatique</td><td>Paramétrage et référentiels techniques.</td></tr>
+    <tr><td>Directeur Commercial &amp; Opérations</td><td>Pipeline commercial, affaires, opérations, approbations partagées avec la Direction Financière.</td></tr>
+    <tr><td>Chargé de Clientèle &amp; Devis</td><td>Ses propres opportunités et affaires — jamais celles d'un collègue.</td></tr>
+    <tr><td>Coordinateur Logistique &amp; Sourcing</td><td>Opérations, HSE, achats — sans jamais voir marge ni prix d'achat sur une affaire.</td></tr>
+    <tr><td>Directeur Financier</td><td>Facturation, approbation des affaires, dérogations financières, pilotage.</td></tr>
+    <tr><td>Comptable / Chargé de Recouvrement</td><td>Facturation, encaissements, recouvrement.</td></tr>
+  </table>
+
+  <h3 class="sub">Application terrain</h3>
+  <table class="role-table">
+    <tr><th>Rôle</th><th>Terrain d'action</th></tr>
+    <tr><td>Agent d'opération</td><td>Ses opérations affectées : checklists (renseignement), relevés, incidents, clôture.</td></tr>
+    <tr><td>Contrôleur HSE</td><td>Validation des checklists — de plein droit, ou par suppléance temporaire accordée par le Directeur Général.</td></tr>
+  </table>
+
+  <h3 class="sub">Portail client</h3>
+  <p>Un compte portail est rattaché à un seul tiers et n'en voit jamais un autre — un rôle unique, sans hiérarchie interne au portail lui-même.</p>
+</div>
+
+<!-- ============================= ANNEXE B ============================= -->
+<div class="section">
+  <div class="section-eyebrow">Annexe</div>
+  <h1>B. Ce qui gouverne le système, en dix règles</h1>
+  <p class="lede">Ces principes traversent les trois applications. Les comprendre explique pourquoi un bouton n'apparaît pas, pourquoi une action est refusée, ou pourquoi un champ est obligatoire alors qu'il semblerait pouvoir être facultatif.</p>
+
+  <ol>
+    <li><strong>Chaque contrôle se revérifie où la donnée s'écrit</strong>, pas seulement où elle s'affiche. Un écran peut proposer un bouton ; la décision finale se prend toujours au niveau de l'écriture en base de données.</li>
+    <li><strong>Une pièce scellée ne se modifie plus.</strong> Toute correction passe par une nouvelle pièce, « annule et remplace », avec son motif — jamais par une modification sur place.</li>
+    <li><strong>Une dérogation est motivée, datée, attribuable, et révocable.</strong> Rien ne contourne une règle sans laisser de trace de qui l'a autorisé et pourquoi.</li>
+    <li><strong>Le rôle ne s'élève jamais silencieusement.</strong> Un changement de droits ne s'applique qu'après révocation explicite de la session en cours, jamais par un simple rafraîchissement de jeton.</li>
+    <li><strong>La séparation des tâches est appliquée là où l'enjeu le justifie</strong> — qui crée une facture n'en enregistre pas l'encaissement ; qui renseigne un point bloquant ne le valide pas.</li>
+    <li><strong>Chaque réalm est cloisonné</strong> — un compte de la console ne peut techniquement pas agir comme un agent de terrain ou un client du portail, quelle que soit son intention.</li>
+    <li><strong>Aucune donnée de fonctionnement n'est figée dans le code</strong> — seuils, barèmes, taux, listes se règlent depuis Référentiels et Paramétrage, jamais en modifiant l'application elle-même.</li>
+    <li><strong>Le journal d'audit est la mémoire du système</strong>, distincte des écrans — consultable par tous les profils habilités, modifiable par personne.</li>
+    <li><strong>L'application terrain fonctionne sans réseau</strong> — chaque saisie est conservée localement et transmise dès que la connexion revient, sans perte.</li>
+    <li><strong>Un tiers ne voit jamais que ce qui lui appartient</strong> — le cloisonnement du portail client passe par le filtre de chaque requête, jamais par un masquage a posteriori de ce qui aurait déjà été lu.</li>
+  </ol>
+
+  <p class="footer-note">Ce manuel décrit le système tel qu'il se comporte à la date de sa rédaction. Les écrans, rôles et règles peuvent évoluer ; en cas de doute sur un comportement précis, l'écran lui-même — et le refus qu'il rend, le cas échéant — fait foi.</p>
+</div>
+
+</body>
+</html>

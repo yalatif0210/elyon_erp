@@ -554,6 +554,8 @@ model User {
   assignmentsAuthored OperationAssignment[] @relation("AssignmentAuthor")
   purchaseOrdersIssued PurchaseOrder[] @relation("PoIssuer")
   hseChecksValidated OperationHseCheck[] @relation("HseCheckValidatorUser")
+  hseChecksRejected OperationHseCheck[] @relation("HseCheckRejectorUser")
+  operationalProceduresUpdated OperationalProcedure[]
   hseEventsDeclared HseEvent[] @relation("HseEventDeclarerUser")
   hseEventsClosed HseEvent[] @relation("HseEventCloser")
   correctiveActions HseCorrectiveAction[] @relation("ActionOwner")
@@ -728,6 +730,7 @@ model FieldUser {
   operationsAssigned Operation[] @relation("OperationFieldAgent")
   operationsHseValidated Operation[] @relation("OperationHseValidator")
   hseChecksValidated OperationHseCheck[] @relation("HseCheckValidator")
+  hseChecksRejected OperationHseCheck[] @relation("HseCheckRejector")
   hseItemsRecorded OperationHseCheckItem[] @relation("HseItemRecorder")
   hseEventsDeclared HseEvent[] @relation("HseEventDeclarer")
   measurementsEntered MeasurementRecord[] @relation("MeasurementRecorder")
@@ -751,6 +754,8 @@ enum FieldEventType {
   CHECK_ITEM_RECORDED
   /// Validation d'une checklist par le contrôleur HSE.
   CHECK_VALIDATED
+  /// Rejet d'une checklist par le contrôleur HSE — ne passe pas en l'état.
+  CHECK_REJECTED
   /// Relevé de volume et de température.
   MEASUREMENT_RECORDED
   /// Avancement de l'opération à l'étape suivante.
@@ -1363,6 +1368,18 @@ model SupplierPrice {
 
   minVolume    Decimal? @map("min_volume") @db.Decimal(18, 6)
 
+  /// Version éditable de ce prix — un même couple fournisseur/produit peut
+  /// être renégocié plusieurs fois ; le numéro se choisit à la création, il
+  /// ne s'incrémente pas tout seul. Confort de lecture au tableau, sans effet
+  /// sur la sélection : c'est `effectiveFrom`/`effectiveTo` et `isActive` qui
+  /// décident ce qui est proposable, jamais le numéro de version.
+  version Int @default(1)
+  /// Activable/désactivable sans toucher aux dates : un prix qu'on ne veut
+  /// plus proposer sans pour autant clore sa période de validité (un
+  /// fournisseur suspendu temporairement, par exemple). Une ligne inactive
+  /// n'est jamais proposée pour une affaire nouvelle.
+  isActive Boolean @default(true) @map("is_active")
+
   effectiveFrom DateTime  @map("effective_from") @db.Date
   effectiveTo   DateTime? @map("effective_to") @db.Date
 
@@ -1844,9 +1861,33 @@ model OperationType {
 
   operations OperationTypeAssignment[]
   checklists HseChecklistTemplate[]   @relation("ChecklistOperationTypes")
+  procedure  OperationalProcedure?
 
   @@index([isActive, displayOrder])
   @@map("operation_types")
+}
+
+/// Procédure opérationnelle d'un type d'opération (§ discussion 20/08).
+///
+/// Éditée par l'Assistante de Direction, lisible par tous les rôles internes :
+/// ce n'est pas une donnée sensible, c'est un mode opératoire que l'ensemble
+/// de l'entreprise doit pouvoir consulter avant d'exécuter. Une ligne par
+/// type d'opération, jamais plusieurs — une procédure qui se reprend REMPLACE
+/// la précédente, elle ne s'empile pas à côté.
+model OperationalProcedure {
+  id              String       @id @default(uuid()) @db.Uuid
+  operationTypeId String       @unique @map("operation_type_id") @db.Uuid
+  operationType   OperationType @relation(fields: [operationTypeId], references: [id], onDelete: Cascade)
+
+  content String @db.Text
+
+  updatedById String? @map("updated_by_id") @db.Uuid
+  updatedBy   User?   @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("operational_procedures")
 }
 
 /// Rattachement d'un type à une opération, avec son rang dans le déroulé.
@@ -2933,6 +2974,18 @@ model OperationHseCheck {
   /// Validation à distance sur photos et relevés — mode normal, l'entreprise
   /// ne comptant qu'un contrôleur HSE (§ 7.2).
   validatedRemotely Boolean @default(false) @map("validated_remotely")
+
+  /// Rejet par le CONTRÔLEUR HSE, ou par son suppléant — une checklist dont
+  /// un point bloquant interdit de poursuivre l'opération en l'état. Distinct
+  /// de la validation : `validatedAt` reste NUL tant qu'elle n'a pas été
+  /// reprise et effectivement validée. Les points restent modifiables par
+  /// l'agent, exactement comme avant toute validation.
+  rejectedByFieldUserId String?    @map("rejected_by_field_user_id") @db.Uuid
+  rejectedByFieldUser   FieldUser? @relation("HseCheckRejector", fields: [rejectedByFieldUserId], references: [id], onDelete: Restrict)
+  rejectedByUserId      String?    @map("rejected_by_user_id") @db.Uuid
+  rejectedByUser        User?      @relation("HseCheckRejectorUser", fields: [rejectedByUserId], references: [id], onDelete: Restrict)
+  rejectedAt            DateTime?  @map("rejected_at") @db.Timestamptz(3)
+  rejectionReason       String?    @map("rejection_reason") @db.VarChar(1000)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)

@@ -123,7 +123,7 @@ async function main(): Promise<void> {
     create: {
       reference: 'CTR-2026-014',
       clientId: client.id,
-      title: 'Approvisionnement gasoil — site minier de l’Ouest',
+      title: 'Approvisionnement gasoil, site minier de l’Ouest',
       status: ContractStatus.ACTIVE,
       segment: CommercialSegment.B2B,
       paymentTermsDays: 45,
@@ -189,7 +189,7 @@ async function main(): Promise<void> {
       contractedVolume: `${VOLUME}.000000`,
       uom: UnitOfMeasure.L,
       transportMode: TransportMode.TRUCK,
-      deliveryLocation: 'Site minier — Man',
+      deliveryLocation: 'Site minier, Man',
       targetDeliveryDate: D('2026-08-12'),
       currencyCode: 'XOF',
       fxRateToPivot: XOF_TO_PIVOT.toFixed(8),
@@ -240,7 +240,7 @@ async function main(): Promise<void> {
       contractedVolume: '15000.000000',
       uom: UnitOfMeasure.L,
       transportMode: TransportMode.TRUCK,
-      deliveryLocation: 'Site minier — Man',
+      deliveryLocation: 'Site minier, Man',
       currencyCode: 'XOF',
       fxRateToPivot: XOF_TO_PIVOT.toFixed(8),
       unitSalePrice: `${SALE2}.0000`,
@@ -273,9 +273,9 @@ async function main(): Promise<void> {
       plannedVolume: `${VOLUME}.000000`,
       uom: UnitOfMeasure.L,
       transportMode: TransportMode.TRUCK,
-      originLocation: 'Dépôt SIR — Abidjan',
+      originLocation: 'Dépôt SIR, Abidjan',
       destinationSiteId: site.id,
-      destinationLocation: 'Site minier — Man',
+      destinationLocation: 'Site minier, Man',
       plannedLoadingDate: D('2026-08-10'),
       hseRiskLevel: HseRiskLevel.REINFORCED,
       fieldAgentId: agent.id,
@@ -407,7 +407,7 @@ async function main(): Promise<void> {
           latitude: '5.3200000',
           longitude: '-4.0100000',
           // Un point qui attend un relevé ne se conclut pas sans lui.
-          recordedValue: item.requiresValue ? 'Conforme — jeu de démonstration' : null,
+          recordedValue: item.requiresValue ? 'Conforme, jeu de démonstration' : null,
         },
       });
 
@@ -420,7 +420,7 @@ async function main(): Promise<void> {
             mimeType: 'image/jpeg',
             sizeBytes: 1,
             sha256: '0'.repeat(64),
-            caption: 'Jeu de démonstration — cliché non fourni',
+            caption: 'Jeu de démonstration, cliché non fourni',
             capturedAt: T('2026-08-10T06:30:00Z'),
             deviceTimestamp: T('2026-08-10T06:29:47Z'),
           },
@@ -437,7 +437,7 @@ async function main(): Promise<void> {
             mimeType: 'image/png',
             sizeBytes: 1,
             sha256: '0'.repeat(64),
-            caption: 'Jeu de démonstration — signature non fournie',
+            caption: 'Jeu de démonstration, signature non fournie',
             capturedAt: T('2026-08-10T06:30:00Z'),
             deviceTimestamp: T('2026-08-10T06:29:47Z'),
           },
@@ -555,10 +555,10 @@ async function main(): Promise<void> {
   if ((await prisma.operationCostLine.count({ where: { operationId: operation.id } })) === 0) {
     await prisma.operationCostLine.createMany({
       data: [
-        { operationId: operation.id, costPostId: byCode['ACHAT_PRODUIT'].id, description: 'Gasoil — SIR', supplierId: sir.id, estimatedAmount: (PURCHASE * VOLUME).toFixed(4), actualAmount: (PURCHASE * VOLUME).toFixed(4), currencyCode: 'XOF', fxRateToPivot: XOF_TO_PIVOT.toFixed(8), incurredAt: D('2026-08-10') },
+        { operationId: operation.id, costPostId: byCode['ACHAT_PRODUIT'].id, description: 'Gasoil, SIR', supplierId: sir.id, estimatedAmount: (PURCHASE * VOLUME).toFixed(4), actualAmount: (PURCHASE * VOLUME).toFixed(4), currencyCode: 'XOF', fxRateToPivot: XOF_TO_PIVOT.toFixed(8), incurredAt: D('2026-08-10') },
         { operationId: operation.id, costPostId: byCode['TRANSPORT'].id, description: 'Transport routier Abidjan-Man', supplierId: carrier.id, estimatedAmount: '900000.0000', actualAmount: '900000.0000', currencyCode: 'XOF', fxRateToPivot: XOF_TO_PIVOT.toFixed(8), incurredAt: D('2026-08-12') },
         { operationId: operation.id, costPostId: byCode['MANUTENTION'].id, description: 'Manutention au chargement', estimatedAmount: '150000.0000', actualAmount: '150000.0000', currencyCode: 'XOF', fxRateToPivot: XOF_TO_PIVOT.toFixed(8), incurredAt: D('2026-08-10') },
-        { operationId: operation.id, costPostId: byCode['PORTAGE_FINANCIER'].id, description: 'Portage — 50 jours à 10 % l’an', estimatedAmount: r4(CARRY * VOLUME).toFixed(4), actualAmount: r4(CARRY * VOLUME).toFixed(4), currencyCode: 'XOF', fxRateToPivot: XOF_TO_PIVOT.toFixed(8), isSystemComputed: true, incurredAt: D('2026-08-12') },
+        { operationId: operation.id, costPostId: byCode['PORTAGE_FINANCIER'].id, description: 'Portage, 50 jours à 10 % l’an', estimatedAmount: r4(CARRY * VOLUME).toFixed(4), actualAmount: r4(CARRY * VOLUME).toFixed(4), currencyCode: 'XOF', fxRateToPivot: XOF_TO_PIVOT.toFixed(8), isSystemComputed: true, incurredAt: D('2026-08-12') },
       ],
     });
   }

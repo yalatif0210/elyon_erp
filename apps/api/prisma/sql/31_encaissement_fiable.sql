@@ -121,7 +121,7 @@ BEGIN
 
   IF abs(NEW.paid_amount - journal) > tolerance_arrondi(NEW.currency_code) THEN
     RAISE EXCEPTION
-      'Le montant encaissé de la facture % ne se saisit pas : il est DÉRIVÉ du journal des règlements, qui totalise %. Enregistrer un encaissement, ou l''annuler — un solde posé à la main ne correspondrait à aucun mouvement bancaire.',
+      'Le montant encaissé de la facture % ne se saisit pas : il est DÉRIVÉ du journal des règlements, qui totalise %. Enregistrer un encaissement, ou l''annuler : un solde posé à la main ne correspondrait à aucun mouvement bancaire.',
       NEW.number, round(journal, 4)
       USING ERRCODE = 'check_violation';
   END IF;

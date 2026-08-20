@@ -1,10 +1,15 @@
 import {
   AllocationBasis,
+  ComplianceType,
   ContractStatus,
   CostBasis,
+  DunningMethod,
   HseControlLevel,
+  HseEventType,
   HsePhotoPolicy,
   HseRiskLevel,
+  HseSeverity,
+  InvoicePaymentMethod,
   CreditStatus,
   GuaranteeStatus,
   GuaranteeType,
@@ -230,6 +235,19 @@ const FR = {
     B2B: 'Entreprises',
     RETAIL: 'Stations-service',
   },
+  ComplianceType: {
+    INSURANCE: 'Assurance',
+    TECHNICAL_INSPECTION: 'Contrôle technique',
+    DRIVER_LICENSE: 'Permis de conduire',
+    DRIVER_TRAINING: 'Habilitation chauffeur',
+    CUSTOMS_LICENSE: 'Agrément douanier',
+    MINISTERIAL_APPROVAL: 'Agrément ministériel',
+    IMPORT_EXPORT_LICENSE: 'Licence import/export',
+    HSE_CERTIFICATION: 'Certification HSE',
+    VESSEL_CERTIFICATE: 'Certificat de navire',
+    SAFETY_DATA_SHEET: 'Fiche de données de sécurité',
+    OTHER: 'Autre',
+  },
   ContractStatus: {
     DRAFT: 'Brouillon',
     ACTIVE: 'Actif',
@@ -249,6 +267,13 @@ const FR = {
     WON: 'Gagnée',
     LOST: 'Perdue',
     DORMANT: 'En veille',
+  },
+  DunningMethod: {
+    PHONE: 'Téléphone',
+    EMAIL: 'E-mail',
+    LETTER: 'Courrier',
+    VISIT: 'Visite',
+    OTHER: 'Autre',
   },
   FiscalYearStatus: { PLANNED: 'En préparation', OPEN: 'Ouvert', CLOSED: 'Clos' },
   ForecastKind: { BUDGET: 'Budget', REVISION: 'Révision' },
@@ -278,8 +303,30 @@ const FR = {
     CONDITIONAL: 'Conditionnel',
     BLOCKING: 'Bloquant, arrête l’opération',
   },
+  HseEventType: {
+    INCIDENT: 'Incident',
+    ACCIDENT: 'Accident',
+    SPILL: 'Déversement',
+    NEAR_MISS: 'Quasi-accident',
+    DANGEROUS_OBSERVATION: 'Observation dangereuse',
+    NON_CONFORMITY: 'Non-conformité',
+  },
   HsePhotoPolicy: { FORBIDDEN: 'Interdite', OPTIONAL: 'Facultative', REQUIRED: 'Exigée' },
   HseRiskLevel: { STANDARD: 'Standard', REINFORCED: 'Renforcé', CRITICAL: 'Critique' },
+  HseSeverity: {
+    MINOR: 'Mineure',
+    MODERATE: 'Modérée',
+    MAJOR: 'Majeure',
+    CRITICAL: 'Critique',
+  },
+  InvoicePaymentMethod: {
+    CASH: 'Espèces',
+    CARD: 'Carte',
+    CHECK: 'Chèque',
+    MOBILE_MONEY: 'Mobile money',
+    TRANSFER: 'Virement',
+    DEFERRED: 'À terme',
+  },
   OperationPhase: {
     PREPARATION: 'Préparation',
     PRE_DEPARTURE: 'Avant départ',
@@ -328,6 +375,45 @@ const FR = {
     json: 'Structure JSON',
   },
 } as const;
+
+const vocabulaire = <T extends Record<string, string>>(
+  e: T,
+  labels: Readonly<Record<string, string>>,
+) => values(e).map((code) => ({ code, label: labels[code] ?? code }));
+
+/**
+ * VOCABULAIRES — libellés d'énumérations SANS référentiel administrable propre.
+ *
+ * ⚠️ CES CINQ ÉNUMÉRATIONS N'ONT PAS DE TABLE À ELLES.
+ *
+ *    Contrairement à un segment ou une unité de mesure, la nature d'un
+ *    événement HSE, le mode de règlement d'une facture, la nature d'une pièce
+ *    de conformité ou la méthode de relance ne décrivent pas une entité
+ *    administrée : ce sont des colonnes d'énumération posées directement sur
+ *    un enregistrement transactionnel, lues par des rôles opérationnels
+ *    (agent terrain, contrôleur HSE, comptable) qui n'ont et n'ont pas à
+ *    avoir de droit d'écriture sur un référentiel.
+ *
+ *    Les exposer par `parameterCatalogue()` les aurait rendues invisibles à
+ *    ces rôles : ce catalogue ne rend que ce que l'appelant peut ÉCRIRE. D'où
+ *    cette liste séparée, en lecture pour tout rôle interne authentifié — le
+ *    même principe que « Procédures opérationnelles ».
+ *
+ *    La LISTE des valeurs reste celle de l'énumération PostgreSQL : elle ne
+ *    change qu'avec une migration, comme n'importe quelle énumération de ce
+ *    système. Ce qui est centralisé ici, c'est le LIBELLÉ français — avant
+ *    cette déclaration, il était recopié séparément dans chacun des quatre
+ *    écrans qui s'en servent, avec le risque de divergence que ça porte.
+ */
+export function vocabulaires() {
+  return {
+    hseEventType: vocabulaire(HseEventType, FR.HseEventType),
+    hseSeverity: vocabulaire(HseSeverity, FR.HseSeverity),
+    invoicePaymentMethod: vocabulaire(InvoicePaymentMethod, FR.InvoicePaymentMethod),
+    complianceType: vocabulaire(ComplianceType, FR.ComplianceType),
+    dunningMethod: vocabulaire(DunningMethod, FR.DunningMethod),
+  };
+}
 
 export const REFERENTIALS: ReferentialSpec[] = [
   // =========================================================================
@@ -382,7 +468,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.CCOO],
     identity: ['code'],
     caution:
-      'Liste fermée aux pays où Elyon a réellement une activité ou une contrepartie — pas la liste ISO complète. En ajouter un ici l’ouvre partout où le pays se choisit (tiers, sites) ; en retirer un que des tiers existants portent encore le rend introuvable pour un nouveau tiers sans le rendre invalide pour les anciens.',
+      'Liste fermée aux pays où Elyon a réellement une activité ou une contrepartie, pas la liste ISO complète. En ajouter un ici l’ouvre partout où le pays se choisit (tiers, sites) ; en retirer un que des tiers existants portent encore le rend introuvable pour un nouveau tiers sans le rendre invalide pour les anciens.',
     fields: [
       { name: 'code', label: 'Code ISO', type: 'string', required: true, help: 'Deux lettres : CI, BF, ML…' },
       { name: 'name', label: 'Nom', type: 'string', required: true, help: 'ex. « Côte d’Ivoire »' },
@@ -452,7 +538,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         label: 'Densité à 15 °C',
         type: 'number',
         decimals: 6,
-        help: 'Requise pour un produit physique — sans objet pour un produit service.',
+        help: 'Requise pour un produit physique, sans objet pour un produit service.',
       },
       { name: 'defaultUom', label: 'Unité par défaut', type: 'enum', required: true, values: UOMS, valueLabels: FR.UnitOfMeasure },
       { name: 'viscosityCst', label: 'Viscosité (cSt)', type: 'number', decimals: 3 },
@@ -509,7 +595,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         name: 'isActive',
         label: 'Actif',
         type: 'boolean',
-        help: 'Coupe le seuil sans le dater expiré — pour le réactiver sans nouvelle ligne. Un seuil inactif n’est jamais résolu, quelle que soit sa fenêtre de validité.',
+        help: 'Coupe le seuil sans le dater expiré, pour le réactiver sans nouvelle ligne. Un seuil inactif n’est jamais résolu, quelle que soit sa fenêtre de validité.',
       },
     ],
   },
@@ -543,7 +629,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         name: 'isActive',
         label: 'Actif',
         type: 'boolean',
-        help: 'Coupe la grille sans la dater expirée — pour la réactiver sans nouvelle ligne. Une grille inactive n’est jamais résolue, quelle que soit sa fenêtre de validité.',
+        help: 'Coupe la grille sans la dater expirée, pour la réactiver sans nouvelle ligne. Une grille inactive n’est jamais résolue, quelle que soit sa fenêtre de validité.',
       },
     ],
   },
@@ -714,7 +800,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         values: values(PartnerType), valueLabels: FR.PartnerType,
         help: 'Un fret ne se rattache qu’à un TRANSPORTEUR, un prix d’achat qu’à un FOURNISSEUR, et c’est vérifié',
       },
-      { name: 'countryCode', label: 'Pays', type: 'reference', refTable: 'countries', refKey: 'code', required: true, help: 'Liste fermée aux pays d’activité — voir le référentiel Pays.' },
+      { name: 'countryCode', label: 'Pays', type: 'reference', refTable: 'countries', refKey: 'code', required: true, help: 'Liste fermée aux pays d’activité : voir le référentiel Pays.' },
       {
         name: 'segment',
         label: 'Segment',
@@ -729,7 +815,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         name: 'isGovernmentInstitution',
         label: 'Institution gouvernementale',
         type: 'boolean',
-        help: 'Régie, collectivité, entreprise publique — détermine le gabarit B2G à la transmission FNE, distinct de B2B/B2C/B2F.',
+        help: 'Régie, collectivité, entreprise publique : détermine le gabarit B2G à la transmission FNE, distinct de B2B/B2C/B2F.',
       },
       {
         name: 'isVatExempt',
@@ -870,6 +956,8 @@ export const REFERENTIALS: ReferentialSpec[] = [
         type: 'number',
         help: 'OPPOSÉ à l’approbation : une affaire sous ce volume ne peut pas retenir ce prix',
       },
+      { name: 'version', label: 'Version', type: 'version', help: 'Confort de lecture au tableau, n’intervient dans aucun calcul' },
+      { name: 'isActive', label: 'Active', type: 'boolean', help: 'Une version inactive n’est jamais proposée pour une affaire nouvelle' },
       { name: 'effectiveFrom', label: 'En vigueur à partir du', type: 'date', required: true },
       { name: 'effectiveTo', label: 'Jusqu’au', type: 'date' },
     ],
@@ -1123,7 +1211,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
       },
       { name: 'addressLine', label: 'Adresse', type: 'string', help: 'ex. « Zone portuaire de Vridi, boulevard de Petit Bassam »' },
       { name: 'city', label: 'Ville', type: 'string', help: 'ex. Abidjan, San Pédro, Bouaké' },
-      { name: 'countryCode', label: 'Pays', type: 'reference', refTable: 'countries', refKey: 'code', required: true, help: 'Liste fermée aux pays d’activité — voir le référentiel Pays.' },
+      { name: 'countryCode', label: 'Pays', type: 'reference', refTable: 'countries', refKey: 'code', required: true, help: 'Liste fermée aux pays d’activité : voir le référentiel Pays.' },
       { name: 'latitude', label: 'Latitude', type: 'number', help: 'En degrés décimaux, ex. 5,2540 pour Abidjan' },
       { name: 'longitude', label: 'Longitude', type: 'number', help: 'En degrés décimaux, ex. -3,9860 pour Abidjan' },
       {
@@ -1432,7 +1520,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         decimals: 3,
         help:
           'RÈGLE STRICTE : laisser à 0. Toute valeur différente du barème doit être justifiée. ' +
-          'Un franc de trop sur dix millions de litres fait dix millions — un pourcentage de ' +
+          'Un franc de trop sur dix millions de litres fait dix millions : un pourcentage de ' +
           'tolérance ne protège de rien à cette échelle. Ne relever qu’après décision explicite.',
       },
       { name: 'effectiveFrom', label: 'En vigueur depuis', type: 'date', required: true },

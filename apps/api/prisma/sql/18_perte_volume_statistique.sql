@@ -39,7 +39,7 @@
 -- ---------------------------------------------------------------------------
 UPDATE cost_posts
    SET is_active = false,
-       label = 'Perte de volume (ullage) — STATISTIQUE, jamais un coût'
+       label = 'Perte de volume (ullage) : STATISTIQUE, jamais un coût'
  WHERE code = 'PERTE_VOLUME';
 
 
@@ -60,7 +60,7 @@ BEGIN
 
   IF code_poste = 'PERTE_VOLUME' THEN
     RAISE EXCEPTION
-      'PERTE DE VOLUME — l''écart de volume ne se chiffre pas en coût. Le volume facturé est celui CHARGÉ : l''écart constaté à l''arrivée est un signal de qualité et de sûreté, suivi en statistique, et il n''entre ni dans les coûts ni dans la facturation (§ 8.3).'
+      'PERTE DE VOLUME : l''écart de volume ne se chiffre pas en coût. Le volume facturé est celui CHARGÉ : l''écart constaté à l''arrivée est un signal de qualité et de sûreté, suivi en statistique, et il n''entre ni dans les coûts ni dans la facturation.'
       USING ERRCODE = 'check_violation';
   END IF;
 

@@ -116,7 +116,6 @@ export function renderDeliveryNoteHtml(d: DeliveryNotePdfData): string {
   .footer .legal { font-size: 9px; color: #7A8898; max-width: 400px; line-height: 1.6; }
   .footer .qr { text-align: center; }
   .footer .qr img { width: 70px; height: 70px; }
-  .footer .qr .cap { font-size: 8px; color: #7A8898; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -124,7 +123,7 @@ export function renderDeliveryNoteHtml(d: DeliveryNotePdfData): string {
   <div class="head">
     <div>
       <div class="brand">ELYON TRADING</div>
-      <div class="brand-sub">Négoce, distribution et transport d'hydrocarbures — Côte d'Ivoire</div>
+      <div class="brand-sub">Négoce, distribution et transport d'hydrocarbures · Côte d'Ivoire</div>
     </div>
     <div class="doctype">
       BON DE LIVRAISON
@@ -132,7 +131,7 @@ export function renderDeliveryNoteHtml(d: DeliveryNotePdfData): string {
     </div>
   </div>
 
-  ${!d.isDeliveredVolumeAuthoritative ? '<div class="banner">VOLUME PRÉVISIONNEL — AUCUN RELEVÉ CONTRADICTOIRE NE FAIT ENCORE FOI</div>' : ''}
+  ${!d.isDeliveredVolumeAuthoritative ? '<div class="banner">VOLUME PRÉVISIONNEL : AUCUN RELEVÉ CONTRADICTOIRE NE FAIT ENCORE FOI</div>' : ''}
 
   <div class="meta">
     <div class="block">
@@ -205,14 +204,13 @@ export function renderDeliveryNoteHtml(d: DeliveryNotePdfData): string {
 
   <div class="footer">
     <div class="legal">
-      Bon de livraison engageant Elyon Trading et le client (§ 12.2) : scellé dès que l'agent
+      Bon de livraison engageant Elyon Trading et le client : scellé dès que l'agent
       terrain ET le représentant du client l'ont tous deux signé. Toute correction ultérieure fait
       l'objet d'un document distinct portant la mention « annule et remplace ». L'authenticité de
-      cet exemplaire est vérifiable au lien ci-contre.
+      cet exemplaire est vérifiable en scannant le QR code ci-contre.
     </div>
     <div class="qr">
       <img src="${d.qrDataUri}" alt="QR d'authenticité">
-      <div class="cap">${esc(d.verifyUrl)}</div>
     </div>
   </div>
 

@@ -1,4 +1,4 @@
-import { Component, OnInit, effect, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
   ApiService,
@@ -11,7 +11,7 @@ import {
   ParametreRequis,
 } from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
-import { FiltreTexte, RechercheComponent } from '../shared/tableau';
+import { TableauControlesComponent, TableauPagine } from '../shared/tableau';
 import { dateOnly, grouper } from '../shared/format';
 
 /**
@@ -38,7 +38,7 @@ import { dateOnly, grouper } from '../shared/format';
 @Component({
   selector: 'erp-supervision',
   standalone: true,
-  imports: [RouterLink, IconComponent, RechercheComponent],
+  imports: [RouterLink, IconComponent, TableauControlesComponent],
   template: `
     <header class="mb-6">
       <h1 class="page-title">Surveillance</h1>
@@ -71,7 +71,9 @@ import { dateOnly, grouper } from '../shared/format';
           </p>
         </div>
       } @else {
-        <div class="card overflow-x-auto">
+        <div class="card overflow-hidden">
+          <erp-tableau-controles [tableau]="fInvariants" libelle="les écarts" />
+          <div class="overflow-x-auto">
           <table class="table">
             <thead>
               <tr>
@@ -82,7 +84,7 @@ import { dateOnly, grouper } from '../shared/format';
               </tr>
             </thead>
             <tbody>
-              @for (b of invariants(); track $index) {
+              @for (b of fInvariants.lignes(); track $index) {
                 <tr>
                   <td class="font-medium text-crit">{{ b.regle }}</td>
                   <td class="font-mono text-[12px] text-ink-muted">{{ b.relation }}</td>
@@ -92,6 +94,7 @@ import { dateOnly, grouper } from '../shared/format';
               }
             </tbody>
           </table>
+          </div>
         </div>
       }
     </section>
@@ -108,7 +111,7 @@ import { dateOnly, grouper } from '../shared/format';
         est établie automatiquement, pas tenue à la main.
       </p>
       <div class="card overflow-x-auto">
-        <erp-recherche [filtre]="fParametres" libelle="les paramètres" />
+        <erp-tableau-controles [tableau]="fParametres" libelle="les paramètres" />
         <table class="table">
           <thead>
             <tr>
@@ -155,7 +158,7 @@ import { dateOnly, grouper } from '../shared/format';
         </div>
       } @else {
         <div class="card overflow-x-auto">
-          <erp-recherche [filtre]="fBande" libelle="les affaires" />
+          <erp-tableau-controles [tableau]="fBande" libelle="les affaires" />
           <table class="table">
             <thead>
               <tr>
@@ -197,7 +200,7 @@ import { dateOnly, grouper } from '../shared/format';
           <h2 class="text-[13px] font-semibold text-ink">Concentration par commercial</h2>
         </div>
         <div class="card overflow-x-auto">
-          <erp-recherche [filtre]="fParCommercial" libelle="les commerciaux" />
+          <erp-tableau-controles [tableau]="fParCommercial" libelle="les commerciaux" />
           <table class="table">
             <thead>
               <tr>
@@ -247,7 +250,7 @@ import { dateOnly, grouper } from '../shared/format';
         </div>
       } @else {
         <div class="card overflow-x-auto">
-          <erp-recherche [filtre]="fEcarts" libelle="les écarts" />
+          <erp-tableau-controles [tableau]="fEcarts" libelle="les écarts" />
           <table class="table">
             <thead>
               <tr>
@@ -289,21 +292,21 @@ import { dateOnly, grouper } from '../shared/format';
         <h2 class="text-[13px] font-semibold text-ink">En-cours crédit par client</h2>
       </div>
       <p class="mb-2 text-[12px] leading-snug text-ink-faint">
-        Source unique du contrôle de crédit, en devise pivot. L'engagement comprend les créances
+        Source unique du contrôle de crédit, en francs CFA. L'engagement comprend les créances
         et les commandes en cours, diminuées des garanties.
       </p>
       <div class="card overflow-x-auto">
-        <erp-recherche [filtre]="fEncours" libelle="les tiers" />
+        <erp-tableau-controles [tableau]="fEncours" libelle="les tiers" />
         <table class="table">
           <thead>
             <tr>
               <th>Client</th>
               <th>État</th>
-              <th class="num">Plafond</th>
-              <th class="num">Créances</th>
-              <th class="num">Engagements</th>
-              <th class="num">Garanties</th>
-              <th class="num">Disponible</th>
+              <th class="num">Plafond (XOF)</th>
+              <th class="num">Créances (XOF)</th>
+              <th class="num">Engagements (XOF)</th>
+              <th class="num">Garanties (XOF)</th>
+              <th class="num">Disponible (XOF)</th>
               <th class="num">Utilisation</th>
             </tr>
           </thead>
@@ -315,11 +318,11 @@ import { dateOnly, grouper } from '../shared/format';
                   <span class="block font-mono text-[11px] text-ink-faint">{{ c.partner_code }}</span>
                 </td>
                 <td class="text-[12px] text-ink-soft">{{ c.credit_status }}</td>
-                <td class="num tabular text-ink-faint">{{ nombre(c.credit_limit_pivot) }}</td>
-                <td class="num tabular text-ink-soft">{{ nombre(c.receivables_pivot) }}</td>
-                <td class="num tabular text-ink-soft">{{ nombre(c.commitments_pivot) }}</td>
-                <td class="num tabular text-ink-soft">{{ nombre(c.guarantees_pivot) }}</td>
-                <td class="num tabular text-ink">{{ nombre(c.available_credit_pivot) }}</td>
+                <td class="num tabular text-ink-faint">{{ nombre(c.credit_limit_xof) }}</td>
+                <td class="num tabular text-ink-soft">{{ nombre(c.receivables_xof) }}</td>
+                <td class="num tabular text-ink-soft">{{ nombre(c.commitments_xof) }}</td>
+                <td class="num tabular text-ink-soft">{{ nombre(c.guarantees_xof) }}</td>
+                <td class="num tabular text-ink">{{ nombre(c.available_credit_xof) }}</td>
                 <td class="num tabular font-medium"
                     [class]="teinteUtilisation(c.utilisation_pct)">
                   {{ c.utilisation_pct ?? '-' }}{{ c.utilisation_pct ? ' %' : '' }}
@@ -349,7 +352,7 @@ import { dateOnly, grouper } from '../shared/format';
         </div>
       } @else {
         <div class="card overflow-x-auto">
-          <erp-recherche [filtre]="fAvances" libelle="les avances" />
+          <erp-tableau-controles [tableau]="fAvances" libelle="les avances" />
           <table class="table">
             <thead>
               <tr>
@@ -398,29 +401,16 @@ export class SupervisionComponent implements OnInit {
   protected readonly encours = signal<CreditExposureRow[]>([]);
   protected readonly avances = signal<OutstandingAdvanceRow[]>([]);
 
-  // ⚠️ UN CHAMP DE RECHERCHE PAR TABLEAU, QUI CHERCHE DANS TOUTE LA LIGNE.
-  //
-  //    Ces tableaux sont bornés — une ligne par paramètre, par tiers, par
-  //    commercial — donc les paginer n'apporterait rien. Ce qui manquait,
-  //    c'était de retrouver une ligne sans la chercher des yeux.
-  //
-  //    Chaque filtre SUIT son signal : la lecture ne change pas, seul
-  //    l'affichage se restreint.
-  protected readonly fParametres = new FiltreTexte<ParametreRequis>();
-  protected readonly fBande = new FiltreTexte<MarginBandRow>();
-  protected readonly fParCommercial = new FiltreTexte<MarginBandOwnerRow>();
-  protected readonly fEcarts = new FiltreTexte<MarginVarianceRow>();
-  protected readonly fEncours = new FiltreTexte<CreditExposureRow>();
-  protected readonly fAvances = new FiltreTexte<OutstandingAdvanceRow>();
+  // Un tableau paginé et cherchable par jeu de données : chaque instance suit
+  // son propre signal, la lecture ne change pas.
+  protected readonly fInvariants = new TableauPagine<InvariantBreach>();
+  protected readonly fParametres = new TableauPagine<ParametreRequis>();
+  protected readonly fBande = new TableauPagine<MarginBandRow>();
+  protected readonly fParCommercial = new TableauPagine<MarginBandOwnerRow>();
+  protected readonly fEcarts = new TableauPagine<MarginVarianceRow>();
+  protected readonly fEncours = new TableauPagine<CreditExposureRow>();
+  protected readonly fAvances = new TableauPagine<OutstandingAdvanceRow>();
 
-  private readonly suitLesFiltres = effect(() => {
-    this.fParametres.définir(this.parametres());
-    this.fBande.définir(this.bande());
-    this.fParCommercial.définir(this.parCommercial());
-    this.fEcarts.définir(this.ecarts());
-    this.fEncours.définir(this.encours());
-    this.fAvances.définir(this.avances());
-  });
   protected readonly chargement = signal(true);
 
   /**
@@ -433,15 +423,52 @@ export class SupervisionComponent implements OnInit {
    */
   ngOnInit(): void {
     const vide = () => undefined;
-    this.api.invariants().subscribe({ next: (r) => this.invariants.set(r), error: vide });
-    this.api.parametresRequis().subscribe({ next: (r) => this.parametres.set(r), error: vide });
-    this.api.marginBandByOwner().subscribe({ next: (r) => this.parCommercial.set(r), error: vide });
-    this.api.marginVariance().subscribe({ next: (r) => this.ecarts.set(r), error: vide });
-    this.api.creditExposure().subscribe({ next: (r) => this.encours.set(r), error: vide });
-    this.api.outstandingPrepayments().subscribe({ next: (r) => this.avances.set(r), error: vide });
+    this.api.invariants().subscribe({
+      next: (r) => {
+        this.invariants.set(r);
+        this.fInvariants.définir(r);
+      },
+      error: vide,
+    });
+    this.api.parametresRequis().subscribe({
+      next: (r) => {
+        this.parametres.set(r);
+        this.fParametres.définir(r);
+      },
+      error: vide,
+    });
+    this.api.marginBandByOwner().subscribe({
+      next: (r) => {
+        this.parCommercial.set(r);
+        this.fParCommercial.définir(r);
+      },
+      error: vide,
+    });
+    this.api.marginVariance().subscribe({
+      next: (r) => {
+        this.ecarts.set(r);
+        this.fEcarts.définir(r);
+      },
+      error: vide,
+    });
+    this.api.creditExposure().subscribe({
+      next: (r) => {
+        this.encours.set(r);
+        this.fEncours.définir(r);
+      },
+      error: vide,
+    });
+    this.api.outstandingPrepayments().subscribe({
+      next: (r) => {
+        this.avances.set(r);
+        this.fAvances.définir(r);
+      },
+      error: vide,
+    });
     this.api.marginBand().subscribe({
       next: (r) => {
         this.bande.set(r);
+        this.fBande.définir(r);
         this.chargement.set(false);
       },
       error: () => this.chargement.set(false),

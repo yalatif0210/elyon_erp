@@ -1,0 +1,122 @@
+# ===========================================================================
+#  OUTILS D'EXPLOITATION — Portainer et pgAdmin
+#  Réf. DEPLOIEMENT.md, DEPLOIEMENT_STAGING.md
+#
+#  Optionnel, à ajouter avec `-f docker-compose.tools.yml` PAR-DESSUS la
+#  composition habituelle (staging comme production, chacun sur son propre
+#  VPS et son propre Docker) :
+#
+#    docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#                    -f docker-compose.tools.yml up -d
+#
+#  ⚠️ AUCUN DES DEUX N'EST JOIGNABLE DEPUIS INTERNET — VOLONTAIREMENT.
+#
+#     Portainer pilote Docker sur l'hôte (équivalent root en cas de
+#     compromission) et pgAdmin donne un accès direct aux données réelles.
+#     Les deux publient leurs ports sur `127.0.0.1` UNIQUEMENT — jamais
+#     `0.0.0.0`, jamais de route dans `docker/nginx/proxy.conf` ni
+#     `proxy.staging.conf`. Le seul chemin d'accès est un tunnel SSH depuis
+#     un poste déjà autorisé à se connecter au VPS :
+#
+#       ssh -L 9000:localhost:9000 -L 5050:localhost:5050 <utilisateur>@<vps>
+#
+#     puis http://localhost:9000 (Portainer) et http://localhost:5050
+#     (pgAdmin) depuis le navigateur DE CE POSTE — jamais une adresse
+#     publique. Fermer le terminal ferme l'accès.
+# ===========================================================================
+
+networks:
+  # Réseau DÉDIÉ, délibérément NON `internal` (contrairement à `data`) : la
+  # publication de port sur 127.0.0.1 doit rester fiable, ce qu'un réseau
+  # `internal: true` ne garantit pas selon les versions de Docker. Ni `proxy`
+  # ni `api`/`web`/`portal` n'y sont jamais rattachés — aucun chemin, même
+  # interne au VPS, entre l'application et ces outils.
+  admin:
+    driver: bridge
+
+volumes:
+  portainer_data:
+  pgadmin_data:
+
+services:
+  portainer:
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    init: true
+    restart: unless-stopped
+    image: portainer/portainer-ce:2.21.4-alpine
+    # Aucun mot de passe pré-posé : la toute première visite de l'interface
+    # (par le tunnel SSH, voir en tête de fichier) impose de créer le compte
+    # administrateur, sous 5 minutes — passé ce délai, Portainer verrouille la
+    # création et il faut redémarrer le conteneur pour rouvrir la fenêtre.
+    networks:
+      - admin
+    ports:
+      # 127.0.0.1 SEUL — voir l'avertissement en tête de fichier.
+      - "127.0.0.1:9000:9000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    volumes:
+      - portainer_data:/data
+      # ⚠️ ACCÈS ÉQUIVALENT ROOT SUR L'HÔTE, PAR CONCEPTION.
+      #
+      #    Portainer ne PEUT piloter Docker qu'en parlant à son socket. Le
+      #    monter en lecture seule (`:ro`) est un geste habituel, mais ne
+      #    restreint rien de fonctionnel une fois la connexion établie — la
+      #    seule frontière de sécurité réelle ici est l'absence totale
+      #    d'exposition réseau (voir l'avertissement en tête de fichier), pas
+      #    ce montage.
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        read_only: true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  pgadmin:
+    # ⚠️ DURCISSEMENT PARTIEL SEULEMENT — CONSTATÉ EN TESTANT, PAS UN CHOIX.
+    #
+    #    `read_only: true` et `no-new-privileges:true` (le reste du
+    #    durcissement habituel de ce dépôt) empêchent l'image officielle de
+    #    démarrer : son script d'entrée tourne d'abord en root, `sudo` pour
+    #    changer de propriétaire sur ses fichiers de config puis se
+    #    redescend en utilisateur `pgadmin` — `no-new-privileges` bloque ce
+    #    `sudo`, et `read_only` empêche l'écriture de
+    #    `/pgadmin4/config_distro.py` qu'il produit à chaque démarrage.
+    #    Constaté en local : la boucle de redémarrage donne
+    #    « Operation not permitted » sur chaque étape. La frontière de
+    #    sécurité réelle reste donc l'absence d'exposition réseau (voir
+    #    l'avertissement en tête de fichier), pas l'isolation du conteneur
+    #    lui-même — moins strict qu'ailleurs dans ce dépôt, mais c'est ce que
+    #    cette image tierce permet.
+    init: true
+    restart: unless-stopped
+    image: dpage/pgadmin4:8.14
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:?PGADMIN_DEFAULT_EMAIL requis}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:?PGADMIN_DEFAULT_PASSWORD requis}
+      # Rien à préremplir dans PGADMIN_SERVER_JSON_FILE : le serveur `postgres`
+      # se rajoute à la main au premier lancement (hôte `postgres`, port 5432,
+      # rôle erp_app pour l'inspection courante — erp_migrator seulement pour
+      # une intervention de schéma, jamais par défaut).
+    networks:
+      # `data` pour atteindre postgres, `admin` pour la publication du port —
+      # voir l'avertissement en tête de fichier sur pourquoi ce n'est pas
+      # `data` seul.
+      - data
+      - admin
+    ports:
+      - "127.0.0.1:5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M

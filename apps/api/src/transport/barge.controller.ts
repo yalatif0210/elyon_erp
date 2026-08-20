@@ -14,6 +14,7 @@ import { Type } from 'class-transformer';
 import { IsEnum, IsISO8601, IsNumber, IsOptional, IsString, Length, Min, MinLength } from 'class-validator';
 import { AuditService } from '../common/audit/audit.service';
 import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
+import { FxService } from '../common/money/fx.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 
 // ===========================================================================
@@ -60,6 +61,7 @@ export class BargeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly fx: FxService,
   ) {}
 
   private async assertIsVehicle(vehicleId: string): Promise<{ registration: string }> {
@@ -144,6 +146,11 @@ export class BargeService {
    */
   async bargePnL() {
     const pivotCode = await this.pivotCurrency();
+    // Le pivot additionne des lignes en devises différentes ; converti en
+    // XOF avant de sortir de ce service, pour que rien de ce qui atteint
+    // l'écran ne porte plus un montant en devise pivot.
+    const tauxXof = await this.fx.pivotToLocalRate();
+    const localCode = await this.fx.localCode();
     const barges = await this.prisma.vehicle.findMany({
       where: { type: VehicleType.BUNKER_BARGE },
       select: {
@@ -227,11 +234,13 @@ export class BargeService {
           isCompliant: barge.isCompliant,
           voyages: barge.assignments.length,
           volumeParUnite,
-          pivotCurrency: pivotCode,
-          revenuePivot: Number(revenuePivot.toFixed(4)),
-          operatingCostPivot: Number(operatingCostPivot.toFixed(4)),
-          maintenanceCostPivot: Number(maintenanceCostPivot.toFixed(4)),
-          marginPivot: Number((revenuePivot - operatingCostPivot - maintenanceCostPivot).toFixed(4)),
+          displayCurrency: localCode,
+          revenueXof: Number((revenuePivot * tauxXof).toFixed(4)),
+          operatingCostXof: Number((operatingCostPivot * tauxXof).toFixed(4)),
+          maintenanceCostXof: Number((maintenanceCostPivot * tauxXof).toFixed(4)),
+          marginXof: Number(
+            ((revenuePivot - operatingCostPivot - maintenanceCostPivot) * tauxXof).toFixed(4),
+          ),
           maintenanceEventCount: barge.maintenanceEvents.length,
           // ⚠️ CORRIGÉ (audit, axe A, S3) : rendait la DERNIÈRE intervention
           // passée (`performedAt` trié à l'envers), pas la PROCHAINE échéance

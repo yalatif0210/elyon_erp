@@ -667,7 +667,7 @@ export class InvoicesService {
 
     if (invoice.type === InvoiceType.PROFORMA) {
       throw new BadRequestException(
-        'Une proforma ne porte pas d’encaissement : elle ne crée aucune créance (§ 9.3).',
+        'Une proforma ne porte pas d’encaissement : elle ne crée aucune créance.',
       );
     }
 

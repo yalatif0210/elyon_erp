@@ -124,7 +124,7 @@ export function coerce(field: FieldSpec, raw: unknown): unknown {
       //    administrable » se trouvait défaite sur la table qui la porte.
       const trouve = field.values?.find((v) => v.toLowerCase() === text.toLowerCase());
       if (!trouve) {
-        throw new Error(`« ${text} » — valeurs admises : ${field.values?.join(', ')}`);
+        throw new Error(`« ${text} » n'est pas une valeur admise (${field.values?.join(', ')}).`);
       }
       return trouve;
     }
@@ -145,7 +145,7 @@ export function coerce(field: FieldSpec, raw: unknown): unknown {
       );
       if (inconnues.length > 0) {
         throw new Error(
-          `« ${inconnues.join(', ')} » — valeurs admises : ${field.values?.join(', ')}`,
+          `« ${inconnues.join(', ')} » ne sont pas des valeurs admises (${field.values?.join(', ')}).`,
         );
       }
       return saisies.map(
@@ -390,7 +390,7 @@ export class ParametersService {
       (k) => !spec.fields.some((f) => f.name === k),
     );
     for (const column of unknownColumns) {
-      errors.push({ line, field: column, message: `Colonne inconnue « ${column} » — ignorée` });
+      errors.push({ line, field: column, message: `Colonne inconnue « ${column} » : ignorée` });
     }
     return { values, errors };
   }
@@ -416,6 +416,33 @@ export class ParametersService {
       (f) => f.kind === 'scalar' && ['authorId', 'recordedById', 'createdById'].includes(f.name),
     );
     return champ?.name ?? null;
+  }
+
+  /**
+   * `{ set: [...] }` en écriture de RELATION vers une ligne NEUVE.
+   *
+   * ⚠️ CORRIGÉ — `create()` REFUSE `set`, ET C'ÉTAIT LA SEULE FORME PRODUITE.
+   *
+   *    `resolveReferences` pose `{ set: ids }` pour REMPLACER la liste d'une
+   *    ligne EXISTANTE (§ son propre commentaire) - la forme correcte pour
+   *    `update()`. Mais elle est calculée une seule fois, avant de savoir si
+   *    `writeOne` va créer ou mettre à jour, et `create()` ne connaît pas
+   *    `set` : Prisma le refuse (« Unknown argument `set` »). Toute ligne
+   *    créée avec une liste de références non vide échouait - constaté sur
+   *    un modèle de checklist HSE porteur de ses types d'opération dès la
+   *    création, jamais sur une ligne déjà existante qu'on modifie ensuite.
+   *
+   *    Sur une ligne neuve, rien n'existe encore à remplacer : `connect`
+   *    produit exactement le même résultat que `set` y produirait.
+   */
+  private pourCreation(values: Record<string, unknown>): Record<string, unknown> {
+    const out = { ...values };
+    for (const [champ, valeur] of Object.entries(out)) {
+      if (valeur && typeof valeur === 'object' && !Array.isArray(valeur) && 'set' in valeur) {
+        out[champ] = { connect: (valeur as { set: unknown }).set };
+      }
+    }
+    return out;
   }
 
   private async writeOne(
@@ -466,7 +493,7 @@ export class ParametersService {
           'Une ligne existe déjà pour cette clé et cette date d’entrée en vigueur. Une donnée historisée ne se réécrit pas : publiez-la à une autre date.',
         );
       }
-      const created = await delegate.create({ data: values });
+      const created = await delegate.create({ data: this.pourCreation(values) });
       await this.trace(spec, AuditAction.CREATE, created, actorId, reason);
       return { created: true, id: String(created['id'] ?? '') };
     }
@@ -488,7 +515,7 @@ export class ParametersService {
       await this.trace(spec, AuditAction.UPDATE, updated, actorId, reason, existing);
       return { created: false, id: String(updated['id'] ?? updated[spec.identity[0]] ?? '') };
     }
-    const created = await delegate.create({ data: values });
+    const created = await delegate.create({ data: this.pourCreation(values) });
     await this.trace(spec, AuditAction.CREATE, created, actorId, reason);
     return { created: true, id: String(created['id'] ?? '') };
   }

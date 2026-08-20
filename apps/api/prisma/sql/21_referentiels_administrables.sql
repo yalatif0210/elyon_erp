@@ -34,7 +34,7 @@ RETURNS TRIGGER AS $$
 BEGIN
   IF NEW.budgeted_base IS NULL OR NEW.budgeted_base = 0 THEN
     RAISE EXCEPTION
-      'ASSIETTE D''ABSORPTION — l''assiette budgétée ne peut pas être nulle : le taux se calcule en divisant le budget par elle. Indiquez le volume, le nombre d''opérations ou le chiffre d''affaires prévu pour l''exercice.'
+      'ASSIETTE D''ABSORPTION : l''assiette budgétée ne peut pas être nulle : le taux se calcule en divisant le budget par elle. Indiquez le volume, le nombre d''opérations ou le chiffre d''affaires prévu pour l''exercice.'
       USING ERRCODE = 'check_violation';
   END IF;
   NEW.rate_per_unit := round(NEW.budgeted_amount / NEW.budgeted_base, 6);
@@ -64,7 +64,7 @@ BEGIN
   taux := cours_vers_pivot(NEW.currency_code);
   IF taux IS NULL THEN
     RAISE EXCEPTION
-      'GARANTIE — aucun cours de change entre % et la devise pivot. Saisissez-le au référentiel avant d''enregistrer la garantie : sans lui, son montant serait compté à l''unité près comme si les deux monnaies se valaient.',
+      'GARANTIE : aucun cours de change entre % et la devise pivot. Saisissez-le au référentiel avant d''enregistrer la garantie : sans lui, son montant serait compté à l''unité près comme si les deux monnaies se valaient.',
       NEW.currency_code
       USING ERRCODE = 'check_violation';
   END IF;
@@ -136,7 +136,7 @@ BEGIN
 
   SELECT name INTO nom_prod FROM products WHERE id = produit;
   RAISE EXCEPTION
-    'PRODUIT NON AUTORISÉ — la citerne % n''est pas habilitée à transporter %. Modifiez la liste des produits autorisés au référentiel des véhicules, ou affectez un autre véhicule.',
+    'PRODUIT NON AUTORISÉ : la citerne % n''est pas habilitée à transporter %. Modifiez la liste des produits autorisés au référentiel des véhicules, ou affectez un autre véhicule.',
     immat, COALESCE(nom_prod, 'ce produit')
     USING ERRCODE = 'check_violation';
 END;
@@ -175,7 +175,7 @@ BEGIN
   IF vol IS NULL OR vol <= cap THEN RETURN NEW; END IF;
 
   RAISE EXCEPTION
-    'CAPACITÉ INSUFFISANTE — la citerne % contient % et l''opération en prévoit %. Affectez un véhicule adapté, ou fractionnez l''opération.',
+    'CAPACITÉ INSUFFISANTE : la citerne % contient % et l''opération en prévoit %. Affectez un véhicule adapté, ou fractionnez l''opération.',
     immat, round(cap, 0), round(vol, 0)
     USING ERRCODE = 'check_violation';
 END;
@@ -212,7 +212,7 @@ BEGIN
   END IF;
 
   RAISE EXCEPTION
-    'PALIER DE PRIX — le prix fournisseur retenu ne s''applique qu''à partir de %, et l''affaire ne porte que sur %. Retenez le prix correspondant au volume, ou négociez le palier.',
+    'PALIER DE PRIX : le prix fournisseur retenu ne s''applique qu''à partir de %, et l''affaire ne porte que sur %. Retenez le prix correspondant au volume, ou négociez le palier.',
     round(seuil, 0), round(NEW.contracted_volume, 0)
     USING ERRCODE = 'check_violation';
 END;

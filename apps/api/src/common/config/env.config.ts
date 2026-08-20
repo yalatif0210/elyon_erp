@@ -66,7 +66,7 @@ export function validateEnv(raw: Record<string, unknown>): EnvironmentVariables 
     const details = errors
       .map((e) => `  · ${e.property} : ${Object.values(e.constraints ?? {}).join(', ')}`)
       .join('\n');
-    throw new Error(`Configuration invalide — démarrage refusé :\n${details}`);
+    throw new Error(`Configuration invalide, démarrage refusé :\n${details}`);
   }
   return parsed;
 }

@@ -1,0 +1,19 @@
+# ===========================================================================
+#  SURCHARGE DE STAGING — second VPS, miroir de la production
+#  Réf. DEPLOIEMENT_STAGING.md
+#
+#  Se pose PAR-DESSUS docker-compose.prod.yml, dont elle hérite tout
+#  (durcissement, ports internes retirés, relais public seul exposé) — la
+#  seule différence entre les deux environnements est la configuration nginx
+#  que le relais embarque, sélectionnée à la construction.
+#
+#  Usage :
+#    docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#                    -f docker-compose.staging.yml up -d
+# ===========================================================================
+
+services:
+  proxy:
+    build:
+      args:
+        NGINX_CONF: docker/nginx/proxy.staging.conf

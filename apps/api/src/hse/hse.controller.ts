@@ -74,6 +74,11 @@ export class ValidateCheckDto {
   @IsOptional() remotely?: boolean;
 }
 
+export class RejectCheckDto {
+  /** Ce que l'agent doit reprendre — exigé, vérifié aussi en base. */
+  @IsString() @MinLength(10) @MaxLength(1000) reason!: string;
+}
+
 export class HseEventDto {
   @IsEnum(HseEventType) type!: HseEventType;
   @IsEnum(HseSeverity) severity!: HseSeverity;
@@ -318,6 +323,57 @@ export class HseService {
   }
 
   /**
+   * Rejet par le CONTRÔLEUR HSE — la checklist ne passe pas en l'état.
+   *
+   * Distinct de la validation : `validatedAt` n'est jamais posé ici, les
+   * points restent modifiables par l'agent pour reprendre ce qui ne va pas.
+   * Le motif et l'autorité sont revérifiés en base (§ 38), quel que soit le
+   * chemin emprunté.
+   */
+  async rejectCheck(checkId: string, dto: RejectCheckDto, fieldUserId: string) {
+    const check = await this.prisma.operationHseCheck.update({
+      where: { id: checkId },
+      data: {
+        rejectedByFieldUserId: fieldUserId,
+        rejectedAt: new Date(),
+        rejectionReason: dto.reason,
+      },
+      select: { id: true, operationId: true, phase: true, rejectedAt: true, rejectionReason: true },
+    });
+
+    await this.audit.record({
+      actorType: ActorType.FIELD_USER,
+      actorId: fieldUserId,
+      action: AuditAction.REJECT,
+      entityType: 'OperationHseCheck',
+      entityId: checkId,
+      after: check,
+    });
+
+    return check;
+  }
+
+  /** Rejet en suppléance — DG seul, vérifié en base (§ 38). */
+  async rejectCheckAsDg(checkId: string, dto: RejectCheckDto, userId: string) {
+    const check = await this.prisma.operationHseCheck.update({
+      where: { id: checkId },
+      data: { rejectedByUserId: userId, rejectedAt: new Date(), rejectionReason: dto.reason },
+      select: { id: true, operationId: true, phase: true, rejectedAt: true, rejectionReason: true },
+    });
+
+    await this.audit.record({
+      actorType: ActorType.INTERNAL_USER,
+      actorId: userId,
+      action: AuditAction.REJECT,
+      entityType: 'OperationHseCheck',
+      entityId: checkId,
+      after: { ...check, suppleance: true },
+    });
+
+    return check;
+  }
+
+  /**
    * Ouvre le verrou de l'opération dès qu'aucun point bloquant ne reste en
    * souffrance. Le trigger le revérifiera au changement d'état : marquer
    * l'opération ici ne suffit pas à la faire passer au chargement.
@@ -391,6 +447,8 @@ export class HseService {
         template: { select: { code: true, label: true, version: true } },
         validatedByFieldUser: { select: { fullName: true, role: true } },
         validatedByUser: { select: { fullName: true, role: true } },
+        rejectedByFieldUser: { select: { fullName: true, role: true } },
+        rejectedByUser: { select: { fullName: true, role: true } },
         items: {
           include: {
             item: {
@@ -510,6 +568,26 @@ export class FieldHseController {
     return this.service.validateCheck(checkId, dto, req.auth.sub);
   }
 
+  /**
+   * Rejet par le CONTRÔLEUR HSE, ou son suppléant en cours de délégation.
+   *
+   * Une checklist entièrement renseignée peut malgré tout ne pas pouvoir
+   * ouvrir le verrou en l'état — un point bloquant réellement non conforme,
+   * par exemple. Le rejet le dit explicitement, motif à l'appui, plutôt que
+   * de laisser la checklist en attente sans qu'on sache ce qu'il faut
+   * reprendre. Elle reste modifiable : ce n'est pas une validation.
+   */
+  @Patch('checks/:checkId/reject')
+  @FieldRoles(FieldRole.HSE_CONTROLLER, FieldRole.FIELD_AGENT)
+  async reject(
+    @Param('checkId', ParseUUIDPipe) checkId: string,
+    @Body() dto: RejectCheckDto,
+    @Req() req: { auth: { sub: string; role?: FieldRole } },
+  ) {
+    await this.perimetre.assertCheck(checkId, { id: req.auth.sub, role: req.auth.role });
+    return this.service.rejectCheck(checkId, dto, req.auth.sub);
+  }
+
   @Post('events')
   @FieldRoles(FieldRole.FIELD_AGENT, FieldRole.HSE_CONTROLLER)
   async openEvent(
@@ -561,6 +639,17 @@ export class HseController {
     @Req() req: { auth: { sub: string } },
   ) {
     return this.service.validateCheckAsDg(checkId, req.auth.sub);
+  }
+
+  /** Rejet en suppléance — DG seul. */
+  @Patch('checks/:checkId/reject')
+  @Roles(UserRole.DG)
+  rejectAsDg(
+    @Param('checkId', ParseUUIDPipe) checkId: string,
+    @Body() dto: RejectCheckDto,
+    @Req() req: { auth: { sub: string } },
+  ) {
+    return this.service.rejectCheckAsDg(checkId, dto, req.auth.sub);
   }
 
   @Post('events')

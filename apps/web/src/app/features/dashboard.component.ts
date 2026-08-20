@@ -6,9 +6,11 @@ import {
   EtatOperationnel,
   ExpiryItem,
   OperationParEtat,
+  VocabItem,
 } from '../core/api.service';
 import { IconComponent } from '../shared/icon.component';
 import { StatusBadgeComponent } from '../shared/status-badge.component';
+import { TableauControlesComponent, TableauPagine } from '../shared/tableau';
 
 /**
  * Tableau de bord du lot 1 — la conformité des moyens.
@@ -20,7 +22,7 @@ import { StatusBadgeComponent } from '../shared/status-badge.component';
 @Component({
   selector: 'erp-dashboard',
   standalone: true,
-  imports: [RouterLink, IconComponent, StatusBadgeComponent],
+  imports: [RouterLink, IconComponent, StatusBadgeComponent, TableauControlesComponent],
   template: `
     <header class="mb-5 flex items-end justify-between gap-4">
       <div>
@@ -83,6 +85,7 @@ import { StatusBadgeComponent } from '../shared/status-badge.component';
               <h3 class="card-title">{{ etatLibelle(etat) }}</h3>
               <button class="link text-[12px]" (click)="etatSelectionne.set(null)">Fermer</button>
             </div>
+            <erp-tableau-controles [tableau]="tableauDetailEtat" libelle="les opérations" />
             <div class="overflow-x-auto">
               <table class="table">
                 <thead>
@@ -96,7 +99,7 @@ import { StatusBadgeComponent } from '../shared/status-badge.component';
                   </tr>
                 </thead>
                 <tbody>
-                  @for (o of detailEtat(); track o.operation_id) {
+                  @for (o of tableauDetailEtat.lignes(); track o.operation_id) {
                     <tr>
                       <td>
                         <a [routerLink]="['/operations', o.operation_id]" class="ref hover:underline">
@@ -250,9 +253,11 @@ export class DashboardComponent implements OnInit {
   protected readonly overview = signal<ComplianceSubject[]>([]);
   protected readonly expiry = signal<ExpiryItem[]>([]);
   protected readonly operationnel = signal<EtatOperationnel[]>([]);
+  protected readonly complianceTypes = signal<VocabItem[]>([]);
 
   protected readonly etatSelectionne = signal<string | null>(null);
   protected readonly detailEtat = signal<OperationParEtat[]>([]);
+  protected readonly tableauDetailEtat = new TableauPagine<OperationParEtat>();
 
   /** Referme si on reclique le même état ; sinon charge son détail. */
   protected basculerDetail(etat: string): void {
@@ -262,8 +267,12 @@ export class DashboardComponent implements OnInit {
     }
     this.etatSelectionne.set(etat);
     this.detailEtat.set([]);
+    this.tableauDetailEtat.définir([]);
     this.api.operationsParEtat(etat).subscribe({
-      next: (rows) => this.detailEtat.set(rows),
+      next: (rows) => {
+        this.detailEtat.set(rows);
+        this.tableauDetailEtat.définir(rows);
+      },
       error: () => this.detailEtat.set([]),
     });
   }
@@ -330,6 +339,7 @@ export class DashboardComponent implements OnInit {
   ngOnInit(): void {
     this.api.complianceOverview().subscribe((rows) => this.overview.set(rows));
     this.api.expiryWatch(90).subscribe((rows) => this.expiry.set(rows));
+    this.api.vocabulaires().subscribe((v) => this.complianceTypes.set(v.complianceType));
     // Repli silencieux : un rôle sans accès au tableau opérationnel garde le
     // reste du tableau de bord plutôt que de perdre l'écran entier.
     this.api.tableauOperationnel().subscribe({
@@ -343,7 +353,7 @@ export class DashboardComponent implements OnInit {
   }
 
   protected typeLabel(type: string): string {
-    return TYPE_LABELS[type] ?? type;
+    return this.complianceTypes().find((v) => v.code === type)?.label ?? type;
   }
 
   /**
@@ -360,17 +370,3 @@ export class DashboardComponent implements OnInit {
     return 'text-ink-soft';
   }
 }
-
-export const TYPE_LABELS: Record<string, string> = {
-  CUSTOMS_LICENSE: 'Agrément douanier',
-  MINISTERIAL_APPROVAL: 'Agrément ministériel',
-  IMPORT_EXPORT_LICENSE: "Licence d'import/export",
-  INSURANCE: 'Assurance',
-  TECHNICAL_INSPECTION: 'Contrôle technique',
-  DRIVER_LICENSE: 'Permis de conduire',
-  DRIVER_TRAINING: 'Habilitation chauffeur',
-  HSE_CERTIFICATION: 'Certification HSE',
-  VESSEL_CERTIFICATE: 'Certificat de navire',
-  SAFETY_DATA_SHEET: 'Fiche de données de sécurité',
-  OTHER: 'Autre',
-};

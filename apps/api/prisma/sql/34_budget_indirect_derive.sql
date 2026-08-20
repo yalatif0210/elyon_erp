@@ -79,7 +79,7 @@ BEGIN
 
   IF nature_pool IS NOT NULL AND NEW.variability::text <> nature_pool THEN
     RAISE EXCEPTION
-      'Le poste « % » est % alors que le pool « % » regroupe des charges %. Un poste variable dans un pool fixe entrerait dans le point mort (§ 14.5), où la marge sur coût variable le compte DÉJÀ — il serait compté deux fois. Rangez ce poste dans un pool de même nature.',
+      'Le poste « % » est % alors que le pool « % » regroupe des charges %. Un poste variable dans un pool fixe entrerait dans le point mort, où la marge sur coût variable le compte DÉJÀ : il serait compté deux fois. Rangez ce poste dans un pool de même nature.',
       NEW.code, NEW.variability::text, code_pool, nature_pool
       USING ERRCODE = 'check_violation';
   END IF;
@@ -239,14 +239,14 @@ BEGIN
 
   IF a.unites > 1 THEN
     RAISE EXCEPTION
-      'Les prévisions couvertes par le pool « % » sur l''exercice % mêlent plusieurs unités (%). L''assiette d''absorption serait la somme de litres et de tonnes, donc fausse d''un facteur mille. Convertir supposerait la densité, qui dépend du produit et de la température — une hypothèse qui n''a pas à se prendre ici. Uniformisez l''unité des prévisions avant de fixer le budget du pool.',
+      'Les prévisions couvertes par le pool « % » sur l''exercice % mêlent plusieurs unités (%). L''assiette d''absorption serait la somme de litres et de tonnes, donc fausse d''un facteur mille. Convertir supposerait la densité, qui dépend du produit et de la température : une hypothèse qui n''a pas à se prendre ici. Uniformisez l''unité des prévisions avant de fixer le budget du pool.',
       pool.code, ex.year, a.uom
       USING ERRCODE = 'check_violation';
   END IF;
 
   IF a.volume IS NULL OR a.volume = 0 THEN
     RAISE EXCEPTION
-      'ASSIETTE D''ABSORPTION — aucune prévision de vente budgétée sur l''exercice % pour les segments du pool « % ». Le taux se calcule en divisant le budget du pool par le volume prévu : saisissez d''abord la prévision de vente, puis le budget du pool. L''ordre inverse n''est pas possible, et c''est voulu.',
+      'ASSIETTE D''ABSORPTION : aucune prévision de vente budgétée sur l''exercice % pour les segments du pool « % ». Le taux se calcule en divisant le budget du pool par le volume prévu : saisissez d''abord la prévision de vente, puis le budget du pool. L''ordre inverse n''est pas possible, et c''est voulu.',
       ex.year, pool.code
       USING ERRCODE = 'check_violation';
   END IF;
@@ -302,7 +302,7 @@ BEGIN
 
   IF ex.statut <> 'PLANNED' THEN
     RAISE EXCEPTION
-      'L''exercice % est % : son budget de vente est bouclé et ne s''enrichit plus. Une prévision nouvelle se saisit en RÉVISION. Ajouter du budget en cours d''exercice ferait grossir l''assiette d''absorption et baisser la charge au litre de tous les pools, sans qu''aucune charge n''ait changé (§ 14.2).',
+      'L''exercice % est % : son budget de vente est bouclé et ne s''enrichit plus. Une prévision nouvelle se saisit en RÉVISION. Ajouter du budget en cours d''exercice ferait grossir l''assiette d''absorption et baisser la charge au litre de tous les pools, sans qu''aucune charge n''ait changé.',
       ex.year,
       CASE ex.statut WHEN 'OPEN' THEN 'ouvert' WHEN 'CLOSED' THEN 'clos' ELSE ex.statut END
       USING ERRCODE = 'check_violation';

@@ -1,6 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ApiService, AttachmentRow, OperationRow } from '../core/api.service';
+import { ApiService, AttachmentRow, OperationRow, VocabItem } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import {
   ActionFeedbackComponent,
@@ -8,6 +8,7 @@ import {
   HttpFailure,
 } from '../shared/action-panel.component';
 import { IconComponent } from '../shared/icon.component';
+import { TableauControlesComponent, TableauPagine } from '../shared/tableau';
 
 interface HseCheckRow {
   id: string;
@@ -15,6 +16,10 @@ interface HseCheckRow {
   validatedAt: string | null;
   validatedByFieldUser: { fullName: string } | null;
   validatedByUser: { fullName: string } | null;
+  rejectedAt: string | null;
+  rejectedByFieldUser: { fullName: string } | null;
+  rejectedByUser: { fullName: string } | null;
+  rejectionReason: string | null;
   template: { code: string; label: string };
   items: {
     id: string;
@@ -48,7 +53,7 @@ const OUTCOME_LABEL: Record<string, string> = {
 @Component({
   selector: 'erp-hse',
   standalone: true,
-  imports: [FormsModule, IconComponent, ActionFeedbackComponent],
+  imports: [FormsModule, IconComponent, ActionFeedbackComponent, TableauControlesComponent],
   template: `
     <header class="mb-5">
       <h1 class="page-title">Contrôles HSE</h1>
@@ -65,21 +70,17 @@ const OUTCOME_LABEL: Record<string, string> = {
           <div>
             <label class="label" for="type-ev">Nature</label>
             <select id="type-ev" class="field" [(ngModel)]="type">
-              <option value="INCIDENT">Incident</option>
-              <option value="ACCIDENT">Accident</option>
-              <option value="SPILL">Déversement</option>
-              <option value="NEAR_MISS">Quasi-accident</option>
-              <option value="DANGEROUS_OBSERVATION">Observation dangereuse</option>
-              <option value="NON_CONFORMITY">Non-conformité</option>
+              @for (v of eventTypes(); track v.code) {
+                <option [value]="v.code">{{ v.label }}</option>
+              }
             </select>
           </div>
           <div>
             <label class="label" for="grav">Gravité</label>
             <select id="grav" class="field" [(ngModel)]="severity">
-              <option value="MINOR">Mineure</option>
-              <option value="MODERATE">Modérée</option>
-              <option value="MAJOR">Majeure</option>
-              <option value="CRITICAL">Critique</option>
+              @for (v of severities(); track v.code) {
+                <option [value]="v.code">{{ v.label }}</option>
+              }
             </select>
           </div>
           <div>
@@ -129,6 +130,7 @@ const OUTCOME_LABEL: Record<string, string> = {
       @if (pending().length === 0) {
         <p class="empty">Aucune checklist en attente.</p>
       } @else {
+        <erp-tableau-controles [tableau]="tableauPending" libelle="les checklists" />
         <div class="overflow-x-auto">
           <table class="table">
             <thead>
@@ -141,9 +143,16 @@ const OUTCOME_LABEL: Record<string, string> = {
               </tr>
             </thead>
             <tbody>
-              @for (c of pending(); track c.check.id) {
+              @for (c of tableauPending.lignes(); track c.check.id) {
                 <tr>
-                  <td><span class="ref">{{ c.operation }}</span></td>
+                  <td>
+                    <span class="ref">{{ c.operation }}</span>
+                    @if (c.check.rejectedAt) {
+                      <span class="ml-1.5 rounded bg-crit-wash px-1.5 py-0.5 text-[10px] font-semibold text-crit">
+                        Rejetée
+                      </span>
+                    }
+                  </td>
                   <td class="text-ink-soft">{{ c.check.phase }}</td>
                   <td class="text-ink-soft">{{ c.check.template.label }}</td>
                   <td class="num font-mono" [class]="c.blocking > 0 ? 'text-crit' : 'text-ok'">
@@ -159,17 +168,51 @@ const OUTCOME_LABEL: Record<string, string> = {
                     </button>
                     @if (isDg()) {
                       <button
-                        class="btn-ghost"
+                        class="btn-ghost mr-1.5"
                         (click)="validateAsDg(c.check.id)"
                         [disabled]="state.busy()"
                       >
                         Valider en suppléance
+                      </button>
+                      <button
+                        class="btn-ghost text-crit"
+                        (click)="basculerRejet(c.check.id)"
+                        [disabled]="state.busy()"
+                      >
+                        Rejeter en suppléance
                       </button>
                     } @else {
                       <span class="text-[11px] text-ink-faint">DG seul</span>
                     }
                   </td>
                 </tr>
+                @if (c.check.rejectedAt && c.check.rejectionReason) {
+                  <tr>
+                    <td colspan="5" class="!pt-0 !pb-2 text-[12px] italic text-crit">
+                      « {{ c.check.rejectionReason }} »
+                    </td>
+                  </tr>
+                }
+                @if (rejetOuvert() === c.check.id) {
+                  <tr>
+                    <td colspan="5" class="bg-gray-50 px-4 py-3">
+                      <textarea
+                        class="field text-[12px]"
+                        rows="2"
+                        maxlength="1000"
+                        placeholder="Ce qui ne va pas, et ce qu’il faut reprendre (dix caractères au moins)"
+                        [(ngModel)]="motifRejet"
+                      ></textarea>
+                      <button
+                        class="btn-ghost mt-2 text-[12px] text-crit"
+                        [disabled]="state.busy() || motifRejet.trim().length < 10"
+                        (click)="rejectAsDg(c.check.id)"
+                      >
+                        Confirmer le rejet
+                      </button>
+                    </td>
+                  </tr>
+                }
                 @if (estOuvert(c.check.id)) {
                   <tr>
                     <td colspan="5" class="bg-gray-50 px-4 py-3">
@@ -252,6 +295,9 @@ export class HseComponent implements OnInit {
   protected readonly pending = signal<
     { operation: string; operationId: string; check: HseCheckRow; blocking: number }[]
   >([]);
+  protected readonly tableauPending = new TableauPagine<
+    { operation: string; operationId: string; check: HseCheckRow; blocking: number }
+  >();
 
   /** Checklists dépliées pour consultation des pièces (§ 7.2). */
   private readonly ouverts = new Set<string>();
@@ -260,6 +306,9 @@ export class HseComponent implements OnInit {
   /** Objets-URL des images déjà téléchargées — un flux binaire n'a pas de sens à redemander. */
   private readonly urls = new Map<string, string>();
   protected readonly outcomeLabel = (o: string) => OUTCOME_LABEL[o] ?? o;
+
+  protected readonly eventTypes = signal<VocabItem[]>([]);
+  protected readonly severities = signal<VocabItem[]>([]);
 
   protected type = 'INCIDENT';
   protected severity = 'MINOR';
@@ -273,6 +322,10 @@ export class HseComponent implements OnInit {
     this.api.operations(1, {}).subscribe((p) => {
       this.operations.set(p.items);
       this.loadChecks(p.items);
+    });
+    this.api.vocabulaires().subscribe((v) => {
+      this.eventTypes.set(v.hseEventType);
+      this.severities.set(v.hseSeverity);
     });
   }
 
@@ -299,10 +352,16 @@ export class HseComponent implements OnInit {
                 .length,
             });
           }
-          if (--remaining === 0) this.pending.set(rows);
+          if (--remaining === 0) {
+            this.pending.set(rows);
+            this.tableauPending.définir(rows);
+          }
         },
         error: () => {
-          if (--remaining === 0) this.pending.set(rows);
+          if (--remaining === 0) {
+            this.pending.set(rows);
+            this.tableauPending.définir(rows);
+          }
         },
       });
     }
@@ -373,6 +432,30 @@ export class HseComponent implements OnInit {
     this.api.validateHseCheckAsDg(checkId).subscribe({
       next: () => {
         this.state.succeed('Checklist validée en suppléance du contrôleur HSE.');
+        this.ngOnInit();
+      },
+      error: (e: HttpFailure) => this.state.fail(e),
+    });
+  }
+
+  // --- Rejet en suppléance ---------------------------------------------------
+
+  protected readonly rejetOuvert = signal<string | null>(null);
+  protected motifRejet = '';
+
+  protected basculerRejet(checkId: string): void {
+    this.rejetOuvert.set(this.rejetOuvert() === checkId ? null : checkId);
+    this.motifRejet = '';
+  }
+
+  protected rejectAsDg(checkId: string): void {
+    if (this.state.busy()) return;
+    this.state.start();
+    this.api.rejectHseCheckAsDg(checkId, this.motifRejet.trim()).subscribe({
+      next: () => {
+        this.state.succeed('Checklist rejetée en suppléance du contrôleur HSE.');
+        this.rejetOuvert.set(null);
+        this.motifRejet = '';
         this.ngOnInit();
       },
       error: (e: HttpFailure) => this.state.fail(e),

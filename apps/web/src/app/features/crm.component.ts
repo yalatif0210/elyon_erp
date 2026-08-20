@@ -99,7 +99,9 @@ import { dateOnly, grouper } from '../shared/format';
         </p>
       }
 
-      <div class="card overflow-x-auto">
+      <div class="card overflow-hidden">
+        <erp-tableau-controles [tableau]="tableauEtapes" libelle="les étapes" />
+        <div class="overflow-x-auto">
         <table class="table">
           <thead>
             <tr>
@@ -112,7 +114,7 @@ import { dateOnly, grouper } from '../shared/format';
             </tr>
           </thead>
           <tbody>
-            @for (e of etapes(); track e.etape_code) {
+            @for (e of tableauEtapes.lignes(); track e.etape_code) {
               <tr>
                 <td>
                   <span class="text-[13px] text-ink">{{ e.etape }}</span>
@@ -144,6 +146,7 @@ import { dateOnly, grouper } from '../shared/format';
             }
           </tbody>
         </table>
+        </div>
       </div>
     </section>
 
@@ -161,7 +164,9 @@ import { dateOnly, grouper } from '../shared/format';
           convertit à 30 % ne se corrige pas d'elle-même, et son optimisme se propage jusqu'au
           coût de revient. Calculé sur les seules affaires tranchées.
         </p>
-        <div class="card overflow-x-auto">
+        <div class="card overflow-hidden">
+          <erp-tableau-controles [tableau]="tableauConversions" libelle="les étapes" />
+          <div class="overflow-x-auto">
           <table class="table">
             <thead>
               <tr>
@@ -175,7 +180,7 @@ import { dateOnly, grouper } from '../shared/format';
               </tr>
             </thead>
             <tbody>
-              @for (c of conversions(); track c.etape_code) {
+              @for (c of tableauConversions.lignes(); track c.etape_code) {
                 <tr>
                   <td class="text-ink">{{ c.etape }}</td>
                   <td class="num tabular text-ink-faint">
@@ -195,6 +200,7 @@ import { dateOnly, grouper } from '../shared/format';
               }
             </tbody>
           </table>
+          </div>
         </div>
       </section>
     }
@@ -244,7 +250,9 @@ import { dateOnly, grouper } from '../shared/format';
           signe tout au ras du seuil ont tous deux un problème ; un chiffre unique les
           confondrait.
         </p>
-        <div class="card overflow-x-auto">
+        <div class="card overflow-hidden">
+          <erp-tableau-controles [tableau]="tableauPerformances" libelle="les commerciaux" />
+          <div class="overflow-x-auto">
           <table class="table">
             <thead>
               <tr>
@@ -260,7 +268,7 @@ import { dateOnly, grouper } from '../shared/format';
               </tr>
             </thead>
             <tbody>
-              @for (p of performances(); track p.owner_id) {
+              @for (p of tableauPerformances.lignes(); track p.owner_id) {
                 <tr>
                   <td>
                     <span class="block text-[13px] text-ink">{{ p.commercial }}</span>
@@ -308,6 +316,7 @@ import { dateOnly, grouper } from '../shared/format';
               }
             </tbody>
           </table>
+          </div>
         </div>
       </section>
     }
@@ -398,9 +407,12 @@ export class CrmComponent implements OnInit {
   }
 
   protected readonly etapes = signal<CrmEtape[]>([]);
+  protected readonly tableauEtapes = new TableauPagine<CrmEtape>();
   protected readonly alertes = signal<CrmAlerte[]>([]);
   protected readonly conversions = signal<CrmConversion[]>([]);
+  protected readonly tableauConversions = new TableauPagine<CrmConversion>();
   protected readonly performances = signal<PerformanceCommerciale[]>([]);
+  protected readonly tableauPerformances = new TableauPagine<PerformanceCommerciale>();
 
   /**
    * Les cinq découpages, dans l'ordre du plus fin au plus large.
@@ -434,9 +446,21 @@ export class CrmComponent implements OnInit {
   ngOnInit(): void {
     const vide = () => undefined;
     this.api.crmPipeline(true).subscribe({ next: (r) => this.remplirPipeline(r), error: vide });
-    this.api.crmParEtape().subscribe({ next: (r) => this.etapes.set(r), error: vide });
+    this.api.crmParEtape().subscribe({
+      next: (r) => {
+        this.etapes.set(r);
+        this.tableauEtapes.définir(r);
+      },
+      error: vide,
+    });
     this.api.crmAlertes().subscribe({ next: (r) => this.alertes.set(r), error: vide });
-    this.api.crmConversion().subscribe({ next: (r) => this.conversions.set(r), error: vide });
+    this.api.crmConversion().subscribe({
+      next: (r) => {
+        this.conversions.set(r);
+        this.tableauConversions.définir(r);
+      },
+      error: vide,
+    });
     // Repli silencieux : un rôle sans accès à la performance garde le reste
     // de l'écran plutôt que de perdre le pipeline entier.
     this.relire();
@@ -469,9 +493,15 @@ export class CrmComponent implements OnInit {
    */
   protected relire(): void {
     this.api.performanceCommerciale(this.periode || undefined, this.ancre || undefined).subscribe({
-      next: (r) => this.performances.set(r),
+      next: (r) => {
+        this.performances.set(r);
+        this.tableauPerformances.définir(r);
+      },
       // Repli silencieux : un rôle sans accès garde le reste de l'écran.
-      error: () => this.performances.set([]),
+      error: () => {
+        this.performances.set([]);
+        this.tableauPerformances.définir([]);
+      },
     });
   }
 

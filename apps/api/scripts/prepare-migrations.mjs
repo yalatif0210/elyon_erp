@@ -97,6 +97,8 @@ const SQL_FILES = [
   // Remplace la fonction du trigger de séparation des tâches HSE posé par 05 :
   // APRÈS lui, qui la définit une première fois.
   '37_suppleance_hse_delegation.sql',
+  // Le rejet s'appuie sur la même table de délégations : APRÈS elle.
+  '38_rejet_checklist_hse.sql',
   // La file de tâches lit TOUTES les vues précédentes : elle vient en dernier.
   '22_file_de_taches.sql',
   // Paramètres requis : AVANT 15, dont deux règles d'invariant les lisent.

@@ -1,6 +1,7 @@
 import { Controller, Get, Injectable, Param, Query, Req } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { Realm, RequireRealm, Roles, Screen, SkipAudit } from '../common/auth/realm';
+import { FxService } from '../common/money/fx.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 
 /**
@@ -15,7 +16,35 @@ import { PrismaService } from '../common/prisma/prisma.service';
  */
 @Injectable()
 export class SupervisionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fx: FxService,
+  ) {}
+
+  /**
+   * Convertit en XOF les colonnes `_pivot` d'une liste de lignes SQL.
+   *
+   * Le pivot sert à additionner des engagements en devises différentes ;
+   * c'est un instrument de calcul, jamais une devise que quiconque lit
+   * couramment. Rien de ce qui atteint l'écran ne doit plus porter ce
+   * suffixe : chaque colonne convertie le perd au profit de `_xof`.
+   */
+  private async versXof<T extends Record<string, unknown>>(
+    lignes: T[],
+    champs: string[],
+  ): Promise<Record<string, unknown>[]> {
+    const taux = await this.fx.pivotToLocalRate();
+    return lignes.map((ligne) => {
+      const copie: Record<string, unknown> = { ...ligne };
+      for (const champ of champs) {
+        const valeur = copie[champ];
+        copie[champ.replace(/_pivot$/, '_xof')] =
+          valeur === null || valeur === undefined ? valeur : Number(valeur) * taux;
+        delete copie[champ];
+      }
+      return copie;
+    });
+  }
 
   /**
    * Ce que CE rôle doit traiter, du plus bloquant au plus ancien.
@@ -146,8 +175,8 @@ export class SupervisionService {
    * Rapprochement du coût enregistré avec l'argent réellement sorti.
    * Le contrôle le plus solide : il ne repose pas sur une déclaration.
    */
-  costReconciliation() {
-    return this.prisma.$queryRawUnsafe(
+  async costReconciliation() {
+    const lignes = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
       `SELECT reference, status, client, recorded_cost_pivot, supplier_billed_pivot,
               supplier_paid_pivot, prepaid_pivot, unreconciled_pivot,
               cost_without_invoice_pivot
@@ -155,17 +184,33 @@ export class SupervisionService {
         WHERE abs(unreconciled_pivot) > 0.01 OR cost_without_invoice_pivot > 0.01
         ORDER BY abs(unreconciled_pivot) DESC`,
     );
+    return this.versXof(lignes, [
+      'recorded_cost_pivot',
+      'supplier_billed_pivot',
+      'supplier_paid_pivot',
+      'prepaid_pivot',
+      'unreconciled_pivot',
+      'cost_without_invoice_pivot',
+    ]);
   }
 
-  /** En-cours crédit par client — source unique du contrôle (§ 9.1). */
-  creditExposure() {
-    return this.prisma.$queryRawUnsafe(
+  /** En-cours crédit par client — source unique du contrôle. */
+  async creditExposure() {
+    const lignes = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
       `SELECT partner_code, partner_name, credit_status, credit_limit_pivot,
               receivables_pivot, commitments_pivot, guarantees_pivot,
               exposure_pivot, available_credit_pivot, utilisation_pct
          FROM v_partner_credit_exposure
         ORDER BY utilisation_pct DESC NULLS LAST`,
     );
+    return this.versXof(lignes, [
+      'credit_limit_pivot',
+      'receivables_pivot',
+      'commitments_pivot',
+      'guarantees_pivot',
+      'exposure_pivot',
+      'available_credit_pivot',
+    ]);
   }
 
   /**
@@ -178,14 +223,15 @@ export class SupervisionService {
    * pour le tiers restant — jamais pour son montant d'origine, qui donnerait
    * une immobilisation surestimée.
    */
-  outstandingPrepayments() {
-    return this.prisma.$queryRawUnsafe(
+  async outstandingPrepayments() {
+    const lignes = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
       `SELECT reference, supplier, deal, currency_code,
               prepaid_amount, settled_amount, outstanding_amount, outstanding_pivot,
               prepaid_at, days_outstanding, settlement_trigger,
               operation, operation_status
          FROM v_outstanding_advances`,
     );
+    return this.versXof(lignes, ['outstanding_pivot']);
   }
 
   /**
@@ -257,12 +303,23 @@ export class SupervisionService {
   }
 
   /** BFR d'exploitation — périmètre restreint et affiché comme tel. */
-  bfr() {
-    return this.prisma.$queryRawUnsafe(
+  async bfr() {
+    const lignes = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
       `SELECT avances_fournisseurs, creances_clients, dettes_fournisseurs,
               stocks, stocks_suivis, bfr_exploitation, perimetre
          FROM v_bfr_exploitation`,
     );
+    const taux = await this.fx.pivotToLocalRate();
+    // Ces quatre colonnes ne portent pas le suffixe `_pivot` dans la vue,
+    // mais somment des engagements en devises différentes au même titre que
+    // `v_partner_credit_exposure` : conversion explicite, sans renommage.
+    return lignes.map((l) => ({
+      ...l,
+      avances_fournisseurs: Number(l.avances_fournisseurs) * taux,
+      creances_clients: Number(l.creances_clients) * taux,
+      dettes_fournisseurs: Number(l.dettes_fournisseurs) * taux,
+      bfr_exploitation: Number(l.bfr_exploitation) * taux,
+    }));
   }
 
   /**
@@ -313,17 +370,22 @@ export class SupervisionService {
    * disparaît de la liste des opérations, et une facture émise ne dit pas
    * qu'elle attend.
    */
-  tableauOperationnel() {
-    return this.prisma.$queryRawUnsafe(
+  async tableauOperationnel() {
+    const lignes = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
       `SELECT etat, operations, volume, reste_a_encaisser, retard_max_jours
          FROM v_tableau_operationnel_compte
         ORDER BY operations DESC`,
     );
+    // `reste_a_encaisser` somme des opérations facturées dans des devises
+    // potentiellement différentes : additionné au pivot en base, converti en
+    // XOF ici. Sans le suffixe `_pivot` dans son nom : conversion explicite.
+    const taux = await this.fx.pivotToLocalRate();
+    return lignes.map((l) => ({ ...l, reste_a_encaisser: Number(l.reste_a_encaisser) * taux }));
   }
 
   /** Le détail derrière un pavé : sans lui, le chiffre est sans recours. */
-  operationsParEtat(etat: string) {
-    return this.prisma.$queryRawUnsafe(
+  async operationsParEtat(etat: string) {
+    const lignes = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
       `SELECT operation_id, reference, statut, affaire, client, produit,
               planned_volume, uom, planned_loading_date, actual_discharge_date,
               etat, facture_pivot, encaisse_pivot, reste_a_encaisser,
@@ -335,6 +397,11 @@ export class SupervisionService {
         LIMIT 200`,
       etat,
     );
+    const taux = await this.fx.pivotToLocalRate();
+    return lignes.map(({ facture_pivot: _f, encaisse_pivot: _e, ...l }) => ({
+      ...l,
+      reste_a_encaisser: Number(l.reste_a_encaisser) * taux,
+    }));
   }
 
   /** Prévision contre réalisé, écart de volume et écart de prix séparés. */

@@ -1,6 +1,22 @@
 import { Injectable } from '@nestjs/common';
+import { hash, verify } from '@node-rs/argon2';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { AppConfig } from '../config/env.config';
+
+/**
+ * Paramètres Argon2id — SOURCE UNIQUE pour tout ce qui vit dans le graphe
+ * Nest (les trois contrôleurs de création de compte, `AuthService`).
+ *
+ * ⚠️ Toute création ou vérification de mot de passe ICI doit passer par
+ *    `hashPassword`/`verifyPassword` ci-dessous, jamais recopier ces valeurs.
+ *    Seuls `prisma/seed.ts` et `prisma/bootstrap-admin.ts` en portent leur
+ *    propre copie identique, en dehors du graphe Nest par construction
+ *    (scripts autonomes exécutés par `tsx`, jamais par l'application) — la
+ *    valeur doit néanmoins rester rigoureusement la même partout : un second
+ *    jeu, même légèrement différent, produirait des empreintes valides à la
+ *    création mais rejetées à la connexion.
+ */
+const ARGON2 = { memoryCost: 19_456, timeCost: 2, parallelism: 1 } as const;
 
 /**
  * Chiffrement des secrets TOTP au repos et empreintes de jetons.
@@ -58,5 +74,14 @@ export class CryptoService {
 
   randomId(): string {
     return randomBytes(16).toString('hex');
+  }
+
+  hashPassword(plain: string): Promise<string> {
+    return hash(plain, ARGON2);
+  }
+
+  /** Ne lève jamais : un hachage malformé ou absent doit refuser, pas planter. */
+  verifyPassword(passwordHash: string, plain: string): Promise<boolean> {
+    return verify(passwordHash, plain).catch(() => false);
   }
 }

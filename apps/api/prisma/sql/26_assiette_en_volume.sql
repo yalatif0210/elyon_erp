@@ -47,7 +47,7 @@ BEGIN
 
   IF NEW.allocation_basis::text = 'PER_REVENUE' THEN
     RAISE EXCEPTION
-      'Le pool « % » ne peut pas s''imputer au prorata du chiffre d''affaires. L''assiette d''absorption est un VOLUME budgété (§ 14.2) : le volume est piloté, le prix ne l''est pas — il suit les publications DGH et le change. Une assiette en valeur ferait bouger la charge fixe unitaire à chaque publication, sans qu''aucune charge n''ait changé. Employer PER_VOLUME.',
+      'Le pool « % » ne peut pas s''imputer au prorata du chiffre d''affaires. L''assiette d''absorption est un VOLUME budgété : le volume est piloté, le prix ne l''est pas, il suit les publications DGH et le change. Une assiette en valeur ferait bouger la charge fixe unitaire à chaque publication, sans qu''aucune charge n''ait changé. Employer PER_VOLUME.',
       NEW.code
       USING ERRCODE = 'check_violation';
   END IF;

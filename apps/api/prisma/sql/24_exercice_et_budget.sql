@@ -160,7 +160,7 @@ BEGIN
        OR NEW.product_id <> OLD.product_id
        OR NEW.month_index <> OLD.month_index THEN
       RAISE EXCEPTION
-        'Le budget de vente validé ne se modifie pas : créer une RÉVISION. Sans cela, l''écart entre le budget et la réalité devient invisible — et c''est lui qu''on pilote.'
+        'Le budget de vente validé ne se modifie pas : créer une RÉVISION. Sans cela, l''écart entre le budget et la réalité devient invisible, et c''est lui qu''on pilote.'
         USING ERRCODE = 'check_violation';
     END IF;
   END IF;
@@ -311,7 +311,7 @@ SELECT ex.year                                       AS exercice,
        'Taux de financement'::text                   AS donnee,
        EXISTS (SELECT 1 FROM financing_rates fr
                 WHERE fr.fiscal_year_id = ex.id AND fr.is_current) AS renseignee,
-       'Coût de portage (§ 5.4) et BFR (§ 14.6)'::text AS sert_a
+       'Coût de portage et BFR'::text AS sert_a
   FROM ex
 
 -- ⚠️ L'ORDRE DE CES DEUX LIGNES EST L'ORDRE DE SAISIE, ET IL EST CONTRAINT.
@@ -326,7 +326,7 @@ SELECT ex.year, ex.label, ex.statut,
        EXISTS (SELECT 1 FROM sales_forecasts s
                 WHERE s.fiscal_year_id = ex.id AND s.is_current
                   AND s.kind::text = 'BUDGET'),
-       'Assiette d''absorption (§ 14.2), plan d''approvisionnement et de trésorerie (§ 14.3)'
+       'Assiette d''absorption, plan d''approvisionnement et de trésorerie'
   FROM ex
 
 -- Une seule ligne pour les deux usages, parce qu'il n'y a plus qu'une saisie :
@@ -337,7 +337,7 @@ SELECT ex.year, ex.label, ex.statut,
        'Budget des pools de charges',
        EXISTS (SELECT 1 FROM absorption_rates a
                 WHERE a.fiscal_year_id = ex.id AND a.is_current),
-       'Coût complet et seuil de marge (§ 14.2) ; les pools FIXES forment aussi les charges fixes du point mort (§ 14.5)'
+       'Coût complet et seuil de marge ; les pools FIXES forment aussi les charges fixes du point mort'
   FROM ex
 
 -- Distincte de la précédente : on peut avoir budgété des pools sans qu'aucun
@@ -352,7 +352,7 @@ SELECT ex.year, ex.label, ex.statut,
                 JOIN cost_pools cp ON cp.id = a.cost_pool_id
                 WHERE a.fiscal_year_id = ex.id AND a.is_current
                   AND cp.is_active AND cp.variability::text = 'FIXED'),
-       'Point mort (§ 14.5)'
+       'Point mort'
   FROM ex;
 
 COMMENT ON VIEW v_couverture_budgetaire IS

@@ -81,7 +81,7 @@ const FILTERS: { label: string; status?: string }[] = [
       <div class="stat bg-surface">
         <span class="stat-label">Total facturé</span>
         <span class="stat-value text-[20px]">{{ money(totalBilled()) }}</span>
-        <span class="stat-note">Toutes devises, converties au pivot</span>
+        <span class="stat-note">Toutes devises, converties en XOF</span>
       </div>
       <div class="stat bg-surface" [class.bg-warn-wash]="outstandingPrepaid() > 0">
         <span class="stat-label">Reliquat immobilisé</span>
@@ -328,7 +328,7 @@ const FILTERS: { label: string; status?: string }[] = [
     <section class="card overflow-hidden">
       <div class="card-header">
         <h2 class="card-title">Rapprochement du coût et des sorties d’argent</h2>
-        <span class="text-[11px] text-ink-faint">montants au pivot</span>
+        <span class="text-[11px] text-ink-faint">montants en XOF</span>
       </div>
       @if (reconciliation().length === 0) {
         <p class="empty">
@@ -353,14 +353,14 @@ const FILTERS: { label: string; status?: string }[] = [
                 <tr class="row-warn">
                   <td><span class="ref">{{ r.reference }}</span></td>
                   <td class="text-ink">{{ r.client }}</td>
-                  <td class="num font-mono text-ink-soft">{{ money(+r.recorded_cost_pivot) }}</td>
-                  <td class="num font-mono text-ink-soft">{{ money(+r.supplier_billed_pivot) }}</td>
-                  <td class="num font-mono text-ink-soft">{{ money(+r.supplier_paid_pivot) }}</td>
+                  <td class="num font-mono text-ink-soft">{{ money(+r.recorded_cost_xof) }}</td>
+                  <td class="num font-mono text-ink-soft">{{ money(+r.supplier_billed_xof) }}</td>
+                  <td class="num font-mono text-ink-soft">{{ money(+r.supplier_paid_xof) }}</td>
                   <td class="num font-mono font-semibold text-warn-ink">
-                    {{ money(+r.unreconciled_pivot) }}
+                    {{ money(+r.unreconciled_xof) }}
                   </td>
                   <td class="num font-mono font-semibold text-crit">
-                    {{ money(+r.cost_without_invoice_pivot) }}
+                    {{ money(+r.cost_without_invoice_xof) }}
                   </td>
                 </tr>
               }
@@ -379,6 +379,8 @@ const FILTERS: { label: string; status?: string }[] = [
 export class SupplierInvoicesComponent implements OnInit {
   private readonly api = inject(ApiService);
   protected readonly devises = signal<DeviseOption[]>([]);
+  /** Cours du pivot vers le XOF — jamais le pivot lui-même n'atteint l'écran. */
+  private readonly tauxPivotXof = signal(0);
 
   /**
    * La devise LOCALE de l'entreprise, lue au référentiel.
@@ -416,7 +418,7 @@ export class SupplierInvoicesComponent implements OnInit {
   protected search = '';
 
   protected readonly totalBilled = computed(() =>
-    this.rows().reduce((s, i) => s + Number(i.amountPivot), 0),
+    this.rows().reduce((s, i) => s + Number(i.amountPivot) * this.tauxPivotXof(), 0),
   );
 
   /**
@@ -429,11 +431,17 @@ export class SupplierInvoicesComponent implements OnInit {
   private readonly openAdvances = computed(() => this.rows().filter((i) => remainder(i) > 0.01));
 
   protected readonly totalPrepaid = computed(() =>
-    this.rows().reduce((s, i) => s + Number(i.prepaidAmount) * Number(i.fxRateToPivot), 0),
+    this.rows().reduce(
+      (s, i) => s + Number(i.prepaidAmount) * Number(i.fxRateToPivot) * this.tauxPivotXof(),
+      0,
+    ),
   );
 
   protected readonly outstandingPrepaid = computed(() =>
-    this.openAdvances().reduce((s, i) => s + remainder(i) * Number(i.fxRateToPivot), 0),
+    this.openAdvances().reduce(
+      (s, i) => s + remainder(i) * Number(i.fxRateToPivot) * this.tauxPivotXof(),
+      0,
+    ),
   );
 
   protected readonly oldestPrepaymentDays = computed(() => {
@@ -473,6 +481,7 @@ export class SupplierInvoicesComponent implements OnInit {
     this.api.costReconciliation().subscribe((r) => this.reconciliation.set(r));
     this.api.partners(1).subscribe((p) => this.suppliers.set(p.items));
     this.api.deals(1, {}).subscribe((p) => this.dealOptions.set(p.items));
+    this.api.pivotLocalRate().subscribe((r) => this.tauxPivotXof.set(r.rate));
   }
 
   /** Aucun fait métier n'apurera cette avance : elle ne partira pas seule. */

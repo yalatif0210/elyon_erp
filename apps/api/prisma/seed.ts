@@ -186,8 +186,8 @@ async function main(): Promise<void> {
   //  4. TAUX DE CHANGE — historisés, jamais écrasés
   // =========================================================================
   const fxDefs = [
-    { baseCurrencyCode: 'USD', quoteCurrencyCode: 'XOF', rate: String(USD_XOF), rateType: FxRateType.OFFICIAL, effectiveFrom: D('2026-07-01'), notes: 'Cours de référence — juillet 2026.' },
-    { baseCurrencyCode: 'EUR', quoteCurrencyCode: 'XOF', rate: '655.95700000', rateType: FxRateType.PEG, effectiveFrom: D('2000-01-01'), notes: 'Parité fixe réglementaire — non révisable, protégée par trigger.' },
+    { baseCurrencyCode: 'USD', quoteCurrencyCode: 'XOF', rate: String(USD_XOF), rateType: FxRateType.OFFICIAL, effectiveFrom: D('2026-07-01'), notes: 'Cours de référence, juillet 2026.' },
+    { baseCurrencyCode: 'EUR', quoteCurrencyCode: 'XOF', rate: '655.95700000', rateType: FxRateType.PEG, effectiveFrom: D('2000-01-01'), notes: 'Parité fixe réglementaire, non révisable, protégée par trigger.' },
     { baseCurrencyCode: 'USD', quoteCurrencyCode: 'EUR', rate: '0.92300000', rateType: FxRateType.OFFICIAL, effectiveFrom: D('2026-07-01'), notes: null },
   ];
   for (const f of fxDefs) {
@@ -268,7 +268,7 @@ async function main(): Promise<void> {
     { code: 'CLI-001', legalName: 'Compagnie Maritime Atlantique SA', type: PartnerType.CLIENT, segment: CommercialSegment.MARITIME, countryCode: 'CI', creditLimit: '2500000.0000', paymentTermsDays: 45, creditStatus: CreditStatus.ACTIVE, taxpayerAccountNumber: 'CI-1804521 X', rccmNumber: 'CI-ABJ-2018-B-14027', taxRegime: 'Réel normal', isVatExempt: false, documentaryRegime: DocumentaryRegime.PROFORMA_THEN_FNE, billingCurrencyCode: 'XOF' },
     { code: 'CLI-002', legalName: 'Société Minière de l\'Ouest', type: PartnerType.CLIENT, segment: CommercialSegment.B2B, countryCode: 'CI', creditLimit: '5000000.0000', paymentTermsDays: 45, creditStatus: CreditStatus.ACTIVE, taxpayerAccountNumber: 'CI-0902117 W', rccmNumber: 'CI-ABJ-2009-B-03318', taxRegime: 'Réel normal', isVatExempt: false, documentaryRegime: DocumentaryRegime.PROFORMA_THEN_FNE, billingCurrencyCode: 'XOF' },
     { code: 'CLI-003', legalName: 'Station Service Cocody', type: PartnerType.CLIENT, segment: CommercialSegment.RETAIL, countryCode: 'CI', creditLimit: '400000.0000', paymentTermsDays: 0, creditStatus: CreditStatus.ACTIVE, taxpayerAccountNumber: 'CI-2011884 K', taxRegime: 'Réel simplifié', isVatExempt: false, documentaryRegime: DocumentaryRegime.SIMPLE_DIRECT, billingCurrencyCode: 'XOF' },
-    { code: 'CLI-004', legalName: 'Coopérative des Pêcheurs de Sassandra', type: PartnerType.CLIENT, segment: CommercialSegment.MARITIME, countryCode: 'CI', creditLimit: '150000.0000', paymentTermsDays: 0, creditStatus: CreditStatus.WATCH, isVatExempt: true, vatExemptionReference: 'Attestation DGI n° 2026/EXO/0451 — navires de pêche', documentaryRegime: DocumentaryRegime.PROFORMA_THEN_SIMPLE, billingCurrencyCode: 'XOF' },
+    { code: 'CLI-004', legalName: 'Coopérative des Pêcheurs de Sassandra', type: PartnerType.CLIENT, segment: CommercialSegment.MARITIME, countryCode: 'CI', creditLimit: '150000.0000', paymentTermsDays: 0, creditStatus: CreditStatus.WATCH, isVatExempt: true, vatExemptionReference: 'Attestation DGI n° 2026/EXO/0451, navires de pêche', documentaryRegime: DocumentaryRegime.PROFORMA_THEN_SIMPLE, billingCurrencyCode: 'XOF' },
     // --- Fournisseurs — prépaiement avant livraison (§ 14.6) ---
     { code: 'SUP-SIR', legalName: 'Société Ivoirienne de Raffinage', type: PartnerType.SUPPLIER, segment: null, countryCode: 'CI', creditLimit: '0', paymentTermsDays: 0, supplierTermsDays: -5, creditStatus: CreditStatus.ACTIVE, billingCurrencyCode: 'XOF' },
     { code: 'SUP-GESTOCI', legalName: 'GESTOCI', type: PartnerType.SUPPLIER, segment: null, countryCode: 'CI', creditLimit: '0', paymentTermsDays: 0, supplierTermsDays: -3, creditStatus: CreditStatus.ACTIVE, billingCurrencyCode: 'XOF' },
@@ -292,9 +292,9 @@ async function main(): Promise<void> {
 
   // --- Sites : ce que voit l'application terrain (§ 10.3) ---
   const siteDefs = [
-    { partnerCode: 'CLI-001', code: 'ABJ-TERM', name: 'Port d\'Abidjan — Terminal pétrolier', city: 'Abidjan', countryCode: 'CI', accessInstructions: 'Entrée porte 3. Badge portuaire obligatoire. Se présenter au poste de garde.', openingHours: 'Lun-Sam 06h00-18h00', safetyInstructions: 'EPI complet. Interdiction de téléphoner sur le quai. Point de rassemblement : quai nord.', defaultHseRiskLevel: HseRiskLevel.CRITICAL },
-    { partnerCode: 'CLI-002', code: 'MINE-OUEST', name: 'Site minier — Ouest', city: 'Man', countryCode: 'CI', accessInstructions: 'Piste non revêtue sur 12 km. Prévenir 24 h à l\'avance.', openingHours: 'Lun-Ven 07h00-16h00', safetyInstructions: 'Induction sécurité site obligatoire. Vitesse limitée à 30 km/h.', defaultHseRiskLevel: HseRiskLevel.REINFORCED },
-    { partnerCode: 'CLI-003', code: 'STA-COCODY', name: 'Station Cocody — Boulevard Latrille', city: 'Abidjan', countryCode: 'CI', accessInstructions: 'Livraison hors heures de pointe.', openingHours: '24h/24', safetyInstructions: 'Balisage de la zone de dépotage. Extincteur à portée.', defaultHseRiskLevel: HseRiskLevel.STANDARD },
+    { partnerCode: 'CLI-001', code: 'ABJ-TERM', name: 'Port d\'Abidjan, Terminal pétrolier', city: 'Abidjan', countryCode: 'CI', accessInstructions: 'Entrée porte 3. Badge portuaire obligatoire. Se présenter au poste de garde.', openingHours: 'Lun-Sam 06h00-18h00', safetyInstructions: 'EPI complet. Interdiction de téléphoner sur le quai. Point de rassemblement : quai nord.', defaultHseRiskLevel: HseRiskLevel.CRITICAL },
+    { partnerCode: 'CLI-002', code: 'MINE-OUEST', name: 'Site minier, Ouest', city: 'Man', countryCode: 'CI', accessInstructions: 'Piste non revêtue sur 12 km. Prévenir 24 h à l\'avance.', openingHours: 'Lun-Ven 07h00-16h00', safetyInstructions: 'Induction sécurité site obligatoire. Vitesse limitée à 30 km/h.', defaultHseRiskLevel: HseRiskLevel.REINFORCED },
+    { partnerCode: 'CLI-003', code: 'STA-COCODY', name: 'Station Cocody, Boulevard Latrille', city: 'Abidjan', countryCode: 'CI', accessInstructions: 'Livraison hors heures de pointe.', openingHours: '24h/24', safetyInstructions: 'Balisage de la zone de dépotage. Extincteur à portée.', defaultHseRiskLevel: HseRiskLevel.STANDARD },
   ];
   for (const s of siteDefs) {
     const { partnerCode, ...rest } = s;
@@ -430,8 +430,8 @@ async function main(): Promise<void> {
     // --- Indirects fixes : absorbés ---
     { code: 'ADMINISTRATION', label: 'Administration générale', category: 'Structure', nature: CostNature.INDIRECT, variability: CostVariability.FIXED, pool: 'POOL_ADMIN', allocationBasis: AllocationBasis.PER_VOLUME, displayOrder: 80 },
     { code: 'ASSURANCES', label: 'Assurances', category: 'Structure', nature: CostNature.INDIRECT, variability: CostVariability.FIXED, pool: 'POOL_ADMIN', allocationBasis: AllocationBasis.PER_VOLUME, displayOrder: 81 },
-    { code: 'HSE_STRUCTURE', label: 'HSE — structure et équipements', category: 'HSE', nature: CostNature.INDIRECT, variability: CostVariability.FIXED, pool: 'POOL_HSE', allocationBasis: AllocationBasis.PER_VOLUME, displayOrder: 82 },
-    { code: 'BARGE_EXPLOITATION', label: 'Barge — exploitation et amortissement', category: 'Maritime', nature: CostNature.INDIRECT, variability: CostVariability.FIXED, pool: 'POOL_MARITIME', allocationBasis: AllocationBasis.PER_VOLUME, displayOrder: 83 },
+    { code: 'HSE_STRUCTURE', label: 'HSE, structure et équipements', category: 'HSE', nature: CostNature.INDIRECT, variability: CostVariability.FIXED, pool: 'POOL_HSE', allocationBasis: AllocationBasis.PER_VOLUME, displayOrder: 82 },
+    { code: 'BARGE_EXPLOITATION', label: 'Barge, exploitation et amortissement', category: 'Maritime', nature: CostNature.INDIRECT, variability: CostVariability.FIXED, pool: 'POOL_MARITIME', allocationBasis: AllocationBasis.PER_VOLUME, displayOrder: 83 },
     // --- Indirect MAIS variable : brise la corrélation dans l'autre sens ---
     { code: 'COMMISSIONS_BANCAIRES', label: 'Commissions bancaires proportionnelles', category: 'Financier', nature: CostNature.INDIRECT, variability: CostVariability.VARIABLE, pool: 'POOL_FINANCIER', allocationBasis: AllocationBasis.PER_VOLUME, displayOrder: 84 },
   ];
@@ -577,7 +577,7 @@ async function main(): Promise<void> {
     update: { operationTypes: { connect: { id: typeRoute.id } } },
     create: {
       code: 'LIVRAISON_ROUTIERE_V1',
-      label: 'Livraison routière — checklist standard',
+      label: 'Livraison routière, checklist standard',
       applicableSegments: [CommercialSegment.B2B, CommercialSegment.RETAIL],
       applicableTransportModes: [TransportMode.TRUCK],
       applicableRiskLevels: [HseRiskLevel.STANDARD, HseRiskLevel.REINFORCED],
@@ -596,7 +596,7 @@ async function main(): Promise<void> {
     { code: 'HSE_BRIEFING', label: 'Briefing sécurité réalisé', phase: OperationPhase.PRE_DEPARTURE, level: HseControlLevel.MANDATORY, requiresSignature: true, displayOrder: 15 },
     { code: 'CHG_AUTORISATION', label: 'Autorisation de chargement obtenue', phase: OperationPhase.LOADING, level: HseControlLevel.BLOCKING, displayOrder: 20 },
     { code: 'CHG_COMPARTIMENTS', label: 'Contrôle du produit et des compartiments', phase: OperationPhase.LOADING, level: HseControlLevel.BLOCKING, requiresPhoto: true, displayOrder: 21 },
-    { code: 'CHG_JAUGEAGE', label: 'Jaugeage initial — volume et température relevés', phase: OperationPhase.LOADING, level: HseControlLevel.BLOCKING, requiresValue: true, valueLabel: 'Volume chargé (L) et température (°C)', displayOrder: 22 },
+    { code: 'CHG_JAUGEAGE', label: 'Jaugeage initial, volume et température relevés', phase: OperationPhase.LOADING, level: HseControlLevel.BLOCKING, requiresValue: true, valueLabel: 'Volume chargé (L) et température (°C)', displayOrder: 22 },
     { code: 'CHG_SCELLES', label: 'Scellés posés et numéros enregistrés', phase: OperationPhase.LOADING, level: HseControlLevel.BLOCKING, requiresPhoto: true, requiresValue: true, valueLabel: 'Numéros de scellés', displayOrder: 23 },
     { code: 'TRA_DEPART', label: 'Départ confirmé', phase: OperationPhase.TRANSPORT, level: HseControlLevel.MANDATORY, displayOrder: 30 },
     { code: 'TRA_ARRIVEE', label: 'Arrivée confirmée', phase: OperationPhase.TRANSPORT, level: HseControlLevel.MANDATORY, displayOrder: 31 },

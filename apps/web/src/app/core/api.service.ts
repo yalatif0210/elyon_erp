@@ -290,6 +290,18 @@ export interface DealDetail extends DealRow {
   thresholds: ThresholdVerdict;
 }
 
+export interface OperationalProcedureRow {
+  id: string;
+  code: string;
+  label: string;
+  description: string | null;
+  procedure: {
+    content: string;
+    updatedAt: string;
+    updatedBy: { fullName: string } | null;
+  } | null;
+}
+
 export interface OperationRow {
   id: string;
   reference: string;
@@ -545,6 +557,8 @@ export interface SupplierPriceOption {
   sourceLabel: string | null;
   supplierTermsDays: number;
   validatedBy: string | null;
+  version: number;
+  isActive: boolean;
   /** Bornes dans lesquelles le prix retenu ne demande aucun motif. */
   bandMin: number;
   bandMax: number;
@@ -640,12 +654,12 @@ export interface CreditExposureRow {
   partner_code: string;
   partner_name: string;
   credit_status: string;
-  credit_limit_pivot: string;
-  receivables_pivot: string;
-  commitments_pivot: string;
-  guarantees_pivot: string;
-  exposure_pivot: string;
-  available_credit_pivot: string;
+  credit_limit_xof: string;
+  receivables_xof: string;
+  commitments_xof: string;
+  guarantees_xof: string;
+  exposure_xof: string;
+  available_credit_xof: string;
   utilisation_pct: string | null;
 }
 
@@ -658,11 +672,11 @@ export interface BargePnLRow {
   voyages: number;
   /** Par unité (L, M3, MT, BBL) : elles ne s'additionnent pas entre elles. */
   volumeParUnite: Record<string, number>;
-  pivotCurrency: string;
-  revenuePivot: number;
-  operatingCostPivot: number;
-  maintenanceCostPivot: number;
-  marginPivot: number;
+  displayCurrency: string;
+  revenueXof: number;
+  operatingCostXof: number;
+  maintenanceCostXof: number;
+  marginXof: number;
   maintenanceEventCount: number;
   nextMaintenanceDue: string | null;
 }
@@ -751,7 +765,7 @@ export interface OutstandingAdvanceRow {
   prepaid_amount: string;
   settled_amount: string;
   outstanding_amount: string;
-  outstanding_pivot: string;
+  outstanding_xof: string;
   prepaid_at: string;
   days_outstanding: number;
   settlement_trigger: string;
@@ -1060,6 +1074,20 @@ export interface DeviseOption {
   isLocal: boolean;
 }
 
+/** Une valeur d'énumération et son libellé français. */
+export interface VocabItem {
+  code: string;
+  label: string;
+}
+
+export interface VocabulaireCatalogue {
+  hseEventType: VocabItem[];
+  hseSeverity: VocabItem[];
+  invoicePaymentMethod: VocabItem[];
+  complianceType: VocabItem[];
+  dunningMethod: VocabItem[];
+}
+
 /** Paramètre interrogé par le SQL métier, et sa présence (§ 1.1 bis). */
 export interface ParametreRequis {
   parametre: string;
@@ -1073,12 +1101,12 @@ export interface CostReconciliationRow {
   reference: string;
   status: string;
   client: string;
-  recorded_cost_pivot: string;
-  supplier_billed_pivot: string;
-  supplier_paid_pivot: string;
-  prepaid_pivot: string;
-  unreconciled_pivot: string;
-  cost_without_invoice_pivot: string;
+  recorded_cost_xof: string;
+  supplier_billed_xof: string;
+  supplier_paid_xof: string;
+  prepaid_xof: string;
+  unreconciled_xof: string;
+  cost_without_invoice_xof: string;
 }
 
 // --- Paramétrage des référentiels (§ 1.1 bis) -------------------------------
@@ -1239,6 +1267,45 @@ export interface ScreenAccessRow {
   >;
 }
 
+/** Un compte interne, tel que rendu par /users. */
+export interface UserAdminRow {
+  id: string;
+  email: string;
+  fullName: string;
+  role: string;
+  isActive: boolean;
+  mustChangePassword: boolean;
+  totpEnabled: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+
+/** Un compte terrain, tel que rendu par /field-users. */
+export interface FieldUserAdminRow {
+  id: string;
+  email: string;
+  fullName: string;
+  role: string;
+  isActive: boolean;
+  mustChangePassword: boolean;
+  totpEnabled: boolean;
+  assignedDeviceId: string | null;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+
+/** Un compte portail, tel que rendu par /partners/:id/portal-users. */
+export interface PortalUserAdminRow {
+  id: string;
+  email: string;
+  fullName: string;
+  isActive: boolean;
+  mustChangePassword: boolean;
+  totpEnabled: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
@@ -1385,6 +1452,28 @@ export class ApiService {
 
   fxRates(): Observable<unknown[]> {
     return this.http.get<unknown[]>(`${this.base}/referentials/fx-rates`);
+  }
+
+  /**
+   * Cours courant du pivot vers la devise locale d'affichage.
+   *
+   * Sert à convertir en XOF, côté écran, un total agrégé à partir de lignes
+   * déjà exprimées au pivot — jamais à afficher le pivot lui-même.
+   */
+  pivotLocalRate(): Observable<{ pivot: string; local: string; rate: number }> {
+    return this.http.get<{ pivot: string; local: string; rate: number }>(
+      `${this.base}/referentials/pivot-local-rate`,
+    );
+  }
+
+  /**
+   * Libellés français des énumérations sans référentiel propre : nature et
+   * gravité HSE, mode de règlement, nature de pièce de conformité, méthode de
+   * relance. Source unique - avant cette route, chacun des quatre écrans
+   * recopiait sa propre liste.
+   */
+  vocabulaires(): Observable<VocabulaireCatalogue> {
+    return this.http.get<VocabulaireCatalogue>(`${this.base}/referentials/vocabulaires`);
   }
 
   // --- Affaires (§ 4, § 5.4) -----------------------------------------------
@@ -1765,12 +1854,24 @@ export class ApiService {
     return this.http.patch(`${this.base}/documents/${id}/seal`, {});
   }
 
-  supersedeDocument(id: string, body: Record<string, unknown>): Observable<unknown> {
-    return this.http.post(`${this.base}/documents/${id}/supersede`, body);
+  /**
+   * `FormData` : le fichier voyage avec le reste des champs, et le serveur en
+   * calcule lui-même la clé de stockage et l'empreinte — voir le commentaire
+   * de `DocumentsController.register`. Angular pose lui-même l'en-tête
+   * `Content-Type` avec la bonne frontière multipart.
+   */
+  supersedeDocument(id: string, file: File, body: Record<string, unknown>): Observable<unknown> {
+    const corps = new FormData();
+    corps.append('file', file);
+    for (const [k, v] of Object.entries(body)) if (v !== undefined && v !== null) corps.append(k, String(v));
+    return this.http.post(`${this.base}/documents/${id}/supersede`, corps);
   }
 
-  registerDocument(body: Record<string, unknown>): Observable<unknown> {
-    return this.http.post(`${this.base}/documents`, body);
+  registerDocument(file: File, body: Record<string, unknown>): Observable<unknown> {
+    const corps = new FormData();
+    corps.append('file', file);
+    for (const [k, v] of Object.entries(body)) if (v !== undefined && v !== null) corps.append(k, String(v));
+    return this.http.post(`${this.base}/documents`, corps);
   }
 
   // --- HSE et conformité ----------------------------------------------------
@@ -1781,6 +1882,10 @@ export class ApiService {
 
   validateHseCheckAsDg(checkId: string): Observable<unknown> {
     return this.http.patch(`${this.base}/hse/checks/${checkId}/validate`, {});
+  }
+
+  rejectHseCheckAsDg(checkId: string, reason: string): Observable<unknown> {
+    return this.http.patch(`${this.base}/hse/checks/${checkId}/reject`, { reason });
   }
 
   openHseEvent(body: Record<string, unknown>): Observable<unknown> {
@@ -2031,6 +2136,16 @@ export class ApiService {
     return this.http.get<PrevisionVente[]>(`${this.base}/supervision/prevision-vente`);
   }
 
+  // --- Procédures opérationnelles -------------------------------------------
+
+  operationalProcedures(): Observable<OperationalProcedureRow[]> {
+    return this.http.get<OperationalProcedureRow[]>(`${this.base}/operational-procedures`);
+  }
+
+  setOperationalProcedure(operationTypeId: string, content: string): Observable<unknown> {
+    return this.http.patch(`${this.base}/operational-procedures/${operationTypeId}`, { content });
+  }
+
   // --- Paramétrage (§ 1.1 bis) ---------------------------------------------
 
   /**
@@ -2180,5 +2295,76 @@ export class ApiService {
     override: 'VISIBLE' | 'MASQUE' | null,
   ): Observable<unknown> {
     return this.http.patch(`${this.base}/screen-access`, { role, screenKey, override });
+  }
+
+  // --- Gestion des comptes — internes, terrain, portail ---------------------
+
+  users(): Observable<UserAdminRow[]> {
+    return this.http.get<UserAdminRow[]>(`${this.base}/users`);
+  }
+
+  createUser(dto: { email: string; fullName: string; role: string; password: string }) {
+    return this.http.post<{ id: string; email: string }>(`${this.base}/users`, dto);
+  }
+
+  updateUser(id: string, dto: { role?: string; isActive?: boolean }) {
+    return this.http.patch<{ id: string; role: string; isActive: boolean }>(
+      `${this.base}/users/${id}`,
+      dto,
+    );
+  }
+
+  resetUserPassword(id: string, password: string) {
+    return this.http.patch<{ id: string; mustChangePassword: boolean }>(
+      `${this.base}/users/${id}/reset-password`,
+      { password },
+    );
+  }
+
+  fieldUsers(): Observable<FieldUserAdminRow[]> {
+    return this.http.get<FieldUserAdminRow[]>(`${this.base}/field-users`);
+  }
+
+  createFieldUser(dto: { email: string; fullName: string; role: string; password: string }) {
+    return this.http.post<{ id: string; email: string }>(`${this.base}/field-users`, dto);
+  }
+
+  updateFieldUser(id: string, dto: { role?: string; isActive?: boolean }) {
+    return this.http.patch<{ id: string; role: string; isActive: boolean }>(
+      `${this.base}/field-users/${id}`,
+      dto,
+    );
+  }
+
+  resetFieldUserPassword(id: string, password: string) {
+    return this.http.patch<{ id: string; mustChangePassword: boolean }>(
+      `${this.base}/field-users/${id}/reset-password`,
+      { password },
+    );
+  }
+
+  portalUsers(partnerId: string): Observable<PortalUserAdminRow[]> {
+    return this.http.get<PortalUserAdminRow[]>(`${this.base}/partners/${partnerId}/portal-users`);
+  }
+
+  createPortalUser(partnerId: string, dto: { email: string; fullName: string; password: string }) {
+    return this.http.post<{ id: string; email: string }>(
+      `${this.base}/partners/${partnerId}/portal-users`,
+      dto,
+    );
+  }
+
+  updatePortalUser(partnerId: string, id: string, dto: { isActive?: boolean }) {
+    return this.http.patch<{ id: string; isActive: boolean }>(
+      `${this.base}/partners/${partnerId}/portal-users/${id}`,
+      dto,
+    );
+  }
+
+  resetPortalUserPassword(partnerId: string, id: string, password: string) {
+    return this.http.patch<{ id: string; mustChangePassword: boolean }>(
+      `${this.base}/partners/${partnerId}/portal-users/${id}/reset-password`,
+      { password },
+    );
   }
 }

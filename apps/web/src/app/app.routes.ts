@@ -235,11 +235,16 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/compliance.component').then((m) => m.ComplianceComponent),
       },
+      // Fusionné dans « Conformité » (§ discussion 20/08) : la vue par pièce
+      // vit désormais dans le même écran, sous un onglet. Redirigé plutôt que
+      // supprimé pour qu'un lien ou une habitude déjà pris ne tombe pas sur
+      // une page absente.
+      { path: 'echeancier', redirectTo: 'conformite' },
       {
-        path: 'echeancier',
-        canActivate: [screenGuard('echeancier')],
+        path: 'procedures',
+        canActivate: [screenGuard('procedures')],
         loadComponent: () =>
-          import('./features/compliance.component').then((m) => m.ExpiryComponent),
+          import('./features/procedures.component').then((m) => m.ProceduresComponent),
       },
       {
         path: 'tiers',
@@ -334,6 +339,16 @@ export const routes: Routes = [
         canActivate: [roleGuard('DG')],
         loadComponent: () =>
           import('./features/screen-access.component').then((m) => m.ScreenAccessComponent),
+      },
+      // Gérer les utilisateurs : même principe que l'accès aux écrans - hors
+      // matrice, hors @Screen() - un DG qui se retirerait par erreur l'accès
+      // à cet écran depuis le paramétrage des écrans ne doit jamais se
+      // retrouver sans porte de sortie (voir user-admin.controller.ts).
+      {
+        path: 'utilisateurs',
+        canActivate: [roleGuard('DG', 'IT_ADMIN')],
+        loadComponent: () =>
+          import('./features/user-admin.component').then((m) => m.UserAdminComponent),
       },
     ],
   },

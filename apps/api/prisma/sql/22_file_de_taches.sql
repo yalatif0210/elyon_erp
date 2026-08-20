@@ -43,7 +43,7 @@ SELECT 'APPROBATION_CREDIT'::text                 AS categorie,
        'FINANCE_CFO'::text                        AS role_attendu,
        'BLOQUANT'::text                           AS urgence,
        d.reference                                AS objet,
-       'Affaire en attente d''approbation — ' ||
+       'Affaire en attente d''approbation : ' ||
          round(d.contracted_volume, 0) || ' ' || d.uom || ' à ' ||
          round(d.unit_sale_price, 2) || ' ' || d.currency_code AS libelle,
        'affaires/' || d.id::text                  AS lien,
@@ -55,7 +55,7 @@ UNION ALL
 -- 2. Affaire sous le seuil de marge, en attente de l'accord du DG.
 SELECT 'ACCORD_DG', 'DG', 'BLOQUANT',
        d.reference,
-       'Marge sous le seuil — accord du DG requis',
+       'Marge sous le seuil : accord du DG requis',
        'affaires/' || d.id::text,
        d.updated_at
   FROM deals d
@@ -66,7 +66,7 @@ UNION ALL
 --    DG ne l'a pas validé : toute affaire qui s'en sert est en suspens.
 SELECT 'VALIDATION_PRIX', 'DG', 'BLOQUANT',
        p.legal_name || ' · ' || pr.code,
-       'Prix fournisseur à valider — ' || round(sp.unit_price, 2) || ' ' ||
+       'Prix fournisseur à valider : ' || round(sp.unit_price, 2) || ' ' ||
          sp.currency_code || '/' || sp.uom,
        'referentiels',
        sp.created_at
@@ -82,7 +82,7 @@ UNION ALL
 --    signifie que la checklist attend l'AGENT, pas le contrôleur.
 SELECT 'VALIDATION_HSE', 'HSE_CONTROLLER', 'BLOQUANT',
        o.reference || ' · ' || c.phase::text,
-       'Checklist à valider — l''opération ne peut pas partir sans',
+       'Checklist à valider : l''opération ne peut pas partir sans',
        'operations/' || o.id::text,
        c.created_at
   FROM operation_hse_checks c
@@ -97,7 +97,7 @@ UNION ALL
 -- 5. Exigences de site non levées sur une opération pas encore partie.
 SELECT 'EXIGENCE_SITE', 'LOGISTICS_COORD', 'BLOQUANT',
        v.operation,
-       'À lever avant le départ — ' || v.exigence ||
+       'À lever avant le départ : ' || v.exigence ||
          ' (' || CASE v.bout WHEN 'LOADING' THEN 'chargement' ELSE 'livraison' END || ')',
        'operations/' || v.operation_id::text,
        o.updated_at
@@ -122,7 +122,7 @@ SELECT 'CONFORMITE_ECHEANCE', 'LOGISTICS_COORD',
        COALESCE(p.legal_name, v.registration, dr.full_name) || ' · ' || cr.type::text,
        CASE WHEN cr.expiry_date < CURRENT_DATE
             THEN 'PÉRIMÉE le ' || to_char(cr.expiry_date, 'DD/MM/YYYY') ||
-                 ' — le moyen n''est plus affectable'
+                 ' : le moyen n''est plus affectable'
             ELSE 'Expire le ' || to_char(cr.expiry_date, 'DD/MM/YYYY') ||
                  ' (' || (cr.expiry_date - CURRENT_DATE) || ' jours)' END,
        'conformite',
@@ -150,7 +150,7 @@ UNION ALL
 --       que le versement ait eu lieu.
 SELECT 'AVANCE_NON_APUREE', 'FINANCE_CFO', 'A_VENIR',
        oa.reference,
-       'Avance non apurée — ' || round(oa.outstanding_amount, 0) || ' ' || oa.currency_code ||
+       'Avance non apurée : ' || round(oa.outstanding_amount, 0) || ' ' || oa.currency_code ||
          ' immobilisés depuis ' || oa.days_outstanding || ' jours',
        'achats',
        oa.prepaid_at
@@ -165,7 +165,7 @@ UNION ALL
 -- 8. Violation d'invariant. Cette file DOIT rester vide.
 SELECT 'INVARIANT', 'DG', 'ANOMALIE',
        b.enregistrement,
-       b.regle || ' — ' || b.detail,
+       b.regle || ' : ' || b.detail,
        'supervision',
        now()
   FROM v_invariant_breaches b
@@ -197,8 +197,8 @@ UNION ALL
 --       L'OPÉRATION, pas sur l'événement.
 SELECT 'REFUS_TERRAIN', 'LOGISTICS_COORD', 'ANOMALIE',
        o.reference,
-       CASE WHEN count(*) = 1 THEN 'Saisie terrain refusée, non reprise — '
-            ELSE count(*) || ' saisies terrain refusées, non reprises — ' END ||
+       CASE WHEN count(*) = 1 THEN 'Saisie terrain refusée, non reprise : '
+            ELSE count(*) || ' saisies terrain refusées, non reprises : ' END ||
          left((array_agg(e.rejection_reason ORDER BY e.received_at DESC))[1], 110),
        'operations/' || o.id::text,
        min(e.received_at)
@@ -228,7 +228,7 @@ UNION ALL
 -- 10. Fret engagé hors tarif, sans transporteur ou sans motif.
 SELECT 'FRET_HORS_TARIF', 'FINANCE_CFO', 'ANOMALIE',
        ft.operation,
-       'Fret hors tarif — ' || round(ft.freight_cost, 0) || ' ' || ft.currency_code ||
+       'Fret hors tarif : ' || round(ft.freight_cost, 0) || ' ' || ft.currency_code ||
          COALESCE(' contre ' || round(ft.tarif_attendu, 0) || ' négocié', ', sans tarif négocié'),
        'operations',
        now()
@@ -238,7 +238,7 @@ UNION ALL
 -- 11. Client au-delà de son plafond de crédit.
 SELECT 'CREDIT_DEPASSE', 'FINANCE_CFO', 'ANOMALIE',
        cd.partner_code,
-       cd.partner_name || ' — engagé à ' || round(cd.engage, 0) ||
+       cd.partner_name || ' : engagé à ' || round(cd.engage, 0) ||
          ' pour un plafond de ' || round(cd.plafond, 0) || ' (' || cd.utilisation_pct || ' %)',
        'tiers',
        now()
@@ -248,7 +248,7 @@ UNION ALL
 -- 12. Dérogation exceptionnelle en attente de revue mensuelle.
 SELECT 'REVUE_DEROGATION', 'DG', 'A_VENIR',
        COALESCE(d.subject_label, d.subject_id, left(d.id::text, 8)),
-       'Dérogation à revoir — ' || d.type::text || ', accordée le ' ||
+       'Dérogation à revoir : ' || d.type::text || ', accordée le ' ||
          to_char(d.granted_at, 'DD/MM/YYYY'),
        'derogations',
        d.granted_at
@@ -277,7 +277,7 @@ UNION ALL
 SELECT 'MODELE_HSE_MANQUANT', 'HSE_CONTROLLER', 'BLOQUANT',
        o.reference,
        'Aucun modèle de checklist ne couvre ' || d.segment::text ||
-         ' en ' || o.transport_mode::text || ' — l''opération sera bloquée au chargement',
+         ' en ' || o.transport_mode::text || ' : l''opération sera bloquée au chargement',
        'referentiels',
        o.updated_at
   FROM operations o
@@ -307,7 +307,7 @@ UNION ALL
 --     n'a d'ancrage, et le point mort ne peut rien dire.
 SELECT 'EXERCICE_MANQUANT', 'FINANCE_CFO', 'BLOQUANT',
        'Exercice comptable',
-       'Aucun exercice n''est déclaré courant — le pilotage financier ne peut se rattacher à rien',
+       'Aucun exercice n''est déclaré courant : le pilotage financier ne peut se rattacher à rien',
        'parametrage',
        now()
  WHERE exercice_courant() IS NULL
@@ -320,7 +320,7 @@ UNION ALL
 --     chercher.
 SELECT 'DONNEE_BUDGETAIRE', 'FINANCE_CFO', 'A_VENIR',
        'Exercice ' || c.exercice::text,
-       c.donnee || ' non saisi — sert à : ' || c.sert_a,
+       c.donnee || ' non saisi, sert à : ' || c.sert_a,
        'parametrage',
        now()
   FROM v_couverture_budgetaire c
@@ -336,7 +336,7 @@ UNION ALL
 SELECT 'RELANCE_CRM', 'CCOO',
        CASE WHEN a.retard_jours > 0 THEN 'BLOQUANT' ELSE 'A_VENIR' END,
        a.reference,
-       a.objet || ' (' || a.responsable || ') — ' || a.action ||
+       a.objet || ' (' || a.responsable || ') : ' || a.action ||
          CASE WHEN a.retard_jours > 0
               THEN ', en retard de ' || a.retard_jours || ' jours'
               ELSE ', pour aujourd''hui' END,
@@ -353,7 +353,7 @@ UNION ALL
 --     étape. Personne ne l'a refusé — on l'a simplement oublié.
 SELECT 'OPPORTUNITE_DORMANTE', 'CCOO', 'ANOMALIE',
        a.reference,
-       a.objet || ' (' || a.responsable || ') — ' || a.action,
+       a.objet || ' (' || a.responsable || ') : ' || a.action,
        'crm',
        a.echeance::timestamptz
   FROM v_crm_alertes a
@@ -407,7 +407,7 @@ UNION ALL
 SELECT 'SUR_FACTURATION', 'FINANCE_CFO', 'ANOMALIE',
        r.affaire,
        'Facturé ' || round(r.deja_facture, 0) || ' ' || r.uom ||
-         ' pour ' || round(r.contracte, 0) || ' contractés — à régulariser par avoir',
+         ' pour ' || round(r.contracte, 0) || ' contractés : à régulariser par avoir',
        'facturation',
        now()
   FROM v_reste_a_facturer r
@@ -421,7 +421,7 @@ UNION ALL
 SELECT 'CREANCE_ECHUE', 'ACCOUNTANT',
        CASE WHEN c.retard_jours > 60 THEN 'BLOQUANT' ELSE 'ANOMALIE' END,
        c.piece,
-       c.client || ' — ' || round(c.reste_du, 0) || ' ' || c.currency_code ||
+       c.client || ' : ' || round(c.reste_du, 0) || ' ' || c.currency_code ||
          ' dus depuis ' || c.retard_jours || ' jours (' || c.tranche || ')',
        'facturation',
        (CURRENT_DATE - c.retard_jours)::timestamptz

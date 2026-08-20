@@ -223,7 +223,7 @@ SELECT
   'Opération sans type d''opération',
   'operations',
   o.reference,
-  'statut ' || o.status::text || ' — aucune checklist ne peut s''y attacher'
+  'statut ' || o.status::text || ' : aucune checklist ne peut s''y attacher'
 FROM operations o
 WHERE o.status::text <> 'DRAFT'
   AND NOT EXISTS (
@@ -256,7 +256,7 @@ UNION ALL
 --     sa valeur de secours n'alerte pas — il alerte simplement AILLEURS que là
 --     où le coordinateur croit l'avoir réglé.
 SELECT
-  'Paramètre requis absent — un verrou tourne sur son repli',
+  'Paramètre requis absent : un verrou tourne sur son repli',
   'system_settings',
   pr.parametre,
   'lu par ' || pr.objets
@@ -365,7 +365,7 @@ SELECT
   cp.code || ' · exercice ' || f.year::text,
   'assiette ' || round(ar.budgeted_base, 2) || ' contre ' ||
     CASE
-      WHEN a.unites > 1 THEN 'des prévisions en ' || a.uom || ' — unités mêlées'
+      WHEN a.unites > 1 THEN 'des prévisions en ' || a.uom || ' : unités mêlées'
       WHEN a.volume IS NULL THEN 'aucune prévision budgétée sur ses segments'
       ELSE round(a.volume, 2)::text
     END

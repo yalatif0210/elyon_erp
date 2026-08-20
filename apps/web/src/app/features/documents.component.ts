@@ -83,20 +83,29 @@ const KINDS: Record<string, string> = {
               }
             </select>
           </div>
-          <div class="md:col-span-2">
-            <label class="label" for="cle-new">Clé de stockage</label>
-            <input id="cle-new" class="field font-mono" [(ngModel)]="newStorageKey" />
-          </div>
-          <div>
-            <label class="label" for="sha-new">Empreinte SHA-256</label>
-            <input id="sha-new" class="field font-mono" maxlength="64" [(ngModel)]="newSha256" />
+          <div class="md:col-span-3">
+            <label class="label" for="fichier-new">Fichier</label>
+            <input
+              id="fichier-new"
+              type="file"
+              class="field"
+              accept="application/pdf,image/jpeg,image/png,image/webp"
+              (change)="onFichierNew($event)"
+            />
+            <p class="mt-1 text-[11px] leading-relaxed text-ink-faint">
+              La clé de stockage et l’empreinte sont calculées par le serveur à partir de ce
+              fichier : elles ne se saisissent pas.
+            </p>
+            @if (nomFichierNew()) {
+              <p class="mt-1 text-[12px] text-ink-soft">{{ nomFichierNew() }}</p>
+            }
           </div>
         </div>
         <p class="mt-2 text-[11px] leading-relaxed text-ink-faint">
           Une pièce non rattachée à une affaire, une opération ou une facture est introuvable le
           jour où on la cherche, elle est refusée.
         </p>
-        <button class="btn-primary mt-3" (click)="register()" [disabled]="state.busy()">
+        <button class="btn-primary mt-3" (click)="register()" [disabled]="state.busy() || !fichierNew()">
           Enregistrer la pièce
         </button>
       </div>
@@ -230,15 +239,22 @@ const KINDS: Record<string, string> = {
           <p class="mb-3 text-[13px] text-ink-soft">
             La pièce d’origine reste en place : on ne réécrit pas l’histoire, on la complète.
           </p>
-          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div>
-              <label class="label" for="cle">Clé de stockage du nouveau fichier</label>
-              <input id="cle" class="field font-mono" [(ngModel)]="storageKey" />
-            </div>
-            <div>
-              <label class="label" for="empreinte">Empreinte SHA-256</label>
-              <input id="empreinte" class="field font-mono" maxlength="64" [(ngModel)]="sha256" />
-            </div>
+          <div>
+            <label class="label" for="fichier-remplace">Nouveau fichier</label>
+            <input
+              id="fichier-remplace"
+              type="file"
+              class="field"
+              accept="application/pdf,image/jpeg,image/png,image/webp"
+              (change)="onFichierRemplace($event)"
+            />
+            <p class="mt-1 text-[11px] leading-relaxed text-ink-faint">
+              La clé de stockage et l’empreinte sont calculées par le serveur à partir de ce
+              fichier : elles ne se saisissent pas.
+            </p>
+            @if (nomFichierRemplace()) {
+              <p class="mt-1 text-[12px] text-ink-soft">{{ nomFichierRemplace() }}</p>
+            }
           </div>
           <div class="mt-3">
             <label class="label" for="motif-doc">Motif du remplacement</label>
@@ -250,7 +266,11 @@ const KINDS: Record<string, string> = {
             />
           </div>
           <div class="mt-3 flex gap-2">
-            <button class="btn-primary" (click)="supersede(doc)" [disabled]="state.busy()">
+            <button
+              class="btn-primary"
+              (click)="supersede(doc)"
+              [disabled]="state.busy() || !fichierRemplace()"
+            >
               Émettre le remplacement
             </button>
             <button class="btn-ghost" (click)="superseding.set(null)">Annuler</button>
@@ -302,11 +322,11 @@ export class DocumentsComponent implements OnInit {
 
   protected newKind = 'DELIVERY_NOTE';
   protected newDealId = '';
-  protected newStorageKey = '';
-  protected newSha256 = '';
+  protected readonly fichierNew = signal<File | null>(null);
+  protected readonly nomFichierNew = signal<string | null>(null);
 
-  protected storageKey = '';
-  protected sha256 = '';
+  protected readonly fichierRemplace = signal<File | null>(null);
+  protected readonly nomFichierRemplace = signal<string | null>(null);
   protected supersessionReason = '';
 
   ngOnInit(): void {
@@ -314,22 +334,32 @@ export class DocumentsComponent implements OnInit {
     this.api.deals(1, {}).subscribe((p) => this.deals.set(p.items));
   }
 
+  protected onFichierNew(evenement: Event): void {
+    const fichier = (evenement.target as HTMLInputElement).files?.[0] ?? null;
+    this.fichierNew.set(fichier);
+    this.nomFichierNew.set(fichier?.name ?? null);
+  }
+
+  protected onFichierRemplace(evenement: Event): void {
+    const fichier = (evenement.target as HTMLInputElement).files?.[0] ?? null;
+    this.fichierRemplace.set(fichier);
+    this.nomFichierRemplace.set(fichier?.name ?? null);
+  }
+
   protected register(): void {
-    if (this.state.busy()) return;
+    const fichier = this.fichierNew();
+    if (this.state.busy() || !fichier) return;
     this.state.start();
     this.api
-      .registerDocument({
+      .registerDocument(fichier, {
         kind: this.newKind,
         dealId: this.newDealId || undefined,
-        storageKey: this.newStorageKey,
-        sizeBytes: 1024,
-        sha256: this.newSha256,
       })
       .subscribe({
         next: () => {
           this.state.succeed('Pièce enregistrée.');
-          this.newStorageKey = '';
-          this.newSha256 = '';
+          this.fichierNew.set(null);
+          this.nomFichierNew.set(null);
           this.load();
         },
         error: (e: HttpFailure) => this.state.fail(e),
@@ -376,8 +406,8 @@ export class DocumentsComponent implements OnInit {
 
   protected openSupersede(d: DocumentRow): void {
     this.signing.set(null);
-    this.storageKey = `documents/${new Date().getFullYear()}/remplacement-${d.reference}.pdf`;
-    this.sha256 = '';
+    this.fichierRemplace.set(null);
+    this.nomFichierRemplace.set(null);
     this.supersessionReason = '';
     this.superseding.set(d);
   }
@@ -415,20 +445,20 @@ export class DocumentsComponent implements OnInit {
   }
 
   protected supersede(d: DocumentRow): void {
-    if (this.state.busy()) return;
+    const fichier = this.fichierRemplace();
+    if (this.state.busy() || !fichier) return;
     this.state.start();
     this.api
-      .supersedeDocument(d.id, {
+      .supersedeDocument(d.id, fichier, {
         kind: d.kind,
-        storageKey: this.storageKey,
-        sizeBytes: 1024,
-        sha256: this.sha256,
         reason: this.supersessionReason,
       })
       .subscribe({
         next: () => {
           this.state.succeed('Pièce de remplacement émise.');
           this.superseding.set(null);
+          this.fichierRemplace.set(null);
+          this.nomFichierRemplace.set(null);
           this.load();
         },
         error: (e: HttpFailure) => this.state.fail(e),

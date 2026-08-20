@@ -47,7 +47,7 @@ BEGIN
 
   IF NOT rapport_scelle THEN
     RAISE EXCEPTION
-      'CLÔTURE REFUSÉE — l''opération % ne porte aucun rapport d''exécution scellé (signature de l''agent terrain manquante).',
+      'CLÔTURE REFUSÉE : l''opération % ne porte aucun rapport d''exécution scellé (signature de l''agent terrain manquante).',
       NEW.reference
       USING ERRCODE = 'check_violation';
   END IF;
@@ -61,7 +61,7 @@ BEGIN
 
   IF NOT bon_livraison_scelle THEN
     RAISE EXCEPTION
-      'CLÔTURE REFUSÉE — l''opération % ne porte aucun bon de livraison scellé (signature de l''agent terrain et du représentant du client requises toutes les deux).',
+      'CLÔTURE REFUSÉE : l''opération % ne porte aucun bon de livraison scellé (signature de l''agent terrain et du représentant du client requises toutes les deux).',
       NEW.reference
       USING ERRCODE = 'check_violation';
   END IF;

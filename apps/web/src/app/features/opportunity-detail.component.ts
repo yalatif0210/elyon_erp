@@ -163,7 +163,7 @@ const KIND_LABELS: Record<string, string> = {
                 @if (actionEnRetard(o)) { · en retard }
               </p>
               <p class="mt-2 text-[11px] leading-relaxed text-ink-faint">
-                Se met à jour en franchissant une étape (ci-contre) — y compris en resélectionnant
+                Se met à jour en franchissant une étape (ci-contre), y compris en resélectionnant
                 l’étape courante, pour la seule redéfinir sans faire progresser l’opportunité.
               </p>
             </div>

@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AuditService } from './audit/audit.service';
 import { AppConfig, EnvironmentVariables, validateEnv } from './config/env.config';
 import { CryptoService } from './crypto/crypto.service';
+import { FxService } from './money/fx.service';
 import { PrismaService } from './prisma/prisma.service';
 import { ReferenceService } from './reference/reference.service';
 import { RedisService } from './redis/redis.service';
@@ -48,6 +49,7 @@ import { AstmService } from './volumes/astm.service';
     ReferenceService,
     StorageService,
     AstmService,
+    FxService,
     // Les règles de gestion (seuils, durées, quotas) sont lues en base, pas
     // écrites dans le code : le service est transverse au même titre que
     // l'accès base, et suit donc la même portée globale.
@@ -66,6 +68,7 @@ import { AstmService } from './volumes/astm.service';
     SettingsService,
     StorageService,
     AstmService,
+    FxService,
     ScreenAccessService,
   ],
 })

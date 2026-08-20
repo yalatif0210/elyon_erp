@@ -136,7 +136,7 @@ BEGIN
 
   IF total > contracte + tol THEN
     RAISE EXCEPTION
-      'Facturation de % : l''affaire % porte % % au contrat, dont % déjà facturés. Cette pièce porterait le cumul à %, soit % de trop. Corriger le volume, ou émettre un avoir sur la pièce en excès — une affaire ne se facture pas deux fois.',
+      'Facturation de % : l''affaire % porte % % au contrat, dont % déjà facturés. Cette pièce porterait le cumul à %, soit % de trop. Corriger le volume, ou émettre un avoir sur la pièce en excès : une affaire ne se facture pas deux fois.',
       NEW.number, ref_deal, round(contracte, 4), NEW.uom,
       round(deja, 4), round(total, 4), round(total - contracte, 4)
       USING ERRCODE = 'check_violation';

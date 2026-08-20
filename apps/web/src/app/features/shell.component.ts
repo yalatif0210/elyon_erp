@@ -79,7 +79,12 @@ const NAV: NavGroup[] = [
     title: 'Administrer',
     items: [
       { label: 'Conformité', path: '/conformite', icon: 'shield', screenKey: 'conformite' },
-      { label: 'Échéancier', path: '/echeancier', icon: 'clock', screenKey: 'echeancier' },
+      {
+        label: 'Procédures opérationnelles',
+        path: '/procedures',
+        icon: 'clipboard-check',
+        screenKey: 'procedures',
+      },
       { label: 'Tiers', path: '/tiers', icon: 'users', screenKey: 'tiers' },
       { label: 'Dérogations', path: '/derogations', icon: 'lock', screenKey: 'derogations' },
       { label: 'Référentiels', path: '/referentiels', icon: 'layers', screenKey: 'referentiels' },
@@ -97,6 +102,12 @@ const NAV: NavGroup[] = [
       },
       // Hors matrice, volontairement : voir le commentaire de `NavItem.roles`.
       { label: 'Accès aux écrans', path: '/acces-ecrans', icon: 'lock', roles: ['DG'] },
+      {
+        label: 'Gérer les utilisateurs',
+        path: '/utilisateurs',
+        icon: 'users',
+        roles: ['DG', 'IT_ADMIN'],
+      },
     ],
   },
 ];

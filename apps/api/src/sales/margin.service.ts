@@ -262,11 +262,11 @@ export class MarginService {
         //    et lui en faire saisir un rouvrirait la double saisie supprimée.
         case AllocationBasis.PER_OPERATION:
           throw new BadRequestException(
-            `Le pool ${r.costPool.code} s'impute au nombre d'opérations, ce que l'assiette d'absorption n'admet plus : elle est la somme des volumes de prévision budgétée (§ 14.2, § 14.3). Aucune prévision ne porte un nombre de rotations. Basculer ce pool en PER_VOLUME.`,
+            `Le pool ${r.costPool.code} s'impute au nombre d'opérations, ce que l'assiette d'absorption n'admet plus : elle est la somme des volumes de prévision budgétée. Aucune prévision ne porte un nombre de rotations. Basculer ce pool en PER_VOLUME.`,
           );
         case AllocationBasis.PER_REVENUE:
           throw new BadRequestException(
-            `Le pool ${r.costPool.code} s'impute au prorata du chiffre d'affaires, ce que l'assiette d'absorption n'admet pas : elle est un VOLUME budgété (§ 14.2). Le volume est piloté, le prix ne l'est pas — une assiette en valeur ferait dériver la charge fixe unitaire à chaque publication DGH. Basculer ce pool en PER_VOLUME.`,
+            `Le pool ${r.costPool.code} s'impute au prorata du chiffre d'affaires, ce que l'assiette d'absorption n'admet pas : elle est un VOLUME budgété. Le volume est piloté, le prix ne l'est pas : une assiette en valeur ferait dériver la charge fixe unitaire à chaque publication DGH. Basculer ce pool en PER_VOLUME.`,
           );
         default:
           // Base inconnue — une valeur ajoutée à l'énumération sans que ce

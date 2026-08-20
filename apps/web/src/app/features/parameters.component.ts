@@ -10,6 +10,7 @@ import {
 import { IconComponent } from '../shared/icon.component';
 import { grouper } from '../shared/format';
 import { MontantDirective } from '../shared/montant.directive';
+import { TableauControlesComponent, TableauPagine } from '../shared/tableau';
 
 /**
  * Paramétrage des référentiels (SPECIFICATIONS.md § 1.1 bis).
@@ -23,7 +24,7 @@ import { MontantDirective } from '../shared/montant.directive';
 @Component({
   selector: 'erp-parameters',
   standalone: true,
-  imports: [FormsModule, IconComponent, MontantDirective],
+  imports: [FormsModule, IconComponent, MontantDirective, TableauControlesComponent],
   template: `
     <header class="mb-5">
       <h1 class="page-title">Paramétrage</h1>
@@ -532,13 +533,14 @@ import { MontantDirective } from '../shared/montant.directive';
                     </div>
 
                     @if (rep.rejets.length > 0) {
+                      <erp-tableau-controles [tableau]="tableauRejets" libelle="les rejets" />
                       <div class="overflow-x-auto">
                         <table class="table">
                           <thead>
                             <tr><th class="num">Ligne</th><th>Colonne</th><th>Motif du rejet</th></tr>
                           </thead>
                           <tbody>
-                            @for (r of rep.rejets; track $index) {
+                            @for (r of tableauRejets.lignes(); track $index) {
                               <tr class="row-crit">
                                 <td class="num font-mono">{{ r.line }}</td>
                                 <td class="font-mono text-[12px] text-ink-muted">{{ r.field ?? '-' }}</td>
@@ -613,6 +615,7 @@ export class ParametersComponent implements OnInit {
   protected readonly errors = signal<string[]>([]);
   protected readonly saved = signal<string | null>(null);
   protected readonly report = signal<ImportReport | null>(null);
+  protected readonly tableauRejets = new TableauPagine<ImportReport['rejets'][number]>();
   protected readonly parsed = signal<Record<string, string>[]>([]);
 
   /**
@@ -1063,6 +1066,7 @@ export class ParametersComponent implements OnInit {
         next: (r) => {
           this.busy.set(false);
           this.report.set(r);
+          this.tableauRejets.définir(r.rejets);
           // Un import à blanc n'écrit rien : relire serait inutile, et laisser
           // croire qu'il a écrit.
           if (!dryRun) this.rafraichir();

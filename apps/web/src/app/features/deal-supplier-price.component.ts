@@ -52,6 +52,8 @@ interface HttpFailure {
                 <th class="num">Délai</th>
                 <th class="num">Portage</th>
                 <th>Validé par</th>
+                <th class="num">Version</th>
+                <th>État</th>
               </tr>
             </thead>
             <tbody>
@@ -83,6 +85,18 @@ interface HttpFailure {
                     {{ n(p.carryingPerUnit) }}
                   </td>
                   <td class="text-[12px] text-ink-soft">{{ p.validatedBy ?? '-' }}</td>
+                  <td class="num font-mono text-[12px] text-ink-muted">v{{ p.version }}</td>
+                  <td>
+                    @if (p.isActive) {
+                      <span class="inline-flex items-center gap-1 text-[11px] text-ok">
+                        <erp-icon name="check-circle" [size]="11" /> Active
+                      </span>
+                    } @else {
+                      <span class="inline-flex items-center gap-1 text-[11px] text-ink-faint">
+                        <erp-icon name="ban" [size]="11" /> Inactive
+                      </span>
+                    }
+                  </td>
                 </tr>
               }
             </tbody>

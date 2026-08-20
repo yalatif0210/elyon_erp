@@ -1,5 +1,4 @@
 import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
-import { hash, verify } from '@node-rs/argon2';
 import { ActorType, AuditAction, UserRole } from '@prisma/client';
 import { authenticator } from 'otplib';
 import { AuditService } from '../common/audit/audit.service';
@@ -9,13 +8,6 @@ import { SettingsService } from '../common/config/settings.service';
 import { CryptoService } from '../common/crypto/crypto.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { TokenPair, TokenService } from './token.service';
-
-/**
- * Paramètres Argon2id. Identiques à ceux du seed : un mot de passe changé
- * doit être haché exactement comme un mot de passe créé, sinon la vérification
- * devient dépendante de la façon dont le compte a été alimenté.
- */
-const ARGON2 = { memoryCost: 19_456, timeCost: 2, parallelism: 1 } as const;
 
 /**
  * Rôles pour lesquels le second facteur est obligatoire (§ 1.4) — REPLI.
@@ -362,11 +354,11 @@ export class AuthService {
   }
 
   private async verifyPassword(
-    hash: string,
+    passwordHash: string,
     password: string,
     onFailure: () => Promise<void>,
   ): Promise<void> {
-    const ok = await verify(hash, password).catch(() => false);
+    const ok = await this.crypto.verifyPassword(passwordHash, password);
     if (!ok) {
       await onFailure();
       throw new UnauthorizedException('Identifiants invalides');
@@ -544,7 +536,7 @@ export class AuthService {
   ): Promise<{ revokedSessions: number }> {
     const account = await this.loadCredentials(realm, subjectId);
 
-    const ok = await verify(account.passwordHash, currentPassword).catch(() => false);
+    const ok = await this.crypto.verifyPassword(account.passwordHash, currentPassword);
     if (!ok) {
       await this.audit.record({
         actorType: AuditService.actorTypeFor(realm),
@@ -559,14 +551,14 @@ export class AuthService {
       throw new UnauthorizedException('Mot de passe actuel incorrect');
     }
 
-    const reused = await verify(account.passwordHash, newPassword).catch(() => false);
+    const reused = await this.crypto.verifyPassword(account.passwordHash, newPassword);
     if (reused) {
       throw new BadRequestException(
         'Le nouveau mot de passe doit être différent de l’actuel.',
       );
     }
 
-    const passwordHash = await hash(newPassword, ARGON2);
+    const passwordHash = await this.crypto.hashPassword(newPassword);
     await this.persistPassword(realm, subjectId, passwordHash);
 
     // La session courante survit — l'utilisateur vient de prouver qui il est.

@@ -1,0 +1,124 @@
+name: Déploiement staging
+
+# Réf. DEPLOIEMENT_STAGING.md et le plan « staging d'abord ».
+#
+# Se déclenche une fois que le workflow CI a réussi sur `dev` — jamais avant :
+# un déploiement automatique sans passer par la recette n'aurait aucune valeur
+# de garde-fou.
+#
+# ⚠️ AUCUNE RECONSTRUCTION SUR LE VPS — LES IMAGES SONT CELLES DÉJÀ TESTÉES.
+#
+#    `api`, `web` et `portal` sont récupérées telles quelles depuis GHCR, au
+#    SHA exact qui vient de passer les 181 cas de recette dans `ci.yml` —
+#    jamais rebâties ici. Le VPS n'a donc plus besoin du kit de compilation
+#    complet (chromium, node_modules de développement…) pour ces trois
+#    services : seul `proxy` continue de se construire localement (sa
+#    configuration nginx diffère par environnement, rien de coûteux à
+#    reconstruire). C'est ce qui garantit qu'un déploiement staging réussi et
+#    un déploiement production ultérieur du même commit installent
+#    EXACTEMENT le même binaire, pas une reconstruction « équivalente ».
+#
+# ⚠️ Ce workflow ne peut se déclencher avec succès qu'une fois le second VPS
+#    provisionné et les secrets de l'environnement GitHub `staging` posés
+#    (voir DEPLOIEMENT_STAGING.md). Tant que ce n'est pas fait, il échoue à la
+#    connexion SSH — normal, pas un défaut du workflow lui-même.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [dev]
+    types: [completed]
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false # Un déploiement en cours ne doit jamais être interrompu à mi-chemin.
+
+jobs:
+  deploy:
+    name: Déployer sur staging
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      # Lecture seule : ce job ne fait que récupérer les images déjà publiées
+      # par ci.yml, jamais en publier de nouvelles.
+      packages: read
+    steps:
+      - name: Charger la clé SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_KEY }}
+
+      - name: Connaître l'empreinte de l'hôte
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.STAGING_SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Déployer
+        env:
+          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          STAGING_DEPLOY_PATH: ${{ secrets.STAGING_DEPLOY_PATH }}
+          COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+          # Jeton de CE job, forgé pour l'occasion par GitHub, jamais stocké :
+          # il n'a besoin de vivre que le temps de la connexion `docker login`
+          # ci-dessous. Aucun jeton longue durée à gérer ni à faire tourner.
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
+          API_IMAGE: ghcr.io/${{ github.repository }}/api
+          WEB_IMAGE: ghcr.io/${{ github.repository }}/web
+          PORTAL_IMAGE: ghcr.io/${{ github.repository }}/portal
+        run: |
+          ssh "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" bash -s <<REMOTE
+            set -euo pipefail
+            cd "${STAGING_DEPLOY_PATH}"
+
+            # Un seul jeu de fichiers de composition, réutilisé PARTOUT dans
+            # ce script — jamais un sous-ensemble ici et un autre plus bas :
+            # postgres/redis/migrator ne sont pas différents d'un overlay à
+            # l'autre aujourd'hui, mais s'en assurer au cas par cas serait un
+            # piège qui n'attend qu'un futur changement pour mordre.
+            COMPOSE="docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.staging.yml"
+
+            # Seuls les fichiers de composition, le contexte de `proxy` et le
+            # code source de l'API (pour `migrator`, voir plus bas) ont besoin
+            # d'être à jour ici — `api`, `web` et `portal` viennent de GHCR,
+            # pas de ce clone.
+            git fetch origin dev
+            git checkout dev
+            git reset --hard "${COMMIT_SHA}"
+
+            echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_ACTOR}" --password-stdin
+
+            export API_IMAGE="${API_IMAGE}"
+            export WEB_IMAGE="${WEB_IMAGE}"
+            export PORTAL_IMAGE="${PORTAL_IMAGE}"
+            export IMAGE_TAG="${COMMIT_SHA}"
+
+            \${COMPOSE} pull api web portal
+
+            # `proxy` seul continue de se construire ici — voir l'en-tête de
+            # ce fichier.
+            \${COMPOSE} build proxy
+
+            \${COMPOSE} up -d postgres redis
+
+            # ⚠️ db:deploy, JAMAIS la commande par défaut du conteneur (qui
+            #    sème un jeu de données de démonstration) — voir
+            #    docker-compose.yml et DEPLOIEMENT.md § 4.
+            \${COMPOSE} --profile tools run --rm migrator \
+              sh -c "npm ci && npm run db:deploy"
+
+            \${COMPOSE} up -d
+
+            for i in \$(seq 1 60); do
+              if \${COMPOSE} exec -T api node -e "require('http').get({host:'127.0.0.1',port:3000,path:'/health',timeout:4000},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"; then
+                echo "Pile de staging prête."
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "La pile de staging ne répond toujours pas après 120 s." >&2
+            \${COMPOSE} ps
+            exit 1
+          REMOTE

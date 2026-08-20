@@ -75,7 +75,7 @@ export class ReferenceService {
     }
 
     throw new InternalServerErrorException(
-      `Numérotation « ${scope} » : ${ReferenceService.MAX_PROBES} références consécutives déjà prises. Le compteur est désynchronisé — vérifier les reprises de données.`,
+      `Numérotation « ${scope} » : ${ReferenceService.MAX_PROBES} références consécutives déjà prises. Le compteur est désynchronisé : vérifier les reprises de données.`,
     );
   }
 }

@@ -851,7 +851,7 @@ export class OperationsService {
     });
 
     const donnees = {
-      description: 'Fret transporteur — affectation des moyens',
+      description: 'Fret transporteur : affectation des moyens',
       supplierId: dto.carrierId ?? null,
       estimatedAmount: dto.freightCost.toFixed(4),
       actualAmount: dto.freightCost.toFixed(4),

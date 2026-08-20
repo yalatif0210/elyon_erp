@@ -159,7 +159,7 @@ interface StageOption {
         </div>
       </div>
       <p class="px-4 pb-3 text-[11px] leading-relaxed text-ink-faint">
-        Obligatoire (§ 15) : une opportunité sans prochaine action dort jusqu’à ce qu’on la
+        Obligatoire : une opportunité sans prochaine action dort jusqu’à ce qu’on la
         retrouve par hasard. C’est la première cause de pipeline mort.
       </p>
     </section>

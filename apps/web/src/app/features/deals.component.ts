@@ -4,7 +4,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService, DealDetail, DealRow } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { IconComponent } from '../shared/icon.component';
-import { PaginationComponent } from '../shared/tableau';
+import { PaginationComponent, TableauControlesComponent, TableauPagine } from '../shared/tableau';
 import { grouper } from '../shared/format';
 import { StatusBadgeComponent, StatusKind } from '../shared/status-badge.component';
 import { DealSupplierPriceComponent } from './deal-supplier-price.component';
@@ -262,6 +262,7 @@ const INVOICE_TYPE_LABEL: Record<string, string> = {
     DealSupplierPriceComponent,
     DealCostingComponent,
     DealApprovalComponent,
+    TableauControlesComponent,
   ],
   template: `
     @if (deal(); as d) {
@@ -479,9 +480,10 @@ const INVOICE_TYPE_LABEL: Record<string, string> = {
                 Le verrou financier interdit toute opération sur une affaire non approuvée.
               </p>
             } @else {
+              <erp-tableau-controles [tableau]="tableauOperations" libelle="les opérations" />
               <table class="table">
                 <tbody>
-                  @for (op of d.operations; track op.id) {
+                  @for (op of tableauOperations.lignes(); track op.id) {
                     <tr>
                       <td>
                         <a [routerLink]="['/operations', op.id]" class="ref hover:underline">{{
@@ -510,6 +512,7 @@ const INVOICE_TYPE_LABEL: Record<string, string> = {
             @if (d.invoices.length === 0) {
               <p class="empty">Aucune pièce émise pour le moment.</p>
             } @else {
+              <erp-tableau-controles [tableau]="tableauInvoices" libelle="les pièces" />
               <table class="table">
                 <thead>
                   <tr>
@@ -521,7 +524,7 @@ const INVOICE_TYPE_LABEL: Record<string, string> = {
                   </tr>
                 </thead>
                 <tbody>
-                  @for (inv of d.invoices; track inv.id) {
+                  @for (inv of tableauInvoices.lignes(); track inv.id) {
                     <tr>
                       <td><span class="ref">{{ inv.number ?? '-' }}</span></td>
                       <td class="text-ink-soft">{{ invoiceTypeLabel(inv.type) }}</td>
@@ -554,6 +557,7 @@ const INVOICE_TYPE_LABEL: Record<string, string> = {
               @if (d.supplierInvoices.length === 0) {
                 <p class="empty">Aucune facture fournisseur rattachée.</p>
               } @else {
+                <erp-tableau-controles [tableau]="tableauSupplierInvoices" libelle="les factures" />
                 <table class="table">
                   <thead>
                     <tr>
@@ -565,7 +569,7 @@ const INVOICE_TYPE_LABEL: Record<string, string> = {
                     </tr>
                   </thead>
                   <tbody>
-                    @for (si of d.supplierInvoices; track si.id) {
+                    @for (si of tableauSupplierInvoices.lignes(); track si.id) {
                       <tr>
                         <td><span class="ref">{{ si.reference }}</span></td>
                         <td class="text-ink-soft">{{ si.supplier.legalName }}</td>
@@ -578,7 +582,7 @@ const INVOICE_TYPE_LABEL: Record<string, string> = {
                 </table>
               }
               <p class="px-[15px] pb-3 text-[11px] text-ink-faint">
-                Pièce scannée : pas encore de dépôt de fichier pour les factures fournisseurs — la
+                Pièce scannée : pas encore de dépôt de fichier pour les factures fournisseurs ; la
                 référence et le montant sont saisis, l'original reste hors système à ce jour.
               </p>
             </section>
@@ -596,6 +600,11 @@ export class DealDetailComponent implements OnInit {
 
   protected readonly deal = signal<DealDetail | null>(null);
   protected readonly telechargement = signal<string | null>(null);
+  protected readonly tableauOperations = new TableauPagine<DealDetail['operations'][number]>();
+  protected readonly tableauInvoices = new TableauPagine<DealDetail['invoices'][number]>();
+  protected readonly tableauSupplierInvoices = new TableauPagine<
+    NonNullable<DealDetail['supplierInvoices']>[number]
+  >();
 
   ngOnInit(): void {
     this.reload();
@@ -604,7 +613,14 @@ export class DealDetailComponent implements OnInit {
   /** Après toute action, on relit : la marge et le circuit ont pu bouger. */
   protected reload(): void {
     const id = this.route.snapshot.paramMap.get('id');
-    if (id) this.api.deal(id).subscribe((d) => this.deal.set(d));
+    if (id) {
+      this.api.deal(id).subscribe((d) => {
+        this.deal.set(d);
+        this.tableauOperations.définir(d.operations);
+        this.tableauInvoices.définir(d.invoices);
+        this.tableauSupplierInvoices.définir(d.supplierInvoices ?? []);
+      });
+    }
   }
 
   protected status(code: string) {

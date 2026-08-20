@@ -361,7 +361,7 @@ BEGIN
   IF NEW.type::text IN ('TRANSPORT_NON_COMPLIANCE', 'MARGIN_BELOW_DIRECT_FLOOR', 'HSE_DELEGATION')
      AND authority_role <> 'DG' THEN
     RAISE EXCEPTION
-      'Dérogation de type % réservée au DG (§ 11.2). Rôle fourni : %.',
+      'Dérogation de type % réservée au DG. Rôle fourni : %.',
       NEW.type, authority_role
       USING ERRCODE = 'check_violation';
   END IF;

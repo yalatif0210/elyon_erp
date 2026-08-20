@@ -170,7 +170,7 @@ BEGIN
   IF NEW.freight_variance_reason IS NULL
      OR length(trim(NEW.freight_variance_reason)) < 10 THEN
     RAISE EXCEPTION
-      'TARIF TRANSPORT — fret retenu à % contre % au tarif négocié, soit % %% d''écart pour une tolérance de % %%. Un motif circonstancié est exigé : un écart que personne n''explique aujourd''hui, personne ne l''expliquera dans six mois.',
+      'TARIF TRANSPORT : fret retenu à % contre % au tarif négocié, soit % %% d''écart pour une tolérance de % %%. Un motif circonstancié est exigé : un écart que personne n''explique aujourd''hui, personne ne l''expliquera dans six mois.',
       round(NEW.freight_cost, 2), round(attendu, 2), round(ecart_pct, 2), round(tolerance, 2)
       USING ERRCODE = 'check_violation';
   END IF;
@@ -205,7 +205,7 @@ BEGIN
   SELECT type::text, legal_name INTO t, nom FROM partners WHERE id = NEW.carrier_id;
   IF t IS DISTINCT FROM 'CARRIER' THEN
     RAISE EXCEPTION
-      'TRANSPORTEUR — « % » est enregistré comme %, pas comme transporteur. Le fret doit être rattaché à un transporteur du référentiel : sans contrepartie identifiée, le coût ne se rapproche d''aucune facture.',
+      'TRANSPORTEUR : « % » est enregistré comme %, pas comme transporteur. Le fret doit être rattaché à un transporteur du référentiel : sans contrepartie identifiée, le coût ne se rapproche d''aucune facture.',
       COALESCE(nom, 'ce tiers'), COALESCE(t, 'tiers inconnu')
       USING ERRCODE = 'check_violation';
   END IF;

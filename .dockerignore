@@ -9,6 +9,12 @@ node_modules
 **/node_modules
 dist
 **/dist
+# État incrémental de tsc : lié à l'arborescence hôte, jamais au contexte de
+# build. Copié dans l'image sans son `dist/` associé (exclu juste au-dessus),
+# il fait croire à `tsc --build` que la compilation est déjà à jour — et
+# `dist/` ne se crée alors jamais dans l'image.
+*.tsbuildinfo
+**/*.tsbuildinfo
 .angular
 coverage
 

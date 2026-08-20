@@ -371,6 +371,9 @@ export class DealsService {
       where: {
         productId: deal.productId,
         validatedAt: { not: null },
+        // Une version désactivée n'est jamais proposée pour une affaire
+        // nouvelle — voir le commentaire du champ dans le schéma.
+        isActive: true,
         effectiveFrom: { lte: today },
         OR: [{ effectiveTo: null }, { effectiveTo: { gte: today } }],
       },
@@ -418,6 +421,8 @@ export class DealsService {
           effectiveFrom: sp.effectiveFrom,
           supplierTermsDays: sp.supplier.supplierTermsDays,
           validatedBy: sp.validatedBy?.fullName ?? null,
+          version: sp.version,
+          isActive: sp.isActive,
           /** Bornes dans lesquelles le prix retenu ne demande aucun motif. */
           bandMin: round4(unit * (1 - band / 100)),
           bandMax: round4(unit * (1 + band / 100)),
@@ -533,7 +538,7 @@ export class DealsService {
   private static verifierModifiable(status: DealStatus): void {
     if (status !== DealStatus.DRAFT) {
       throw new BadRequestException(
-        `Cette affaire n'est plus au brouillon (statut : ${status}) — elle ne se modifie plus.`,
+        `Cette affaire n'est plus au brouillon (statut : ${status}) : elle ne se modifie plus.`,
       );
     }
   }

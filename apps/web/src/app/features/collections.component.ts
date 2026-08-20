@@ -1,8 +1,15 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { AgedReceivableLine, AgedReceivables, ApiService, DunningActionRow } from '../core/api.service';
+import {
+  AgedReceivableLine,
+  AgedReceivables,
+  ApiService,
+  DunningActionRow,
+  VocabItem,
+} from '../core/api.service';
 import { ActionFeedbackComponent, ActionState, HttpFailure } from '../shared/action-panel.component';
 import { grouper } from '../shared/format';
+import { TableauControlesComponent, TableauPagine } from '../shared/tableau';
 
 const BUCKET_LABEL: Record<string, string> = {
   A_VENIR: 'À venir',
@@ -11,14 +18,6 @@ const BUCKET_LABEL: Record<string, string> = {
   J61_90: '61-90 j',
   J90_PLUS: '90 j +',
   SANS_ECHEANCE: 'Sans échéance',
-};
-
-const METHOD_LABEL: Record<string, string> = {
-  PHONE: 'Téléphone',
-  EMAIL: 'E-mail',
-  LETTER: 'Courrier',
-  VISIT: 'Visite',
-  OTHER: 'Autre',
 };
 
 /**
@@ -30,12 +29,12 @@ const METHOD_LABEL: Record<string, string> = {
 @Component({
   selector: 'erp-collections',
   standalone: true,
-  imports: [FormsModule, ActionFeedbackComponent],
+  imports: [FormsModule, ActionFeedbackComponent, TableauControlesComponent],
   template: `
     <header class="mb-6">
       <h1 class="page-title">Recouvrement</h1>
       <p class="page-sub">
-        Balance âgée des créances ouvertes, en devise pivot. Les proforma et les avoirs n'y figurent
+        Balance âgée des créances ouvertes, en francs CFA. Les proforma et les avoirs n'y figurent
         pas : ils ne créent ou n'annulent aucune créance.
       </p>
     </header>
@@ -55,7 +54,7 @@ const METHOD_LABEL: Record<string, string> = {
               <th class="num">31-60 j</th>
               <th class="num">61-90 j</th>
               <th class="num">90 j +</th>
-              <th class="num">Total</th>
+              <th class="num">Total (XOF)</th>
             </tr>
           </thead>
           <tbody>
@@ -78,6 +77,7 @@ const METHOD_LABEL: Record<string, string> = {
 
       <!-- ============ Détail par pièce ============ -->
       <div class="card overflow-x-auto">
+        <erp-tableau-controles [tableau]="tableauLignes" libelle="les pièces" />
         <table class="table">
           <thead>
             <tr>
@@ -91,7 +91,7 @@ const METHOD_LABEL: Record<string, string> = {
             </tr>
           </thead>
           <tbody>
-            @for (l of d.lines; track l.invoiceId) {
+            @for (l of tableauLignes.lignes(); track l.invoiceId) {
               <tr class="cursor-pointer hover:bg-gray-50" (click)="select(l)">
                 <td class="font-mono font-medium text-ink">{{ l.number }}</td>
                 <td class="text-ink-soft">{{ l.partner.legalName }}</td>
@@ -124,11 +124,9 @@ const METHOD_LABEL: Record<string, string> = {
             <div>
               <label class="label" for="dmethod">Moyen</label>
               <select id="dmethod" class="field" [(ngModel)]="dMethod">
-                <option value="PHONE">Téléphone</option>
-                <option value="EMAIL">E-mail</option>
-                <option value="LETTER">Courrier</option>
-                <option value="VISIT">Visite</option>
-                <option value="OTHER">Autre</option>
+                @for (m of methods(); track m.code) {
+                  <option [value]="m.code">{{ m.label }}</option>
+                }
               </select>
             </div>
             <div>
@@ -171,8 +169,10 @@ export class CollectionsComponent implements OnInit {
   protected readonly state = new ActionState();
   protected readonly chargement = signal(true);
   protected readonly donnees = signal<AgedReceivables | null>(null);
+  protected readonly tableauLignes = new TableauPagine<AgedReceivableLine>();
   protected readonly selectedLine = signal<AgedReceivableLine | null>(null);
   protected readonly historique = signal<DunningActionRow[]>([]);
+  protected readonly methods = signal<VocabItem[]>([]);
 
   protected dMethod = 'PHONE';
   protected dContactedAt = new Date().toISOString().slice(0, 10);
@@ -180,12 +180,14 @@ export class CollectionsComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    this.api.vocabulaires().subscribe((v) => this.methods.set(v.dunningMethod));
   }
 
   private load(): void {
     this.chargement.set(true);
     this.api.agedReceivables().subscribe((d) => {
       this.donnees.set(d);
+      this.tableauLignes.définir(d.lines);
       this.chargement.set(false);
     });
   }
@@ -224,7 +226,7 @@ export class CollectionsComponent implements OnInit {
     return BUCKET_LABEL[b] ?? b;
   }
   protected methodLabel(m: string): string {
-    return METHOD_LABEL[m] ?? m;
+    return this.methods().find((v) => v.code === m)?.label ?? m;
   }
   protected montant(v: number): string {
     return grouper(v, { maximumFractionDigits: 0 });

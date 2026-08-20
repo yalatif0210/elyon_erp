@@ -118,6 +118,20 @@ services:
   # -------------------------------------------------------------------------
   api:
     <<: *hardening
+    # ⚠️ `image:` ET `build:` COEXISTENT DÉLIBÉRÉMENT.
+    #
+    #    Par défaut (rien dans l'environnement), l'image se nomme
+    #    `elyon-erp-api:latest` — EXACTEMENT le nom que Compose aurait choisi
+    #    tout seul sans `image:` du tout. En local et en CI, rien ne change :
+    #    `docker compose build` construit, `up` utilise ce qui vient d'être
+    #    construit.
+    #
+    #    En staging et en production, `API_IMAGE`/`IMAGE_TAG` pointent vers le
+    #    Registre de conteneurs GitHub (`ghcr.io/…`) : `docker compose pull`
+    #    récupère alors l'image DÉJÀ construite et validée par la recette en
+    #    CI, sans jamais la reconstruire sur l'hôte de déploiement — ce qui
+    #    tourne en staging est BIT POUR BIT ce qui part ensuite en production.
+    image: ${API_IMAGE:-elyon-erp-api}:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/api.Dockerfile
@@ -166,6 +180,9 @@ services:
   # -------------------------------------------------------------------------
   web:
     <<: *hardening
+    # Même logique que `api` ci-dessus : défaut inchangé en local/CI, GHCR en
+    # staging/production via API_IMAGE/IMAGE_TAG.
+    image: ${WEB_IMAGE:-elyon-erp-web}:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/web.Dockerfile
@@ -193,6 +210,8 @@ services:
   # -------------------------------------------------------------------------
   portal:
     <<: *hardening
+    # Même logique que `api` ci-dessus.
+    image: ${PORTAL_IMAGE:-elyon-erp-portal}:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/portal.Dockerfile
@@ -219,6 +238,18 @@ services:
   #  Conteneur outillage — migrations, contraintes SQL, jeu de données.
   #  Seul service à se connecter avec erp_migrator. Il ne tourne jamais
   #  en continu : `docker compose --profile tools run --rm migrator`.
+  #
+  #  ⚠️ LA COMMANDE PAR DÉFAUT SÈME LE JEU DE DONNÉES DE DÉMONSTRATION
+  #     (`db:setup` → `db:seed`) — VOULU POUR LE DÉVELOPPEMENT LOCAL ET LA CI,
+  #     JAMAIS POUR LA PRODUCTION.
+  #
+  #     Des tiers, sites et affaires fictifs (« Compagnie Maritime Atlantique
+  #     SA », etc.) atterrissaient dans la base réelle si on suivait la
+  #     procédure de déploiement documentée telle quelle — elle invoquait ce
+  #     conteneur sans rien substituer à sa commande par défaut.
+  #
+  #     En production, TOUJOURS substituer la commande : voir DEPLOIEMENT.md,
+  #     qui invoque `npm run db:deploy` (migration seule, jamais de semis).
   # -------------------------------------------------------------------------
   migrator:
     profiles: ["tools"]

@@ -42,13 +42,13 @@ import { IconComponent } from '../shared/icon.component';
               <dd class="tabular mt-1 text-[20px] font-semibold text-ink">3</dd>
             </div>
             <div class="bg-surface px-3 py-3">
-              <dt class="text-[11px] uppercase tracking-[0.06em] text-ink-muted">Devise pivot</dt>
-              <dd class="mt-1 font-mono text-[20px] font-semibold text-ink">USD</dd>
+              <dt class="text-[11px] uppercase tracking-[0.06em] text-ink-muted">Devise</dt>
+              <dd class="mt-1 font-mono text-[20px] font-semibold text-ink">XOF</dd>
             </div>
           </dl>
         </div>
 
-        <p class="text-[11px] text-ink-faint">Côte d’Ivoire · XOF local, USD pivot</p>
+        <p class="text-[11px] text-ink-faint">Côte d’Ivoire</p>
       </div>
 
       <!-- Panneau de saisie -->

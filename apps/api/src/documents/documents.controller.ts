@@ -13,7 +13,10 @@ import {
   Query,
   Req,
   StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ActorType,
   AuditAction,
@@ -35,7 +38,6 @@ import {
   IsUUID,
   Length,
   MaxLength,
-  Min,
   MinLength,
 } from 'class-validator';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -56,19 +58,24 @@ import type { OperationClosurePdfJob } from './pdf.processor';
 //  DTO
 // ===========================================================================
 
+/**
+ * ⚠️ CORRIGÉ — `storageKey`, `sha256` ET `sizeBytes` ÉTAIENT SAISIS LIBREMENT.
+ *
+ *    Trois valeurs qui n'ont de sens que si elles décrivent RÉELLEMENT le
+ *    fichier déposé — l'empreinte est censée être « la seule garantie
+ *    d'intégrité entre le papier et le système » — pouvaient être tapées à la
+ *    main, sans aucun rapport avec un fichier réellement reçu. Le coffre ne
+ *    recevait jamais de binaire : la ligne pouvait référencer un objet
+ *    inexistant, ou l'empreinte d'un autre fichier. Ces trois champs sont
+ *    désormais CALCULÉS par le serveur à partir du fichier réellement
+ *    téléversé — voir `DocumentsController.register`.
+ */
 class RegisterDocumentDto {
   @IsEnum(GeneratedDocumentKind) kind!: GeneratedDocumentKind;
 
   @IsOptional() @IsUUID() dealId?: string;
   @IsOptional() @IsUUID() operationId?: string;
   @IsOptional() @IsUUID() invoiceId?: string;
-
-  /** Clé de l'objet dans le coffre — le binaire n'est JAMAIS en base. */
-  @IsString() @MaxLength(512) storageKey!: string;
-  @IsOptional() @IsString() @MaxLength(120) mimeType?: string;
-  @Type(() => Number) @IsNumber() @Min(1) sizeBytes!: number;
-  /** Empreinte du fichier, seule garantie d'intégrité entre papier et système. */
-  @IsString() @Length(64, 64) sha256!: string;
 }
 
 class SignDocumentDto {
@@ -116,6 +123,20 @@ const DOC_SCOPE: Record<GeneratedDocumentKind, string> = {
   TRANSPORT_ORDER: 'OT',
   MEASUREMENT_REPORT: 'REL',
 };
+
+/** Plafond de sécurité du tuyau, en octets — même principe que la conformité. */
+const PLAFOND_TUYAU = 32 * 1024 * 1024;
+
+/** Nature admise pour une pièce déposée à la main — un scan, pas un exécutable. */
+const NATURES_ADMISES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+
+/** Fichier reçu, tel que multer le rend — voir field-attachments.controller.ts. */
+interface FichierRecu {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+}
 
 /**
  * Documents produits et signatures (§ 12).
@@ -206,7 +227,7 @@ export class DocumentsService {
     if (!doc) throw new NotFoundException('Pièce introuvable.');
     if (!(await this.storage.exists(doc.storageKey))) {
       throw new NotFoundException(
-        'La référence existe mais le fichier est absent du stockage — à signaler.',
+        'La référence existe mais le fichier est absent du stockage : à signaler.',
       );
     }
     return { doc, flux: this.storage.read(doc.storageKey) };
@@ -252,6 +273,30 @@ export class DocumentsService {
   }
 
   /**
+   * Dépose le fichier reçu et rend les faits de stockage — clé, empreinte,
+   * taille, nature. Jamais saisis : toujours CALCULÉS à partir d'un binaire
+   * réellement reçu, seule garantie que l'empreinte enregistrée corresponde
+   * au papier qu'elle est censée attester.
+   */
+  async materialiser(fichier: FichierRecu | undefined) {
+    if (!fichier) {
+      throw new BadRequestException('Aucun fichier reçu.');
+    }
+    if (!NATURES_ADMISES.includes(fichier.mimetype)) {
+      throw new BadRequestException(
+        `Type de fichier refusé (${fichier.mimetype}). Types admis : ${NATURES_ADMISES.join(', ')}.`,
+      );
+    }
+    const objet = await this.storage.put(fichier.buffer, fichier.mimetype);
+    return {
+      storageKey: objet.storageKey,
+      mimeType: objet.mimeType,
+      sizeBytes: objet.sizeBytes,
+      sha256: objet.sha256,
+    };
+  }
+
+  /**
    * Enregistre une pièce produite. Non scellée : elle reste rectifiable.
    *
    * `precomputedToken`/`precomputedReference` servent au générateur PDF
@@ -269,12 +314,13 @@ export class DocumentsService {
   async register(
     dto: RegisterDocumentDto,
     actor: { type: ActorType; id: string },
+    storageFacts: { storageKey: string; mimeType: string; sizeBytes: number; sha256: string },
     precomputedToken?: string,
     precomputedReference?: string,
   ) {
     if (!dto.dealId && !dto.operationId && !dto.invoiceId) {
       throw new BadRequestException(
-        'Une pièce doit être rattachée à une affaire, une opération ou une facture — sans quoi elle est introuvable le jour où on la cherche.',
+        'Une pièce doit être rattachée à une affaire, une opération ou une facture : sans quoi elle est introuvable le jour où on la cherche.',
       );
     }
 
@@ -285,10 +331,10 @@ export class DocumentsService {
         dealId: dto.dealId ?? null,
         operationId: dto.operationId ?? null,
         invoiceId: dto.invoiceId ?? null,
-        storageKey: dto.storageKey,
-        mimeType: dto.mimeType ?? 'application/pdf',
-        sizeBytes: BigInt(Math.round(dto.sizeBytes)),
-        sha256: dto.sha256,
+        storageKey: storageFacts.storageKey,
+        mimeType: storageFacts.mimeType,
+        sizeBytes: BigInt(Math.round(storageFacts.sizeBytes)),
+        sha256: storageFacts.sha256,
         authenticityToken: precomputedToken ?? randomBytes(24).toString('hex'),
         generatedById: actor.type === ActorType.INTERNAL_USER ? actor.id : null,
       },
@@ -324,7 +370,7 @@ export class DocumentsService {
     });
     if (doc.isSealed) {
       throw new BadRequestException(
-        `La pièce ${doc.reference} est scellée : elle n’accepte plus de signature. Émettre une pièce « annule et remplace » (§ 12.2).`,
+        `La pièce ${doc.reference} est scellée : elle n’accepte plus de signature. Émettre une pièce « annule et remplace ».`,
       );
     }
 
@@ -441,7 +487,12 @@ export class DocumentsService {
    * « Annule et remplace » — la seule façon de corriger une pièce scellée.
    * L'ancienne reste en place : on n'efface pas l'histoire, on la complète.
    */
-  async supersede(id: string, dto: SupersedeDocumentDto, actorId: string) {
+  async supersede(
+    id: string,
+    dto: SupersedeDocumentDto,
+    actorId: string,
+    storageFacts: { storageKey: string; mimeType: string; sizeBytes: number; sha256: string },
+  ) {
     const original = await this.prisma.generatedDocument.findUniqueOrThrow({
       where: { id },
       select: { id: true, kind: true, dealId: true, operationId: true, invoiceId: true, supersededBy: true },
@@ -457,10 +508,10 @@ export class DocumentsService {
         dealId: dto.dealId ?? original.dealId,
         operationId: dto.operationId ?? original.operationId,
         invoiceId: dto.invoiceId ?? original.invoiceId,
-        storageKey: dto.storageKey,
-        mimeType: dto.mimeType ?? 'application/pdf',
-        sizeBytes: BigInt(Math.round(dto.sizeBytes)),
-        sha256: dto.sha256,
+        storageKey: storageFacts.storageKey,
+        mimeType: storageFacts.mimeType,
+        sizeBytes: BigInt(Math.round(storageFacts.sizeBytes)),
+        sha256: storageFacts.sha256,
         authenticityToken: randomBytes(24).toString('hex'),
         supersedesId: original.id,
         supersessionReason: dto.reason,
@@ -615,10 +666,26 @@ export class DocumentsController {
     });
   }
 
+  /**
+   * ⚠️ CORRIGÉ — LA PIÈCE SE DÉPOSAIT SANS FICHIER, CLÉ ET EMPREINTE SAISIES
+   *    À LA MAIN.
+   *
+   *    Aucun bouton de téléversement n'existait, et `storageKey`/`sha256`
+   *    étaient des champs de texte libre : rien ne garantissait qu'ils
+   *    décrivaient un fichier réellement présent dans le coffre, ni le bon.
+   *    Le dépôt est désormais un envoi multipart : le fichier est reçu ICI,
+   *    et la clé comme l'empreinte en sont CALCULÉES, jamais saisies.
+   */
   @Post()
   @Roles(UserRole.CCOO, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT, UserRole.LOGISTICS_COORD)
-  register(@Body() dto: RegisterDocumentDto, @Req() req: { auth: { sub: string } }) {
-    return this.service.register(dto, { type: ActorType.INTERNAL_USER, id: req.auth.sub });
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: PLAFOND_TUYAU } }))
+  async register(
+    @UploadedFile() fichier: FichierRecu | undefined,
+    @Body() dto: RegisterDocumentDto,
+    @Req() req: { auth: { sub: string } },
+  ) {
+    const storageFacts = await this.service.materialiser(fichier);
+    return this.service.register(dto, { type: ActorType.INTERNAL_USER, id: req.auth.sub }, storageFacts);
   }
 
   @Post(':id/signatures')
@@ -639,12 +706,15 @@ export class DocumentsController {
 
   @Post(':id/supersede')
   @Roles(UserRole.DG, UserRole.CCOO, UserRole.FINANCE_CFO)
-  supersede(
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: PLAFOND_TUYAU } }))
+  async supersede(
     @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() fichier: FichierRecu | undefined,
     @Body() dto: SupersedeDocumentDto,
     @Req() req: { auth: { sub: string } },
   ) {
-    return this.service.supersede(id, dto, req.auth.sub);
+    const storageFacts = await this.service.materialiser(fichier);
+    return this.service.supersede(id, dto, req.auth.sub, storageFacts);
   }
 }
 
@@ -739,7 +809,7 @@ export class FieldDocumentsService {
     });
     if (existants.length > 0) {
       throw new BadRequestException(
-        `Cette opération porte déjà : ${existants.map((e) => e.reference).join(', ')}. Une pièce ne se génère qu'une fois — voir sa signature depuis la liste des documents.`,
+        `Cette opération porte déjà : ${existants.map((e) => e.reference).join(', ')}. Une pièce ne se génère qu'une fois : voir sa signature depuis la liste des documents.`,
       );
     }
 

@@ -3,6 +3,7 @@ import { ActorType, AuditAction, DunningMethod, InvoiceType, UserRole } from '@p
 import { IsEnum, IsISO8601, IsString, MinLength } from 'class-validator';
 import { AuditService } from '../common/audit/audit.service';
 import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
+import { FxService } from '../common/money/fx.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 
 // ===========================================================================
@@ -35,6 +36,7 @@ export class CollectionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly fx: FxService,
   ) {}
 
   private bucketOf(dueDate: Date | null, today: Date): Bucket {
@@ -48,15 +50,19 @@ export class CollectionsService {
   }
 
   /**
-   * Balance âgée — créances ouvertes (§ 16 : « facturées non encaissées »).
+   * Balance âgée — créances ouvertes (« facturées non encaissées »).
    *
-   * Les proforma ne créent aucune créance (§ 9.3) et les avoirs n'en sont
-   * pas une : les deux sont exclus. Le solde se lit en devise pivot pour
-   * rester comparable d'un client à l'autre, quelle que soit la devise de
-   * facturation de chaque pièce.
+   * Les proforma ne créent aucune créance et les avoirs n'en sont pas une :
+   * les deux sont exclus. Le tri par client somme des pièces qui peuvent être
+   * dans des devises différentes ; la seule façon de les additionner est de
+   * passer par le pivot, mais ce calcul reste interne — la synthèse par
+   * client est reconvertie en XOF avant de sortir de ce service. Le détail
+   * par pièce, lui, n'a jamais eu besoin du pivot : une seule pièce n'a
+   * qu'une seule devise, la sienne.
    */
   async agedReceivables() {
     const today = new Date();
+    const tauxXof = await this.fx.pivotToLocalRate();
     const invoices = await this.prisma.invoice.findMany({
       where: {
         status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE', 'DISPUTED'] },
@@ -78,7 +84,7 @@ export class CollectionsService {
       orderBy: { dueDate: 'asc' },
     });
 
-    const lines = invoices
+    const brutes = invoices
       .map((inv) => ({
         invoiceId: inv.id,
         number: inv.number,
@@ -98,7 +104,7 @@ export class CollectionsService {
       string,
       { partner: { id: string; code: string; legalName: string }; buckets: Record<Bucket, number>; total: number }
     >();
-    for (const line of lines) {
+    for (const line of brutes) {
       let entry = byPartner.get(line.partner.id);
       if (!entry) {
         entry = {
@@ -108,9 +114,14 @@ export class CollectionsService {
         };
         byPartner.set(line.partner.id, entry);
       }
-      entry.buckets[line.bucket] += line.outstandingPivot;
-      entry.total += line.outstandingPivot;
+      const xof = line.outstandingPivot * tauxXof;
+      entry.buckets[line.bucket] += xof;
+      entry.total += xof;
     }
+
+    // `outstandingPivot` ne sort jamais de ce service : le détail par pièce
+    // ne montre que le montant natif de la pièce elle-même.
+    const lines = brutes.map(({ outstandingPivot: _outstandingPivot, ...l }) => l);
 
     return { lines, byPartner: [...byPartner.values()].sort((a, b) => b.total - a.total) };
   }

@@ -121,7 +121,7 @@ const TYPES_ACCORDABLES: { type: string; roles: string[] }[] = [
                 [(ngModel)]="creSubjectId"
               />
               <p class="mt-1 text-[11px] leading-relaxed text-ink-faint">
-                La RÉFÉRENCE lisible, pas l’identifiant technique — c’est elle que le verrou
+                La RÉFÉRENCE lisible, pas l’identifiant technique : c’est elle que le verrou
                 confronte au sujet réel. Laissez vide pour une dérogation générale.
               </p>
             </div>
@@ -136,7 +136,7 @@ const TYPES_ACCORDABLES: { type: string; roles: string[] }[] = [
                 class="field"
                 rows="2"
                 maxlength="2000"
-                placeholder="Circonstancié — 10 caractères minimum"
+                placeholder="Circonstancié : 10 caractères minimum"
                 [(ngModel)]="creReason"
               ></textarea>
             </div>
@@ -167,7 +167,7 @@ const TYPES_ACCORDABLES: { type: string; roles: string[] }[] = [
         @if (showDelegation()) {
           <div class="card-body">
             <p class="mb-3 text-[12px] leading-relaxed text-ink-faint">
-              Le suppléant reste un agent terrain sur sa fiche — seule la fenêtre ci-dessous lui
+              Le suppléant reste un agent terrain sur sa fiche : seule la fenêtre ci-dessous lui
               donne, le temps qu'elle dure, les prérogatives du contrôleur HSE : voir les
               checklists en attente d'un autre agent, et les valider à sa place.
             </p>
@@ -217,7 +217,7 @@ const TYPES_ACCORDABLES: { type: string; roles: string[] }[] = [
                   class="field"
                   rows="2"
                   maxlength="1000"
-                  placeholder="Congé, formation, indisponibilité — 10 caractères minimum"
+                  placeholder="Congé, formation, indisponibilité : 10 caractères minimum"
                   [(ngModel)]="delegReason"
                 ></textarea>
               </div>
@@ -280,7 +280,7 @@ const TYPES_ACCORDABLES: { type: string; roles: string[] }[] = [
         <thead>
           <tr>
             <th>Type</th><th>Objet</th><th>Motif</th><th>Autorité</th>
-            <th class="num">Accordée le</th><th>État</th>
+            <th class="num">Accordée le</th><th class="num">Échéance</th><th>État</th>
           </tr>
         </thead>
         <tbody>
@@ -301,6 +301,9 @@ const TYPES_ACCORDABLES: { type: string; roles: string[] }[] = [
                 <span class="ml-1 text-[11px] text-ink-faint">{{ d.authority?.role }}</span>
               </td>
               <td class="num text-ink-muted">{{ dateOnly(d.grantedAt) }}</td>
+              <td class="num" [class]="d.expiresAt ? 'text-ink-soft' : 'text-ink-faint'">
+                {{ d.expiresAt ? dateOnly(d.expiresAt) : 'Sans échéance' }}
+              </td>
               <td>
                 @if (d.status === 'ACTIVE') {
                   <erp-status-badge kind="wait" label="Active" />
@@ -313,7 +316,7 @@ const TYPES_ACCORDABLES: { type: string; roles: string[] }[] = [
             </tr>
           } @empty {
             <tr>
-              <td colspan="6" class="empty">
+              <td colspan="7" class="empty">
                 Aucune dérogation enregistrée. Les verrous n'ont jamais eu besoin d'être levés.
               </td>
             </tr>

@@ -61,6 +61,19 @@ const NEXT_STEPS: { to: string; label: string }[] = [
       <div class="card-body">
         <erp-action-feedback [error]="state.error()" [success]="state.done()" />
 
+        <!-- CORRIGÉ : les formulaires restaient affichés sur une opération
+             clôturée ou annulée, sans aucune condition de statut.
+             L'affectation des moyens et le relevé de volume proposaient leurs
+             boutons comme si l'opération était encore en cours ; le serveur
+             aurait refusé l'écriture, mais rien à l'écran ne le laissait
+             deviner avant d'essayer. -->
+        @if (estTerminee()) {
+          <p class="rounded-[3px] border border-rule-strong bg-gray-50 px-3.5 py-3 text-[13px] text-ink-soft">
+            Opération {{ operation.status === 'CANCELLED' ? 'annulée' : 'clôturée' }} : elle ne
+            reçoit plus d’affectation, de relevé ni de changement d’état.
+          </p>
+        } @else {
+
         <!-- ============ Affectation des moyens ============ -->
         <h3 class="mb-2 text-[13px] font-semibold text-ink">Moyens affectés</h3>
         <p class="mb-3 text-[11px] leading-relaxed text-ink-faint">
@@ -182,7 +195,7 @@ const NEXT_STEPS: { to: string; label: string }[] = [
                 subjectType="OperationAssignment"
                 [subjectId]="operation.reference"
                 [subjectLabel]="operation.reference"
-                [titre]="label + ' n’est pas conforme — dérogation du DG obligatoire'"
+                [titre]="label + ' n’est pas conforme : dérogation du DG obligatoire'"
                 (accorde)="complianceDerogationId.set($event)"
               />
             </div>
@@ -386,7 +399,12 @@ const NEXT_STEPS: { to: string; label: string }[] = [
           </div>
         }
 
-        <!-- ============ Coûts constatés ============ -->
+        }
+
+        <!-- ============ Coûts constatés ============
+             Reste accessible même après clôture : une facture fournisseur du
+             coût réel peut arriver bien après la livraison physique, et le
+             rapprochement de marge en a besoin. -->
         <h3 class="mb-2 mt-6 text-[13px] font-semibold text-ink">Coût constaté</h3>
         <p class="mb-3 text-[11px] leading-relaxed text-ink-faint">
           Dès qu’une ligne existe ici, elle prend le pas sur le chiffrage de l’affaire dans le
@@ -582,6 +600,11 @@ export class OperationActionsComponent {
 
   protected isDg(): boolean {
     return this.auth.role() === 'DG';
+  }
+
+  /** Statuts terminaux : plus d'affectation, de relevé ni de changement d'état. */
+  protected estTerminee(): boolean {
+    return this.operation.status === 'CLOSED' || this.operation.status === 'CANCELLED';
   }
 
   /** Qui peut lever le verrou HSE par dérogation — même liste que la route serveur. */

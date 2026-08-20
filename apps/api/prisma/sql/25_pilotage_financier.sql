@@ -121,9 +121,9 @@ SELECT ex.year                                          AS exercice,
                                                         AS calculable,
        CASE
          WHEN ex.id IS NULL
-           THEN 'Aucun exercice comptable n''est déclaré courant. L''exercice se saisit — ses bornes ne sont ni l''année civile ni une constante (§ 14.3).'
+           THEN 'Aucun exercice comptable n''est déclaré courant. L''exercice se saisit : ses bornes ne sont ni l''année civile ni une constante.'
          WHEN f.pools = 0
-           THEN 'Aucun pool de charges FIXES n''est budgété sur cet exercice (§ 14.5) — le point mort serait de zéro litre, donc déjà atteint. Les charges fixes sont la somme des budgets des pools déclarés fixes : déclarez-en au moins un.'
+           THEN 'Aucun pool de charges FIXES n''est budgété sur cet exercice : le point mort serait de zéro litre, donc déjà atteint. Les charges fixes sont la somme des budgets des pools déclarés fixes : déclarez-en au moins un.'
          WHEN f.devises > 1
            THEN 'Les pools de charges fixes de cet exercice sont libellés dans plusieurs devises. Leur somme n''a pas de sens, et le point mort qui en découlerait non plus.'
          WHEN m.marge_unitaire IS NULL
@@ -197,7 +197,7 @@ SELECT a.montant                                     AS avances_fournisseurs,
        0::numeric                                    AS stocks,
        false                                         AS stocks_suivis,
        round(a.montant + c.montant - d.montant, 2)   AS bfr_exploitation,
-       'Exploitation seulement : hors TVA, dettes sociales et fiscales, acomptes. Diffère du BFR comptable, et c''est normal (§ 14.6).'::text
+       'Exploitation seulement : hors TVA, dettes sociales et fiscales, acomptes. Diffère du BFR comptable, et c''est normal.'::text
                                                      AS perimetre
   FROM avances a CROSS JOIN creances c CROSS JOIN dettes d;
 

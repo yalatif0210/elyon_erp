@@ -29,7 +29,7 @@ import { IconComponent } from './icon.component';
     @if (accordee(); as d) {
       <p class="flex items-center gap-2 rounded-[3px] bg-ok-wash px-3 py-2 text-[12px] text-ok">
         <erp-icon name="check-circle" [size]="13" />
-        Dérogation accordée le {{ d.grantedAt.slice(0, 10) }} — elle sera jointe à l’envoi.
+        Dérogation accordée le {{ d.grantedAt.slice(0, 10) }} : elle sera jointe à l’envoi.
       </p>
     } @else {
       <div class="rounded-[3px] border border-warn/40 bg-warn-wash px-3 py-3">
@@ -42,7 +42,7 @@ import { IconComponent } from './icon.component';
           class="field text-[12px]"
           rows="2"
           maxlength="2000"
-          placeholder="Motif circonstancié — 10 caractères minimum"
+          placeholder="Motif circonstancié : 10 caractères minimum"
           [(ngModel)]="reason"
         ></textarea>
         <button

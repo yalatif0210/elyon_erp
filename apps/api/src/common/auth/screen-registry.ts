@@ -114,16 +114,24 @@ export const SCREEN_REGISTRY: ScreenDef[] = [
 
   // --- Administrer ---
   {
+    // Porte les deux vues, par moyen et par pièce — fusionnées dans un même
+    // écran (§ discussion 20/08) : la même information regardée sous deux
+    // angles n'a pas besoin de deux écrans séparés, ni de deux entrées de
+    // menu à tenir cohérentes entre elles.
     key: 'conformite',
     label: 'Conformité',
     group: 'Administrer',
     defaultRoles: [R.DG, R.CCOO, R.LOGISTICS_COORD, R.FINANCE_CFO, R.ASSISTANT_DG],
   },
   {
-    key: 'echeancier',
-    label: 'Échéancier',
+    // Édition réservée à l'Assistante de Direction (vérifiée par la route
+    // elle-même) ; la LECTURE, elle, est ouverte à tous — ce n'est pas une
+    // donnée sensible, c'est un mode opératoire que l'entreprise entière doit
+    // pouvoir consulter avant d'exécuter.
+    key: 'procedures',
+    label: 'Procédures opérationnelles',
     group: 'Administrer',
-    defaultRoles: [R.DG, R.CCOO, R.LOGISTICS_COORD, R.ASSISTANT_DG, R.FINANCE_CFO],
+    defaultRoles: null,
   },
   {
     key: 'tiers',

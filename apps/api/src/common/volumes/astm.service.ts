@@ -165,7 +165,7 @@ export class AstmService {
     }
     if (!Number.isFinite(temperatureC)) {
       throw new BadRequestException(
-        'Température absente. Sans elle, aucun volume ne peut être ramené à 15 °C, et deux relevés pris à des températures différentes ne sont pas comparables (§ 8.2).',
+        'Température absente. Sans elle, aucun volume ne peut être ramené à 15 °C, et deux relevés pris à des températures différentes ne sont pas comparables.',
       );
     }
     if (temperatureC < TEMPERATURE_MIN || temperatureC > TEMPERATURE_MAX) {

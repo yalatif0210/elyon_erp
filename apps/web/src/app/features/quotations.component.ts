@@ -12,6 +12,7 @@ import {
 import { ActionFeedbackComponent, ActionState, HttpFailure } from '../shared/action-panel.component';
 import { IconComponent } from '../shared/icon.component';
 import { dateOnly, grouper } from '../shared/format';
+import { TableauControlesComponent, TableauPagine } from '../shared/tableau';
 
 /** Voir `deal-create.component.ts` : les valeurs d'énumération se lisent au
  *  registre de paramétrage, jamais recopiées à la main. */
@@ -66,7 +67,7 @@ const PROFORMA_STATUS_LABEL: Record<string, string> = {
 @Component({
   selector: 'erp-quotations',
   standalone: true,
-  imports: [FormsModule, RouterLink, IconComponent, ActionFeedbackComponent],
+  imports: [FormsModule, RouterLink, IconComponent, ActionFeedbackComponent, TableauControlesComponent],
   template: `
     <header class="mb-6">
       <h1 class="page-title">Demandes de cotation</h1>
@@ -99,6 +100,7 @@ const PROFORMA_STATUS_LABEL: Record<string, string> = {
       </div>
     } @else {
       <div class="card overflow-x-auto">
+        <erp-tableau-controles [tableau]="tableau" libelle="les demandes de cotation" />
         <table class="table">
           <thead>
             <tr>
@@ -113,7 +115,7 @@ const PROFORMA_STATUS_LABEL: Record<string, string> = {
             </tr>
           </thead>
           <tbody>
-            @for (d of demandes(); track d.id) {
+            @for (d of tableau.lignes(); track d.id) {
               <tr>
                 <td class="font-mono text-[12px] text-ink-soft">{{ dateOnly(d.createdAt) }}</td>
                 <td class="ref">{{ d.partner.legalName }}</td>
@@ -346,6 +348,7 @@ export class QuotationsComponent implements OnInit {
   protected readonly state = new ActionState();
   protected readonly chargement = signal(true);
   protected readonly demandes = signal<QuotationRequestInternalRow[]>([]);
+  protected readonly tableau = new TableauPagine<QuotationRequestInternalRow>();
   protected readonly filtre = signal<string | undefined>(undefined);
   protected readonly declineCible = signal<QuotationRequestInternalRow | null>(null);
   protected declineReason = '';
@@ -519,6 +522,7 @@ export class QuotationsComponent implements OnInit {
     this.chargement.set(true);
     this.api.quotations(this.filtre()).subscribe((rows) => {
       this.demandes.set(rows);
+      this.tableau.définir(rows);
       this.chargement.set(false);
     });
   }

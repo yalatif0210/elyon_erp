@@ -61,7 +61,7 @@ BEGIN
   OR NEW.product_id   IS DISTINCT FROM OLD.product_id
   OR NEW.effective_from IS DISTINCT FROM OLD.effective_from THEN
     RAISE EXCEPTION
-      'Prix fournisseur déjà validé : il ne se modifie pas. Créer une nouvelle ligne datée (§ 6.3).'
+      'Prix fournisseur déjà validé : il ne se modifie pas. Créer une nouvelle ligne datée.'
       USING ERRCODE = 'check_violation';
   END IF;
 
@@ -100,7 +100,7 @@ BEGIN
 
   IF NEW.supplier_price_id IS NULL THEN
     RAISE EXCEPTION
-      'Le prix d''achat du deal % doit provenir d''un prix fournisseur validé — il ne se saisit pas librement.',
+      'Le prix d''achat du deal % doit provenir d''un prix fournisseur validé : il ne se saisit pas librement.',
       NEW.reference
       USING ERRCODE = 'check_violation';
   END IF;
@@ -248,14 +248,14 @@ BEGIN
 
   IF d.credit_approved_by_id IS NULL THEN
     RAISE EXCEPTION
-      'VERROU FINANCIER — le deal % est en statut % et n''a pas reçu l''approbation de la Finance : aucune opération ne peut être créée.',
+      'VERROU FINANCIER : le deal % est en statut % et n''a pas reçu l''approbation de la Finance : aucune opération ne peut être créée.',
       d.reference, d.status
       USING ERRCODE = 'check_violation';
   END IF;
 
   IF d.status IN ('CANCELLED', 'CREDIT_BLOCKED', 'REJECTED_BY_CLIENT', 'PENDING_RISK', 'PENDING_DG_APPROVAL') THEN
     RAISE EXCEPTION
-      'VERROU FINANCIER — le deal % est en statut % : exécution refusée.', d.reference, d.status
+      'VERROU FINANCIER : le deal % est en statut % : exécution refusée.', d.reference, d.status
       USING ERRCODE = 'check_violation';
   END IF;
 
@@ -324,7 +324,7 @@ BEGIN
 
     IF validator_role IS DISTINCT FROM 'HSE_CONTROLLER' THEN
       RAISE EXCEPTION
-        'VERROU HSE — la validation est réservée au contrôleur HSE. Rôle fourni : %.',
+        'VERROU HSE : la validation est réservée au contrôleur HSE. Rôle fourni : %.',
         COALESCE(validator_role, 'inconnu')
         USING ERRCODE = 'check_violation';
     END IF;
@@ -340,17 +340,17 @@ BEGIN
 
     IF recorder IS NOT NULL THEN
       RAISE EXCEPTION
-        'VERROU HSE — l''agent qui a renseigné un contrôle bloquant ne peut pas valider la checklist (§ 3.2).'
+        'VERROU HSE : l''agent qui a renseigné un contrôle bloquant ne peut pas valider la checklist.'
         USING ERRCODE = 'check_violation';
     END IF;
   END IF;
 
-  -- Suppléance : seul le DG peut valider en l'absence du contrôleur (§ 3.4).
+  -- Suppléance : seul le DG peut valider en l'absence du contrôleur.
   IF NEW.validated_by_user_id IS NOT NULL THEN
     SELECT role::text INTO validator_role FROM users WHERE id = NEW.validated_by_user_id;
     IF validator_role IS DISTINCT FROM 'DG' THEN
       RAISE EXCEPTION
-        'VERROU HSE — la suppléance du contrôleur HSE est réservée au DG. Rôle fourni : %.',
+        'VERROU HSE : la suppléance du contrôleur HSE est réservée au DG. Rôle fourni : %.',
         COALESCE(validator_role, 'inconnu')
         USING ERRCODE = 'check_violation';
     END IF;
@@ -390,7 +390,7 @@ BEGIN
       RETURN NEW;
     END IF;
     RAISE EXCEPTION
-      'VERROU HSE — l''opération % invoque une dérogation qui ne l''ouvre pas : %. Le verrou reste fermé.',
+      'VERROU HSE : l''opération % invoque une dérogation qui ne l''ouvre pas : %. Le verrou reste fermé.',
       NEW.reference,
       derogation_motif_refus(NEW.hse_derogation_id, 'HSE_BLOCKING_OVERRIDE', NEW.reference)
       USING ERRCODE = 'check_violation';
@@ -398,7 +398,7 @@ BEGIN
 
   IF NEW.hse_validated_by_id IS NULL AND NEW.hse_validated_by_user_id IS NULL THEN
     RAISE EXCEPTION
-      'VERROU HSE — l''opération % ne peut pas passer au chargement : contrôles non validés.',
+      'VERROU HSE : l''opération % ne peut pas passer au chargement : contrôles non validés.',
       NEW.reference
       USING ERRCODE = 'check_violation';
   END IF;
@@ -425,7 +425,7 @@ BEGIN
 
   IF pending = 0 THEN
     RAISE EXCEPTION
-      'VERROU HSE — l''opération % ne porte AUCUN point de contrôle : la validation ne s''appuierait sur rien. Vérifier qu''un modèle de checklist couvre son segment et son mode de transport.',
+      'VERROU HSE : l''opération % ne porte AUCUN point de contrôle : la validation ne s''appuierait sur rien. Vérifier qu''un modèle de checklist couvre son segment et son mode de transport.',
       NEW.reference
       USING ERRCODE = 'check_violation';
   END IF;
@@ -439,7 +439,7 @@ BEGIN
 
   IF pending > 0 THEN
     RAISE EXCEPTION
-      'VERROU HSE — % contrôle(s) bloquant(s) non satisfait(s) sur l''opération %.',
+      'VERROU HSE : % contrôle(s) bloquant(s) non satisfait(s) sur l''opération %.',
       pending, NEW.reference
       USING ERRCODE = 'check_violation';
   END IF;
@@ -475,7 +475,7 @@ BEGIN
       RETURN NEW;
     END IF;
     RAISE EXCEPTION
-      'CONFORMITÉ — l''affectation invoque une dérogation qui ne l''autorise pas : %. Les moyens doivent être conformes.',
+      'CONFORMITÉ : l''affectation invoque une dérogation qui ne l''autorise pas : %. Les moyens doivent être conformes.',
       derogation_motif_refus(NEW.compliance_derogation_id, 'TRANSPORT_NON_COMPLIANCE', NULL)
       USING ERRCODE = 'check_violation';
   END IF;
@@ -492,7 +492,7 @@ BEGIN
 
   IF offenders IS NOT NULL AND offenders <> '' THEN
     RAISE EXCEPTION
-      'VERROU CONFORMITÉ — moyen(s) non conforme(s) : %. Une dérogation du DG est requise (§ 6.4).',
+      'VERROU CONFORMITÉ : moyen(s) non conforme(s) : %. Une dérogation du DG est requise.',
       offenders
       USING ERRCODE = 'check_violation';
   END IF;
@@ -596,12 +596,12 @@ BEGIN
   IF NEW.type::text = 'PROFORMA' THEN
     IF NEW.paid_amount <> 0 THEN
       RAISE EXCEPTION
-        'Une proforma ne porte pas d''encaissement : elle ne crée aucune créance (§ 9.3).'
+        'Une proforma ne porte pas d''encaissement : elle ne crée aucune créance.'
         USING ERRCODE = 'check_violation';
     END IF;
     IF EXISTS (SELECT 1 FROM fne_transmissions WHERE invoice_id = NEW.id) THEN
       RAISE EXCEPTION
-        'Une proforma ne se transmet pas au dispositif fiscal (§ 9.3).'
+        'Une proforma ne se transmet pas au dispositif fiscal.'
         USING ERRCODE = 'check_violation';
     END IF;
   END IF;
@@ -693,7 +693,7 @@ BEGIN
     OR NEW.is_sealed   IS DISTINCT FROM OLD.is_sealed
   ) THEN
     RAISE EXCEPTION
-      'Document scellé : il ne se modifie pas. Émettre une pièce « annule et remplace » (§ 12.2).'
+      'Document scellé : il ne se modifie pas. Émettre une pièce « annule et remplace ».'
       USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
@@ -804,7 +804,7 @@ BEGIN
   IF t.direct_floor IS NOT NULL AND NEW.estimated_direct_margin < t.direct_floor THEN
     IF NEW.margin_derogation_id IS NULL THEN
       RAISE EXCEPTION
-        'PLANCHER DIRECT — le deal % dégage % %/% après charges directes et portage, sous le plancher de %. L''opération ne couvre pas ses coûts : blocage. Une dérogation du DG est requise.',
+        'PLANCHER DIRECT : le deal % dégage % %/% après charges directes et portage, sous le plancher de %. L''opération ne couvre pas ses coûts : blocage. Une dérogation du DG est requise.',
         NEW.reference, round(NEW.estimated_direct_margin, 2), t.currency_code, t.uom,
         round(t.direct_floor, 2)
         USING ERRCODE = 'check_violation';
@@ -815,7 +815,7 @@ BEGIN
     IF NOT derogation_opposable(
              NEW.margin_derogation_id, 'MARGIN_BELOW_DIRECT_FLOOR', NEW.reference) THEN
       RAISE EXCEPTION
-        'PLANCHER DIRECT — le deal % ne peut pas être approuvé sous le plancher : %.',
+        'PLANCHER DIRECT : le deal % ne peut pas être approuvé sous le plancher : %.',
         NEW.reference,
         derogation_motif_refus(
           NEW.margin_derogation_id, 'MARGIN_BELOW_DIRECT_FLOOR', NEW.reference)
@@ -827,7 +827,7 @@ BEGIN
   IF t.minimum_margin IS NOT NULL AND NEW.estimated_full_margin < t.minimum_margin THEN
     IF NEW.dg_approved_by_id IS NULL THEN
       RAISE EXCEPTION
-        'SEUIL DE MARGE — le deal % dégage % %/% après absorption des charges indirectes, sous le seuil de %. L''accord du DG est requis.',
+        'SEUIL DE MARGE : le deal % dégage % %/% après absorption des charges indirectes, sous le seuil de %. L''accord du DG est requis.',
         NEW.reference, round(NEW.estimated_full_margin, 2), t.currency_code, t.uom,
         round(t.minimum_margin, 2)
         USING ERRCODE = 'check_violation';

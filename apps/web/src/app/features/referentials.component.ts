@@ -1,8 +1,8 @@
-import { Component, OnInit, effect, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { IconComponent } from '../shared/icon.component';
-import { FiltreTexte, RechercheComponent } from '../shared/tableau';
+import { TableauControlesComponent, TableauPagine } from '../shared/tableau';
 
 interface Currency {
   code: string;
@@ -47,7 +47,7 @@ interface Tolerance {
 @Component({
   selector: 'erp-referentials',
   standalone: true,
-  imports: [IconComponent, RechercheComponent],
+  imports: [IconComponent, TableauControlesComponent],
   template: `
     <header class="mb-6">
       <h1 class="page-title">Référentiels</h1>
@@ -61,7 +61,7 @@ interface Tolerance {
     <section class="card mb-5">
       <div class="card-header"><h2 class="card-title">Devises</h2></div>
       <div class="overflow-x-auto">
-        <erp-recherche [filtre]="fCurrencies" libelle="les devises" />
+        <erp-tableau-controles [tableau]="fCurrencies" libelle="les devises" />
         <table class="table">
           <thead>
             <tr><th>Code</th><th>Libellé</th><th class="num">Décimales</th><th>Rôle</th><th>Parité fixe</th></tr>
@@ -107,7 +107,7 @@ interface Tolerance {
           <h2 class="card-title">Seuils de marge</h2>
         </div>
         <div class="overflow-x-auto">
-          <erp-recherche [filtre]="fThresholds" libelle="les seuils" />
+          <erp-tableau-controles [tableau]="fThresholds" libelle="les seuils" />
           <table class="table">
             <thead>
               <tr><th>Segment</th><th>Produit</th><th class="num">Plancher direct</th>
@@ -139,7 +139,7 @@ interface Tolerance {
         <h2 class="card-title">Tolérances d'écart de volume</h2>
       </div>
       <div class="overflow-x-auto">
-        <erp-recherche [filtre]="fTolerances" libelle="les tolérances" />
+        <erp-tableau-controles [tableau]="fTolerances" libelle="les tolérances" />
         <table class="table">
           <thead>
             <tr><th>Segment</th><th>Mode</th><th>Produit</th>
@@ -172,7 +172,7 @@ interface Tolerance {
         <span class="text-[11px] text-ink-faint">{{ costPosts().length }} postes</span>
       </div>
       <div class="overflow-x-auto">
-        <erp-recherche [filtre]="fCostPosts" libelle="les postes" />
+        <erp-tableau-controles [tableau]="fCostPosts" libelle="les postes" />
         <table class="table">
           <thead>
             <tr><th>Code</th><th>Libellé</th><th>Catégorie</th><th>Nature</th>
@@ -228,31 +228,37 @@ export class ReferentialsComponent implements OnInit {
   protected readonly thresholds = signal<Threshold[]>([]);
   protected readonly tolerances = signal<Tolerance[]>([]);
 
-  // Un champ de recherche par tableau. Les postes de coût dépassent la
-  // vingtaine, les devises et les seuils grossissent avec l'activité.
-  protected readonly fCurrencies = new FiltreTexte<Currency>();
-  protected readonly fThresholds = new FiltreTexte<Threshold>();
-  protected readonly fTolerances = new FiltreTexte<Tolerance>();
-  protected readonly fCostPosts = new FiltreTexte<CostPost>();
-
-  private readonly suitLesFiltres = effect(() => {
-    this.fCurrencies.définir(this.currencies());
-    this.fThresholds.définir(this.thresholds());
-    this.fTolerances.définir(this.tolerances());
-    this.fCostPosts.définir(this.costPosts());
-  });
+  // Un tableau paginé et cherchable par référentiel. Les postes de coût
+  // dépassent la vingtaine, les devises et les seuils grossissent avec
+  // l'activité.
+  protected readonly fCurrencies = new TableauPagine<Currency>();
+  protected readonly fThresholds = new TableauPagine<Threshold>();
+  protected readonly fTolerances = new TableauPagine<Tolerance>();
+  protected readonly fCostPosts = new TableauPagine<CostPost>();
 
   ngOnInit(): void {
-    this.api.currencies().subscribe((rows) => this.currencies.set(rows as Currency[]));
-    this.api.ullageTolerances().subscribe((rows) => this.tolerances.set(rows as Tolerance[]));
+    this.api.currencies().subscribe((rows) => {
+      this.currencies.set(rows as Currency[]);
+      this.fCurrencies.définir(rows as Currency[]);
+    });
+    this.api.ullageTolerances().subscribe((rows) => {
+      this.tolerances.set(rows as Tolerance[]);
+      this.fTolerances.définir(rows as Tolerance[]);
+    });
 
     // Ces deux référentiels sont réservés : on n'appelle pas l'endpoint pour
     // les rôles qui recevraient un 403.
     if (this.auth.hasRole('DG', 'FINANCE_CFO', 'ACCOUNTANT', 'CCOO', 'LOGISTICS_COORD')) {
-      this.api.costPosts().subscribe((rows) => this.costPosts.set(rows as CostPost[]));
+      this.api.costPosts().subscribe((rows) => {
+        this.costPosts.set(rows as CostPost[]);
+        this.fCostPosts.définir(rows as CostPost[]);
+      });
     }
     if (this.canSeeFinance()) {
-      this.api.marginThresholds().subscribe((rows) => this.thresholds.set(rows as Threshold[]));
+      this.api.marginThresholds().subscribe((rows) => {
+        this.thresholds.set(rows as Threshold[]);
+        this.fThresholds.définir(rows as Threshold[]);
+      });
     }
   }
 

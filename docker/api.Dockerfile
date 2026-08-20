@@ -39,6 +39,28 @@ RUN npx prisma generate && npm run build
 # ---------------------------------------------------------------------------
 FROM node:${NODE_VERSION} AS runtime
 
+WORKDIR /app
+
+# L'utilisateur 'node' (uid 1000) existe déjà dans l'image officielle.
+# Les fichiers appartiennent à root et sont seulement lisibles par node :
+# le processus ne peut pas réécrire son propre code.
+#
+# ⚠️ CES COPY PRÉCÈDENT DÉLIBÉRÉMENT L'INSTALLATION APK CI-DESSOUS.
+#
+#    BuildKit programme les étapes indépendantes en parallèle : sans cette
+#    place, la copie du stage `build` (des dizaines de milliers de petits
+#    fichiers dans node_modules) s'exécutait EN MÊME TEMPS que l'installation
+#    apk de Chromium (172 paquets) sur cette machine, et la copie échouait par
+#    intermittence avec « /app/dist: not found » alors que le stage source
+#    avait fini sans erreur. Les placer avant force l'ordre : la copie
+#    termine avant que l'E/S concurrente de l'installation apk ne démarre.
+COPY --from=deps  --chown=root:root /app/node_modules ./node_modules
+COPY --from=build --chown=root:root /app/dist         ./dist
+COPY --from=build --chown=root:root /app/package.json ./package.json
+# Client Prisma généré (moteurs de requête inclus).
+COPY --from=build --chown=root:root /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=build --chown=root:root /app/prisma        ./prisma
+
 # tini : PID 1 correct, propagation des signaux, pas de processus zombie.
 #
 # Chromium (paquet Alpine, pas le binaire téléchargé par Puppeteer — celui-ci
@@ -55,18 +77,6 @@ ENV NODE_ENV=production \
     PORT=3000 \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-
-WORKDIR /app
-
-# L'utilisateur 'node' (uid 1000) existe déjà dans l'image officielle.
-# Les fichiers appartiennent à root et sont seulement lisibles par node :
-# le processus ne peut pas réécrire son propre code.
-COPY --from=deps  --chown=root:root /app/node_modules ./node_modules
-COPY --from=build --chown=root:root /app/dist         ./dist
-COPY --from=build --chown=root:root /app/package.json ./package.json
-# Client Prisma généré (moteurs de requête inclus).
-COPY --from=build --chown=root:root /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=build --chown=root:root /app/prisma        ./prisma
 
 # Point de montage des pièces jointes du terrain. Créé ICI, appartenant à node :
 # Docker recopie les droits du répertoire de l'image lorsqu'il initialise un
