@@ -138,6 +138,28 @@ jobs:
 
             \${COMPOSE} up -d
 
+            # ⚠️ VÉRIFIE QUE LES CONTENEURS TOURNENT VRAIMENT SUR L'IMAGE
+            #    ATTENDUE - `up -d` PEUT RÉUSSIR SANS RIEN RECRÉER.
+            #
+            #    Constaté en direct : un premier passage a rapporté un succès
+            #    de bout en bout (health check compris) alors qu'`api`/`web`/
+            #    `portal` étaient restés sur l'image de la veille - `pull`
+            #    avait bien récupéré la bonne image, mais `up -d` ne l'avait
+            #    pas reconnue comme un changement à ce moment-là. Un succès
+            #    qui ne déploie rien est pire qu'un échec net : rien ne le
+            #    signale à qui ne va pas vérifier à la main.
+            for pair in "api:\${API_IMAGE}" "web:\${WEB_IMAGE}" "portal:\${PORTAL_IMAGE}"; do
+              service="\${pair%%:*}"
+              cible="\${pair#*:}:\${IMAGE_TAG}"
+              attendu="\$(docker image inspect --format '{{.Id}}' "\$cible")"
+              courant="\$(docker inspect --format '{{.Image}}' "\$(\${COMPOSE} ps -q "\$service")")"
+              if [ "\$attendu" != "\$courant" ]; then
+                echo "⚠️ \$service tourne encore sur une image différente de celle qui vient d'être préparée." >&2
+                echo "   Nouvelle tentative de recréation forcée." >&2
+                \${COMPOSE} up -d --force-recreate "\$service"
+              fi
+            done
+
             for i in \$(seq 1 60); do
               if \${COMPOSE} exec -T api node -e "require('http').get({host:'127.0.0.1',port:3000,path:'/health',timeout:4000},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"; then
                 echo "Pile de staging prête."
