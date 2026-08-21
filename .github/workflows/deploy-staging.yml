@@ -69,26 +69,38 @@ jobs:
           WEB_IMAGE: ghcr.io/${{ github.repository }}/web
           PORTAL_IMAGE: ghcr.io/${{ github.repository }}/portal
         run: |
-          # ⚠️ UN SECRET GITHUB PEUT CONTENIR UN SAUT DE LIGNE FINAL SANS QUE
-          #    RIEN NE LE SIGNALE À LA SAISIE.
+          # ⚠️ CE SCRIPT DISTANT PART TOUJOURS EN HEREDOC LITTÉRAL (<<'REMOTE',
+          #    guillemets sur le marqueur), JAMAIS EN <<REMOTE NU.
           #
-          #    Un copier-coller depuis certains éditeurs embarque le retour à
-          #    la ligne final dans la valeur collée dans Settings → Secrets.
-          #    Sans dégât pour un jeton opaque, mais `${STAGING_DEPLOY_PATH}`
-          #    est interpolé PAR CE SHELL (pas par le distant) dans le heredoc
-          #    envoyé en SSH plus bas : un saut de ligne dedans coupe la
-          #    commande `cd` en deux lignes, et tout ce qui suit s'exécute
-          #    dans un contexte imprévisible. Constaté en direct, au premier
-          #    vrai déploiement. Ces trois-là traversent ce shell ; les
-          #    autres (jetons, noms d'image) ne sont jamais utilisés comme
-          #    argument de commande interpolé de cette façon.
+          #    Un marqueur non protégé fait interpoler CE SHELL-CI (le
+          #    runner GitHub, pas le VPS) tous les `$var`/`${...}` du corps
+          #    du heredoc AVANT l'envoi en SSH - y compris ceux qui doivent
+          #    rester à évaluer côté distant (`$COMPOSE`, les boucles
+          #    `for`...). Constaté en direct : le tout premier caractère
+          #    échappé oublié dans ce genre de script fait fuir des mots nus
+          #    (« proxy », « migrator »...) que le runner tente alors
+          #    d'exécuter comme des commandes, en silence, sans faire
+          #    échouer le job - c'est ce qui a produit plusieurs
+          #    déploiements « réussis » qui n'avaient en réalité rien
+          #    recréé. Avec le marqueur protégé, le corps est transmis mot
+          #    pour mot : plus un seul `$` à échapper ici, plus cette classe
+          #    d'erreur possible.
+          #
+          #    Les quelques valeurs qui doivent malgré tout traverser
+          #    CE shell (secrets GitHub) sont passées en variables
+          #    d'environnement de la commande distante, chacune protégée par
+          #    `printf %q` - qui gère aussi bien un secret vide qu'un secret
+          #    contenant un saut de ligne final ou un guillemet.
           STAGING_SSH_HOST="$(printf '%s' "$STAGING_SSH_HOST" | tr -d '\n\r')"
           STAGING_SSH_USER="$(printf '%s' "$STAGING_SSH_USER" | tr -d '\n\r')"
           STAGING_DEPLOY_PATH="$(printf '%s' "$STAGING_DEPLOY_PATH" | tr -d '\n\r')"
 
-          ssh "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" bash -s <<REMOTE
+          REMOTE_ENV=$(printf 'STAGING_DEPLOY_PATH=%q COMMIT_SHA=%q GHCR_TOKEN=%q GHCR_ACTOR=%q API_IMAGE=%q WEB_IMAGE=%q PORTAL_IMAGE=%q' \
+            "$STAGING_DEPLOY_PATH" "$COMMIT_SHA" "$GHCR_TOKEN" "$GHCR_ACTOR" "$API_IMAGE" "$WEB_IMAGE" "$PORTAL_IMAGE")
+
+          ssh "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" "$REMOTE_ENV bash -s" <<'REMOTE'
             set -euxo pipefail
-            cd "${STAGING_DEPLOY_PATH}"
+            cd "$STAGING_DEPLOY_PATH"
 
             # Un seul jeu de fichiers de composition, réutilisé PARTOUT dans
             # ce script — jamais un sous-ensemble ici et un autre plus bas :
@@ -103,27 +115,25 @@ jobs:
             # pas de ce clone.
             git fetch origin dev
             git checkout dev
-            git reset --hard "${COMMIT_SHA}"
+            git reset --hard "$COMMIT_SHA"
 
-            echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_ACTOR}" --password-stdin
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
 
-            export API_IMAGE="${API_IMAGE}"
-            export WEB_IMAGE="${WEB_IMAGE}"
-            export PORTAL_IMAGE="${PORTAL_IMAGE}"
-            export IMAGE_TAG="${COMMIT_SHA}"
+            export API_IMAGE WEB_IMAGE PORTAL_IMAGE
+            export IMAGE_TAG="$COMMIT_SHA"
 
-            \${COMPOSE} pull api web portal
+            $COMPOSE pull api web portal
 
             # `proxy` seul continue de se construire ici — voir l'en-tête de
             # ce fichier.
-            \${COMPOSE} build proxy
+            $COMPOSE build proxy
 
-            \${COMPOSE} up -d postgres redis
+            $COMPOSE up -d postgres redis
 
             # ⚠️ db:deploy, JAMAIS la commande par défaut du conteneur (qui
             #    sème un jeu de données de démonstration) — voir
             #    docker-compose.yml et DEPLOIEMENT.md § 4.
-            \${COMPOSE} --profile tools run --rm migrator \
+            $COMPOSE --profile tools run --rm migrator \
               sh -c "npm ci && npm run db:deploy"
 
             # Sans effet si un DG existe déjà (compte gardé par
@@ -133,10 +143,10 @@ jobs:
             # Lit BOOTSTRAP_ADMIN_EMAIL/NAME/PASSWORD depuis le .env déjà en
             # place sur ce VPS (§ 3 de DEPLOIEMENT_STAGING.md) — aucune de
             # ces valeurs ne transite par ce workflow.
-            \${COMPOSE} --profile tools run --rm migrator \
+            $COMPOSE --profile tools run --rm migrator \
               sh -c "npm ci && npm run db:bootstrap-admin"
 
-            \${COMPOSE} up -d
+            $COMPOSE up -d
 
             # ⚠️ VÉRIFIE QUE LES CONTENEURS TOURNENT VRAIMENT SUR L'IMAGE
             #    ATTENDUE - `up -d` PEUT RÉUSSIR SANS RIEN RECRÉER.
@@ -148,26 +158,26 @@ jobs:
             #    pas reconnue comme un changement à ce moment-là. Un succès
             #    qui ne déploie rien est pire qu'un échec net : rien ne le
             #    signale à qui ne va pas vérifier à la main.
-            for pair in "api:\${API_IMAGE}" "web:\${WEB_IMAGE}" "portal:\${PORTAL_IMAGE}"; do
-              service="\${pair%%:*}"
-              cible="\${pair#*:}:\${IMAGE_TAG}"
-              attendu="\$(docker image inspect --format '{{.Id}}' "\$cible")"
-              courant="\$(docker inspect --format '{{.Image}}' "\$(\${COMPOSE} ps -q "\$service")")"
-              if [ "\$attendu" != "\$courant" ]; then
-                echo "⚠️ \$service tourne encore sur une image différente de celle qui vient d'être préparée." >&2
-                echo "   Nouvelle tentative de recréation forcée." >&2
-                \${COMPOSE} up -d --force-recreate "\$service"
+            for pair in "api:$API_IMAGE" "web:$WEB_IMAGE" "portal:$PORTAL_IMAGE"; do
+              service="${pair%%:*}"
+              cible="${pair#*:}:$IMAGE_TAG"
+              attendu="$(docker image inspect --format '{{.Id}}' "$cible")"
+              courant="$(docker inspect --format '{{.Image}}' "$($COMPOSE ps -q "$service")")"
+              if [ "$attendu" != "$courant" ]; then
+                echo "ATTENTION $service tourne encore sur une image differente de celle qui vient d'etre preparee." >&2
+                echo "Nouvelle tentative de recreation forcee." >&2
+                $COMPOSE up -d --force-recreate "$service"
               fi
             done
 
-            for i in \$(seq 1 60); do
-              if \${COMPOSE} exec -T api node -e "require('http').get({host:'127.0.0.1',port:3000,path:'/health',timeout:4000},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"; then
-                echo "Pile de staging prête."
+            for i in $(seq 1 60); do
+              if $COMPOSE exec -T api node -e "require('http').get({host:'127.0.0.1',port:3000,path:'/health',timeout:4000},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"; then
+                echo "Pile de staging prete."
                 exit 0
               fi
               sleep 2
             done
-            echo "La pile de staging ne répond toujours pas après 120 s." >&2
-            \${COMPOSE} ps
+            echo "La pile de staging ne repond toujours pas apres 120 s." >&2
+            $COMPOSE ps
             exit 1
           REMOTE
