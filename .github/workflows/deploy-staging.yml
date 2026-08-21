@@ -70,27 +70,46 @@ jobs:
           PORTAL_IMAGE: ghcr.io/${{ github.repository }}/portal
         run: |
           # ⚠️ CE SCRIPT DISTANT PART TOUJOURS EN HEREDOC LITTÉRAL (<<'REMOTE',
-          #    guillemets sur le marqueur), JAMAIS EN <<REMOTE NU.
+          #    guillemets sur le marqueur), JAMAIS EN <<REMOTE NU — et n'est
+          #    JAMAIS DIFFUSÉ EN DIRECT SUR LE FLUX SSH.
           #
-          #    Un marqueur non protégé fait interpoler CE SHELL-CI (le
-          #    runner GitHub, pas le VPS) tous les `$var`/`${...}` du corps
-          #    du heredoc AVANT l'envoi en SSH - y compris ceux qui doivent
-          #    rester à évaluer côté distant (`$COMPOSE`, les boucles
-          #    `for`...). Constaté en direct : le tout premier caractère
-          #    échappé oublié dans ce genre de script fait fuir des mots nus
-          #    (« proxy », « migrator »...) que le runner tente alors
-          #    d'exécuter comme des commandes, en silence, sans faire
-          #    échouer le job - c'est ce qui a produit plusieurs
-          #    déploiements « réussis » qui n'avaient en réalité rien
-          #    recréé. Avec le marqueur protégé, le corps est transmis mot
-          #    pour mot : plus un seul `$` à échapper ici, plus cette classe
-          #    d'erreur possible.
+          #    Deux défauts distincts ont été constatés en direct sur ce
+          #    même bloc, l'un après l'autre :
           #
-          #    Les quelques valeurs qui doivent malgré tout traverser
-          #    CE shell (secrets GitHub) sont passées en variables
-          #    d'environnement de la commande distante, chacune protégée par
-          #    `printf %q` - qui gère aussi bien un secret vide qu'un secret
-          #    contenant un saut de ligne final ou un guillemet.
+          #    1. Un marqueur non protégé fait interpoler CE SHELL-CI (le
+          #       runner GitHub, pas le VPS) tous les `$var`/`${...}` du
+          #       corps AVANT l'envoi en SSH - le moindre antislash oublié
+          #       fait fuir des mots nus exécutés en silence par le runner.
+          #       Réglé par le marqueur protégé : le corps part mot pour
+          #       mot, plus un seul `$` à échapper ici.
+          #
+          #    2. Une fois ce premier défaut réglé, un déploiement a quand
+          #       même rapporté un succès crédible (4 min, git+pull+
+          #       migrations bien réels) SANS que les conteneurs ne soient
+          #       recréés - vérifié en direct par SSH manuel : la logique du
+          #       script elle-même s'est révélée irréprochable (reproduite
+          #       trois fois à la main, `up -d` recrée toujours correctement
+          #       quand l'image change). La connexion à ce VPS s'est aussi
+          #       révélée intermittente ce jour-là (deux « connection reset »
+          #       constatés en direct, l'un côté runner, l'un depuis un poste
+          #       different). Un heredoc DIFFUSÉ EN DIRECT sur le canal SSH
+          #       n'a AUCUN contrôle d'intégrité : une coupure réseau en
+          #       cours de diffusion fait juste atteindre une fin de flux
+          #       prématurée à `bash -s`, qui termine alors proprement sur
+          #       le code de sortie de la DERNIÈRE commande déjà reçue (par
+          #       exemple un `pull` réussi) - sans jamais avoir reçu ni
+          #       exécuté le `up -d` ni la vérification qui suit. D'où :
+          #       le script est maintenant transféré en ENTIER (SCP, qui
+          #       échoue net sur une coupure au lieu de tronquer en
+          #       silence), sa taille vérifiée, puis exécuté par un second
+          #       appel SSH séparé - jamais diffusé en direct dans un
+          #       canal qui pourrait se couper au milieu.
+          #
+          #    Les quelques valeurs qui doivent traverser CE shell (secrets
+          #    GitHub) sont passées en variables d'environnement de la
+          #    commande distante, chacune protégée par `printf %q` - qui
+          #    gère aussi bien un secret vide qu'un secret contenant un saut
+          #    de ligne final ou un guillemet.
           STAGING_SSH_HOST="$(printf '%s' "$STAGING_SSH_HOST" | tr -d '\n\r')"
           STAGING_SSH_USER="$(printf '%s' "$STAGING_SSH_USER" | tr -d '\n\r')"
           STAGING_DEPLOY_PATH="$(printf '%s' "$STAGING_DEPLOY_PATH" | tr -d '\n\r')"
@@ -98,7 +117,10 @@ jobs:
           REMOTE_ENV=$(printf 'STAGING_DEPLOY_PATH=%q COMMIT_SHA=%q GHCR_TOKEN=%q GHCR_ACTOR=%q API_IMAGE=%q WEB_IMAGE=%q PORTAL_IMAGE=%q' \
             "$STAGING_DEPLOY_PATH" "$COMMIT_SHA" "$GHCR_TOKEN" "$GHCR_ACTOR" "$API_IMAGE" "$WEB_IMAGE" "$PORTAL_IMAGE")
 
-          ssh "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" "$REMOTE_ENV bash -s" <<'REMOTE'
+          SCRIPT_LOCAL="$RUNNER_TEMP/deploy-remote.sh"
+          SCRIPT_REMOTE="/tmp/elyon-deploy-${{ github.run_id }}.sh"
+
+          cat > "$SCRIPT_LOCAL" <<'REMOTE'
             set -euxo pipefail
             cd "$STAGING_DEPLOY_PATH"
 
@@ -181,3 +203,26 @@ jobs:
             $COMPOSE ps
             exit 1
           REMOTE
+
+          cleanup() {
+            ssh "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" "rm -f ${SCRIPT_REMOTE}" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          scp "$SCRIPT_LOCAL" "${STAGING_SSH_USER}@${STAGING_SSH_HOST}:${SCRIPT_REMOTE}"
+
+          # ⚠️ SCP ÉCHOUE DÉJÀ NET SUR UNE COUPURE EN COURS DE TRANSFERT - CE
+          #    CONTRÔLE DE TAILLE EST UNE CEINTURE EN PLUS DES BRETELLES, PAS
+          #    LA SEULE GARDE. Il coûte une commande, et rend visible dans le
+          #    journal la preuve que le fichier exécuté ensuite est bien
+          #    complet, plutôt que de faire confiance au seul code de retour.
+          taille_locale="$(wc -c < "$SCRIPT_LOCAL")"
+          taille_distante="$(ssh "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" "wc -c < '${SCRIPT_REMOTE}'")"
+          if [ "$taille_locale" != "$taille_distante" ]; then
+            echo "Transfert incomplet : ${taille_locale} octets envoyes, ${taille_distante} recus cote VPS." >&2
+            exit 1
+          fi
+
+          # Exécution du fichier déjà en place sur le VPS, jamais d'un flux
+          # diffusé en direct - voir l'explication en tête de cette étape.
+          ssh "${STAGING_SSH_USER}@${STAGING_SSH_HOST}" "$REMOTE_ENV bash '${SCRIPT_REMOTE}'"
