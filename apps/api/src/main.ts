@@ -36,21 +36,29 @@ async function bootstrap(): Promise<void> {
   app.getHttpAdapter().getInstance().disable('x-powered-by');
 
   /**
-   * UN SEUL saut de confiance : notre nginx, seul chemin d'accès à l'API.
+   * DEUX sauts de confiance, ni plus ni moins : le relais public (`proxy`,
+   * docker/nginx/proxy.conf) PUIS le nginx de `web` (docker/nginx/web.conf,
+   * qui relaie /api/ en interne) — jamais un accès direct à l'API.
    *
-   * Sans cela, `req.ip` vaut l'adresse du conteneur nginx pour TOUT LE MONDE.
-   * Deux conséquences, toutes deux graves :
+   * Sans ce réglage exact, `req.ip` vaut l'adresse du CONTENEUR qui a fait le
+   * dernier saut pour TOUT LE MONDE. Constaté en direct : avec `1` (un seul
+   * saut), l'adresse consignée était celle du conteneur `web` reçue par
+   * `api` — pas celle du relais public, encore moins celle du visiteur. Deux
+   * conséquences, toutes deux graves :
    *   — la limitation de débit devient collective. Les 5 tentatives de
    *     connexion par minute sont partagées par toute l'entreprise, et un seul
    *     utilisateur qui se trompe verrouille les autres ;
-   *   — le journal d'audit enregistre l'adresse du proxy sur chaque écriture.
-   *     Un audit qui répond « c'est nginx » à la question « qui ? » ne sert à
-   *     rien le jour où on en a besoin.
+   *   — le journal d'audit enregistre l'adresse d'un conteneur sur chaque
+   *     écriture. Un audit qui répond « c'est docker » à la question « qui ? »
+   *     ne sert à rien le jour où on en a besoin — constaté en direct sur des
+   *     tentatives de connexion échouées, toutes journalisées sous la même
+   *     adresse interne `172.19.0.x`.
    *
-   * Le chiffre 1 est essentiel : il fait confiance au dernier saut seulement.
-   * `true` laisserait un client forger sa propre adresse via X-Forwarded-For.
+   * Le chiffre 2 est essentiel : il fait confiance aux deux derniers sauts
+   * SEULEMENT. `true` laisserait un client forger sa propre adresse via
+   * X-Forwarded-For.
    */
-  app.set('trust proxy', 1);
+  app.set('trust proxy', 2);
 
   app.use(
     helmet({

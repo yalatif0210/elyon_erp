@@ -87,7 +87,7 @@ export class UserAdminService {
     const passwordHash = await this.crypto.hashPassword(dto.password);
     const created = await this.prisma.user.create({
       data: {
-        email: dto.email,
+        email: dto.email.toLowerCase(),
         fullName: dto.fullName,
         role: dto.role,
         passwordHash,

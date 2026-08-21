@@ -87,7 +87,7 @@ export class PortalUserAdminService {
     const created = await this.prisma.portalUser.create({
       data: {
         partnerId,
-        email: dto.email,
+        email: dto.email.toLowerCase(),
         fullName: dto.fullName,
         passwordHash,
         mustChangePassword: true,
