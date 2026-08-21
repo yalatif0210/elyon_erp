@@ -17,25 +17,35 @@ import { IconComponent } from '../../shared/icon.component';
   standalone: true,
   imports: [FormsModule, IconComponent],
   template: `
-    <div class="min-h-screen bg-paper">
-      <div class="t-screen">
-        <div class="mb-8 mt-6 flex items-center gap-3">
-          <div class="flex h-11 w-11 items-center justify-center rounded-[3px] bg-primary text-white">
-            <erp-icon name="clipboard-check" [size]="22" />
-          </div>
-          <div>
-            <p class="font-display text-[18px] font-bold text-headline">Elyon Trading</p>
-            <p class="text-[14px] text-ink-muted">Terrain</p>
-          </div>
+    <!--
+      Même traitement que la console interne et le portail (login.component.ts
+      des deux applications) : fond plein cadre, aucun texte superposé, carte
+      de connexion blanche flottante. Les champs et le bouton restent ceux du
+      jeu tactile (t-field, t-btn-primary) — cet écran se consulte sur une
+      tablette, pas au bureau.
+    -->
+    <div
+      class="relative flex min-h-screen items-center justify-center bg-cover bg-center px-4
+             py-10 lg:justify-end lg:px-[6vw]"
+      style="background-image: url('/assets/brand/fond-connexion.png?v=2'); background-color: #0a0a0a"
+      role="img"
+      aria-label="Elyon Trading — Powering Confidence"
+    >
+      <div class="w-full max-w-[420px] rounded-2xl bg-white p-8 shadow-2xl sm:p-9">
+        <div class="mb-6 flex justify-center">
+          <img src="/assets/brand/logo.png?v=2" alt="Elyon Trading" class="h-11 w-auto" />
         </div>
 
-        <h1 class="t-title">Connexion</h1>
-        <p class="t-sub">
-          Accès réservé aux agents d’opération et au contrôleur HSE. Les écrans de gestion ne
-          sont pas accessibles depuis cette tablette.
-        </p>
+        <div class="mb-7 text-center">
+          <h1 class="font-display text-[22px] font-bold tracking-[-0.01em] text-headline">
+            Connexion terrain
+          </h1>
+          <p class="mt-1.5 text-[13px] text-ink-muted">
+            Réservée aux agents d’opération et au contrôleur HSE
+          </p>
+        </div>
 
-        <form class="mt-6" (ngSubmit)="valider()" novalidate>
+        <form (ngSubmit)="valider()" novalidate>
           <div class="mb-4">
             <label class="t-label" for="courriel">Adresse électronique</label>
             <input
@@ -96,11 +106,10 @@ import { IconComponent } from '../../shared/icon.component';
           </button>
         </form>
 
-        <p class="mt-8 border-t border-rule pt-4 text-[13px] leading-relaxed text-ink-muted">
+        <p class="mt-6 border-t border-rule pt-4 text-center text-[12px] leading-relaxed text-ink-faint">
           Cette tablette est identifiée par
-          <span class="font-mono text-[12px] text-ink">{{ appareil }}</span
-          >. Une connexion depuis un appareil autre que celui qui vous est assigné n’est pas
-          refusée, mais elle est journalisée.
+          <span class="font-mono text-ink-muted">{{ appareil }}</span
+          >. Une connexion depuis un autre appareil n’est pas refusée, mais elle est journalisée.
         </p>
       </div>
     </div>
