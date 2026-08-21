@@ -76,12 +76,24 @@ export class CryptoService {
     return randomBytes(16).toString('hex');
   }
 
+  /**
+   * `.trim()` ICI, au seul point de passage obligé pour toute création ou
+   * vérification — jamais recopié au coup par coup dans chaque écran ou
+   * contrôleur. Un mot de passe provisoire (créé par un administrateur,
+   * transmis à l'intéressé, puis saisi par lui) traverse un copier-coller à
+   * CHAQUE bout de la chaîne, chacun capable d'embarquer un espace ou un
+   * saut de ligne invisible. Ne couper que côté connexion — ce qui a été
+   * fait en premier, dans l'urgence d'un compte terrain bloqué — aurait
+   * réintroduit l'asymétrie inverse : un espace parasite resté dans
+   * l'empreinte créée ici n'aurait plus jamais pu correspondre à la saisie
+   * nettoyée côté connexion.
+   */
   hashPassword(plain: string): Promise<string> {
-    return hash(plain, ARGON2);
+    return hash(plain.trim(), ARGON2);
   }
 
   /** Ne lève jamais : un hachage malformé ou absent doit refuser, pas planter. */
   verifyPassword(passwordHash: string, plain: string): Promise<boolean> {
-    return verify(passwordHash, plain).catch(() => false);
+    return verify(passwordHash, plain.trim()).catch(() => false);
   }
 }

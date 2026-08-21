@@ -29,9 +29,19 @@ const prisma = new PrismaClient();
 /** Identique à `CryptoService`/`AuthService` côté application — voir leur en-tête. */
 const ARGON2 = { memoryCost: 19_456, timeCost: 2, parallelism: 1 } as const;
 
+/**
+ * `.trim()` sur la valeur retournée, pas seulement sur le test de vacuité :
+ * une variable d'environnement posée dans un fichier `.env` embarque
+ * facilement un saut de ligne final invisible à la saisie — le même défaut
+ * que celui constaté ce jour même sur un secret GitHub Actions
+ * (`STAGING_DEPLOY_PATH`, voir deploy-staging.yml) et sur un mot de passe
+ * provisoire copié-collé pour un compte terrain. Un mot de passe haché
+ * AVEC ce saut de ligne ne correspondrait plus jamais à la même valeur
+ * saisie proprement à la connexion.
+ */
 function requireEnv(key: string): string {
-  const value = process.env[key];
-  if (!value || value.trim() === '') {
+  const value = process.env[key]?.trim();
+  if (!value) {
     throw new Error(`${key} est requis pour créer le premier compte DG.`);
   }
   return value;
@@ -44,7 +54,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  const email = requireEnv('BOOTSTRAP_ADMIN_EMAIL');
+  // .toLowerCase() : la connexion normalise TOUJOURS l'adresse ainsi avant
+  // de chercher en base (voir AuthService.loginInternal) — un courriel posé
+  // ici avec la moindre majuscule créerait un compte que son titulaire ne
+  // retrouverait jamais à la connexion.
+  const email = requireEnv('BOOTSTRAP_ADMIN_EMAIL').toLowerCase();
   const fullName = requireEnv('BOOTSTRAP_ADMIN_NAME');
   const password = requireEnv('BOOTSTRAP_ADMIN_PASSWORD');
 
