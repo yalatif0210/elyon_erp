@@ -136,9 +136,12 @@ COMMENT ON COLUMN partners.credit_limit IS
 COMMENT ON COLUMN partners.supplier_terms_days IS
   'Négatif = prépaiement avant livraison. Cas courant chez Elyon (§ 14.6) : aucun flottant fournisseur n''amortit le cycle de trésorerie.';
 
-ALTER TABLE partner_sites
-  DROP CONSTRAINT IF EXISTS chk_partner_sites_coordinates,
-  ADD  CONSTRAINT chk_partner_sites_coordinates
+-- Portée par `sites` depuis que le lieu ne se rattache plus à un tiers
+-- (§ site_de_livraison_direct) : les coordonnées appartiennent au LIEU,
+-- jamais au rattachement client qui a disparu.
+ALTER TABLE sites
+  DROP CONSTRAINT IF EXISTS chk_sites_coordinates,
+  ADD  CONSTRAINT chk_sites_coordinates
        CHECK (
          (latitude IS NULL AND longitude IS NULL)
          OR (latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180)

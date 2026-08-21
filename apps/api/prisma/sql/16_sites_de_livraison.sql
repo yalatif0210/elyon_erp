@@ -13,61 +13,14 @@
 -- ===========================================================================
 
 -- ---------------------------------------------------------------------------
---  REPRISE — chaque site de tiers existant devient un LIEU.
+--  ⚠️ LA REPRISE « CHAQUE SITE DE TIERS DEVIENT UN LIEU » A ÉTÉ RETIRÉE D'ICI.
 --
---  Aujourd'hui la correspondance est de un pour un : personne n'a encore pu
---  partager un site, puisque le modèle ne le permettait pas. On crée donc un
---  lieu par rattachement, et l'exploitant fusionnera ceux qui n'en font qu'un
---  — c'est un travail de référentiel, pas de migration : nous n'avons aucun
---  moyen fiable de décider que deux adresses saisies séparément désignent le
---  même quai.
--- ---------------------------------------------------------------------------
-DO $$
-DECLARE
-  n int;
-BEGIN
-  INSERT INTO sites (
-    id, code, name, address_line, city, country_code, latitude, longitude,
-    access_instructions, opening_hours, safety_instructions,
-    default_hse_risk_level, is_active, created_at, updated_at)
-  SELECT gen_random_uuid(),
-         -- Le code du lieu ne peut pas être celui du client : deux clients
-         -- emploient le même code pour des lieux différents. On le préfixe du
-         -- tiers d'origine, l'exploitant renommera.
-         left(p.code || '-' || ps.code, 32),
-         ps.name, ps.address_line, ps.city, ps.country_code,
-         ps.latitude, ps.longitude,
-         ps.access_instructions, ps.opening_hours, ps.safety_instructions,
-         ps.default_hse_risk_level, ps.is_active, ps.created_at, now()
-    FROM partner_sites ps
-    JOIN partners p ON p.id = ps.partner_id
-   WHERE ps.site_id IS NULL
-   ON CONFLICT (code) DO NOTHING;
-
-  GET DIAGNOSTICS n = ROW_COUNT;
-  IF n > 0 THEN RAISE NOTICE 'Reprise : % lieu(x) de livraison créé(s).', n; END IF;
-
-  UPDATE partner_sites ps
-     SET site_id = ds.id
-    FROM sites ds
-    JOIN partners p ON true
-   WHERE ps.site_id IS NULL
-     AND p.id = ps.partner_id
-     AND ds.code = left(p.code || '-' || ps.code, 32);
-
-  GET DIAGNOSTICS n = ROW_COUNT;
-  IF n > 0 THEN RAISE NOTICE 'Reprise : % rattachement(s) client → lieu.', n; END IF;
-
-  -- Usage : tout ce qui existait ne servait qu'à LIVRER — le modèle ne
-  -- connaissait pas le chargement. L'exploitant ajoutera LOADING sur les
-  -- dépôts qui expédient aussi, et un lieu portera alors les deux.
-  UPDATE sites SET usages = ARRAY['DELIVERY']::site_usage[]
-   WHERE usages IS NULL OR cardinality(usages) = 0;
-
-  GET DIAGNOSTICS n = ROW_COUNT;
-  IF n > 0 THEN RAISE NOTICE 'Reprise : % site(s) marqué(s) « livraison ».', n; END IF;
-END $$;
-
+--     Elle convertissait les lignes de `partner_sites` en `sites` — un
+--     rattachement par tiers qui n'a jamais eu d'interface de création dans
+--     l'application, et qui a été retiré (§ site_de_livraison_direct,
+--     20260821204104) : `deals.site_id`/`operations.destination_site_id`
+--     pointent désormais `sites` directement. La table `partner_sites`
+--     n'existe plus, et cette reprise n'a donc plus de source à lire.
 -- ---------------------------------------------------------------------------
 --  Un site sert forcément à QUELQUE CHOSE.
 --
@@ -81,15 +34,16 @@ ALTER TABLE sites
 
 
 -- ---------------------------------------------------------------------------
---  Un même client ne se rattache qu'une fois à un même lieu.
+--  ⚠️ L'UNICITÉ « UN CLIENT NE SE RATTACHE QU'UNE FOIS À UN LIEU » A ÉTÉ
+--     RETIRÉE — ELLE N'A PLUS D'ÉQUIVALENT.
 --
---  Sans cette contrainte, deux rattachements du même client au même quai
---  produiraient deux désignations concurrentes sur les bons de livraison.
+--     Elle empêchait deux rattachements `partner_sites` du même client au
+--     même lieu. Un client se rattache maintenant à un site via ses AFFAIRES
+--     (`deals.site_id`), et rien n'interdit — ni ne doit interdire — que le
+--     même client livre au même site sur plusieurs affaires successives :
+--     c'est le cas courant, pas l'anomalie que cette contrainte visait.
 -- ---------------------------------------------------------------------------
 DROP INDEX IF EXISTS uq_partner_site_lieu;
-CREATE UNIQUE INDEX uq_partner_site_lieu
-  ON partner_sites (partner_id, site_id)
-  WHERE site_id IS NOT NULL;
 
 
 -- ---------------------------------------------------------------------------
@@ -146,12 +100,12 @@ CREATE OR REPLACE VIEW v_exigences_site AS
 --    impose ses créneaux à qui vient prendre du produit. Ne regarder que la
 --    destination laissait la moitié du trajet sans consignes.
 WITH lieux AS (
-  -- Destination : par le rattachement client, qui porte la désignation que le
-  -- client reconnaît sur son bon de livraison.
-  SELECT o.id AS operation_id, o.reference, 'DELIVERY'::text AS bout, ps.site_id
+  -- Destination : le LIEU directement (§ site_de_livraison_direct) — plus au
+  -- travers d'un rattachement client qui n'existe plus.
+  SELECT o.id AS operation_id, o.reference, 'DELIVERY'::text AS bout,
+         o.destination_site_id AS site_id
     FROM operations o
-    JOIN partner_sites ps ON ps.id = o.destination_site_id
-   WHERE ps.site_id IS NOT NULL
+   WHERE o.destination_site_id IS NOT NULL
   UNION ALL
   -- Origine : le LIEU directement. Un dépôt de chargement n'appartient à
   -- aucune relation commerciale.
@@ -185,13 +139,13 @@ COMMENT ON VIEW v_exigences_site IS
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE VIEW v_sites_partages AS
 SELECT ds.code, ds.name, ds.city,
-       count(DISTINCT ps.partner_id) AS nb_clients,
+       count(DISTINCT d.client_id) AS nb_clients,
        string_agg(DISTINCT p.legal_name, ', ' ORDER BY p.legal_name) AS clients
   FROM sites ds
-  JOIN partner_sites ps ON ps.site_id = ds.id
-  JOIN partners p ON p.id = ps.partner_id
+  JOIN deals d ON d.site_id = ds.id
+  JOIN partners p ON p.id = d.client_id
  GROUP BY ds.id, ds.code, ds.name, ds.city
-HAVING count(DISTINCT ps.partner_id) > 1;
+HAVING count(DISTINCT d.client_id) > 1;
 
 COMMENT ON VIEW v_sites_partages IS
   'Sites de livraison exploités par plusieurs clients. C''est le cas courant, et c''est précisément ce que l''ancien modèle — un site par client — obligeait à dupliquer.';

@@ -123,11 +123,10 @@ BEGIN
   END IF;
 
   SELECT o.transport_mode::text AS mode, o.planned_volume,
-         o.origin_site_id, d.product_id, ps.site_id AS destination_site_id
+         o.origin_site_id, d.product_id, o.destination_site_id
     INTO op
     FROM operations o
     JOIN deals d ON d.id = o.deal_id
-    LEFT JOIN partner_sites ps ON ps.id = o.destination_site_id
    WHERE o.id = NEW.operation_id;
 
   SELECT * INTO t FROM resolve_carrier_tariff(
