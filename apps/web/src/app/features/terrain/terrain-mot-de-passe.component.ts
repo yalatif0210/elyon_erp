@@ -137,7 +137,10 @@ export class TerrainMotDePasseComponent {
     this.erreur.set(null);
     this.fait.set(null);
 
-    this.session.changerMotDePasse(this.actuel, this.nouveau).subscribe({
+    // .trim() : le mot de passe provisoire tout juste reçu est souvent
+    // copié-collé depuis une messagerie, qui embarque volontiers un espace
+    // ou un saut de ligne invisible en fin de chaîne — voir login.component.ts.
+    this.session.changerMotDePasse(this.actuel.trim(), this.nouveau.trim()).subscribe({
       next: (res) => {
         this.occupe.set(false);
         this.actuel = this.nouveau = this.repete = '';

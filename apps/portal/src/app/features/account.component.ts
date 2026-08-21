@@ -120,7 +120,9 @@ export class AccountComponent {
     this.passwordError.set(null);
     this.passwordDone.set(null);
 
-    this.auth.changePassword(this.currentPassword, this.newPassword).subscribe({
+    // .trim() : un mot de passe copié-collé embarque souvent un espace ou un
+    // saut de ligne invisible en fin de chaîne — voir login.component.ts.
+    this.auth.changePassword(this.currentPassword.trim(), this.newPassword.trim()).subscribe({
       next: (r) => {
         this.busy.set(false);
         this.currentPassword = '';

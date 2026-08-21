@@ -118,7 +118,11 @@ export class LoginComponent {
     this.busy.set(true);
     this.error.set(null);
 
-    this.auth.login(this.email.trim(), this.password, this.totpCode || undefined).subscribe({
+    // .trim() sur le mot de passe aussi : un mot de passe provisoire copié-
+    // collé depuis une messagerie embarque souvent un espace ou un saut de
+    // ligne invisible en fin de chaîne, rejeté avec le même message générique
+    // qu'un vrai mot de passe erroné — constaté en direct sur un compte terrain.
+    this.auth.login(this.email.trim(), this.password.trim(), this.totpCode || undefined).subscribe({
       next: () => {
         this.busy.set(false);
         void this.router.navigate(['/tableau-de-bord']);

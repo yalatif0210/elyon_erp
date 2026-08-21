@@ -124,8 +124,12 @@ export class TerrainLoginComponent {
     this.occupe.set(true);
     this.erreur.set(null);
 
+    // .trim() sur le mot de passe aussi : un mot de passe provisoire copié-
+    // collé depuis une messagerie embarque souvent un espace ou un saut de
+    // ligne invisible en fin de chaîne — constaté en direct, un agent
+    // terrain rejeté par « Identifiants invalides » avec le bon mot de passe.
     this.session
-      .connexion(this.courriel.trim(), this.motDePasse, this.codeTotp || undefined)
+      .connexion(this.courriel.trim(), this.motDePasse.trim(), this.codeTotp || undefined)
       .subscribe({
         next: () => {
           this.occupe.set(false);
