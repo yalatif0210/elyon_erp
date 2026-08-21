@@ -44,6 +44,7 @@ module.exports = {
         },
         secondary: 'var(--secondary)',
         teal: 'var(--teal)',
+        gold: { DEFAULT: 'var(--gold)', wash: 'var(--gold-wash)' },
         // Sémantique — réservée au statut métier (§ 17.2).
         ok: { DEFAULT: 'var(--ok)', wash: 'var(--ok-wash)' },
         warn: { DEFAULT: 'var(--warn)', ink: 'var(--warn-ink)', wash: 'var(--warn-wash)' },

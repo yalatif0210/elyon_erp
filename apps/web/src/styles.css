@@ -30,34 +30,49 @@
 
 @layer base {
   :root {
-    /* --- Gris à bias bleu — Azia _variables.scss ------------------------ */
+    /*
+     * --- Palette officielle Elyon Trading -------------------------------
+     *
+     *   Bleu Elyon      #0B3D91   couleur principale
+     *   Or Elyon        #D4AF37   accent, prestige
+     *   Gris anthracite #2F343B   texte et supports
+     *   Gris clair      #E5E7EB  fonds secondaires
+     *   Blanc           #FFFFFF   fonds et contraste
+     *
+     * Les gris intermédiaires (300-800) et les couleurs sémantiques de statut
+     * (ok/warn/info/crit, plus bas) ne figurent pas dans la charte fournie —
+     * ce sont des paliers d'interpolation et des signaux métier, pas des
+     * couleurs de marque, et ils restent donc hors de ce remplacement.
+     */
     --gray-100: #f4f5f8;
-    --gray-200: #e3e7ed;
+    --gray-200: #e5e7eb; /* Gris clair officiel */
     --gray-300: #cdd4e0;
     --gray-400: #b4bdce;
     --gray-500: #97a3b9;
     --gray-600: #7987a1;
     --gray-700: #596882;
     --gray-800: #3b4863;
-    --gray-900: #1c273c;
+    --gray-900: #2f343b; /* Gris anthracite officiel */
 
     /* --- Encre et fonds ------------------------------------------------- */
-    --paper: #f4f5f8; /* $gray-100 — fond de la zone de travail */
-    --surface: #ffffff; /* cartes, barre latérale, entête */
-    --headline: #031b4e; /* $az-color-headline — titres */
-    --ink: #1c273c; /* $gray-900 — texte fort */
-    --ink-soft: #4e5f83; /* $az-color-text — texte courant */
-    --ink-muted: #7987a1; /* $gray-600 — libellés, entêtes de table */
-    --ink-faint: #b4bdce; /* $gray-400 — texte inactif */
-    --rule: #e3e7ed; /* $gray-200 */
-    --rule-strong: #cdd4e0; /* $gray-300 */
+    --paper: #e5e7eb; /* Gris clair — fonds secondaires */
+    --surface: #ffffff; /* Blanc — fonds et contraste : cartes, entête */
+    --headline: #2f343b; /* Gris anthracite — titres */
+    --ink: #2f343b; /* Gris anthracite — texte fort */
+    --ink-soft: #4e5f83; /* dérivé, texte courant */
+    --ink-muted: #7987a1; /* dérivé, libellés, entêtes de table */
+    --ink-faint: #b4bdce; /* dérivé, texte inactif */
+    --rule: #e5e7eb; /* Gris clair */
+    --rule-strong: #cdd4e0; /* dérivé */
 
-    /* --- Accents Azia --------------------------------------------------- */
-    --primary: #5b47fb; /* $indigo — accent primaire */
-    --primary-hover: #4531fa;
-    --primary-wash: #eeecff;
-    --secondary: #3366ff; /* $blue */
-    --teal: #00cccc;
+    /* --- Accents de marque ------------------------------------------------ */
+    --primary: #0b3d91; /* Bleu Elyon — couleur principale */
+    --primary-hover: #082c6b; /* Bleu Elyon assombri */
+    --primary-wash: #e7ecf4; /* Bleu Elyon, teinté à 10 % sur blanc */
+    --gold: #d4af37; /* Or Elyon — accent, prestige : à doser, jamais en aplat large */
+    --gold-wash: #fbf7eb;
+    --secondary: #3366ff; /* $blue — hérité d'Azia, non utilisé par les écrans */
+    --teal: #00cccc; /* hérité d'Azia, non utilisé par les écrans */
 
     /* --- Sémantique : réservée au statut (§ 17.2) ------------------------ */
     --ok: #10b759;
@@ -76,7 +91,7 @@
     --h-header: 64px; /* $az-height-header */
     --w-sidebar: 240px; /* $az-width-sidebar */
     /* Ombre large et diffuse — signature d'Azia sur l'entête et les cartes. */
-    --shadow-soft: 0 0 30px rgba(28, 39, 60, 0.08);
+    --shadow-soft: 0 0 30px rgba(47, 52, 59, 0.08);
 
     color-scheme: light;
   }
@@ -234,7 +249,7 @@
   .field:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 2px rgba(91, 71, 251, 0.25); /* $input-btn-focus-color */
+    box-shadow: 0 0 0 2px rgba(11, 61, 145, 0.25); /* Bleu Elyon */
   }
   textarea.field {
     @apply py-2;
@@ -510,7 +525,7 @@
   .t-field:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(91, 71, 251, 0.28);
+    box-shadow: 0 0 0 3px rgba(11, 61, 145, 0.28); /* Bleu Elyon */
   }
   textarea.t-field {
     @apply py-3;
@@ -526,7 +541,7 @@
     @apply fixed inset-x-0 bottom-0 z-40 border-t px-4 py-3;
     border-color: var(--rule-strong);
     background: var(--surface);
-    box-shadow: 0 -2px 20px rgba(28, 39, 60, 0.1);
+    box-shadow: 0 -2px 20px rgba(47, 52, 59, 0.1);
     /* Encoche et barre gestuelle des tablettes récentes. */
     padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }

@@ -11,112 +11,21 @@ import { IconComponent } from '../shared/icon.component';
   template: `
     <div class="flex min-h-screen">
       <!--
-        Le panneau de gauche n'est pas décoratif au hasard : la scène (quai,
-        cuves, barge) situe le métier — négoce et logistique pétrolière —
-        avant même que l'écran de saisie n'apparaisse.
+        Image de marque fournie par Elyon Trading, en fond plein cadre —
+        aucun texte superposé : elle porte déjà le logo et le slogan.
       -->
-      <div class="relative hidden w-[46%] flex-col justify-between overflow-hidden p-10 lg:flex">
-        <svg
-          class="absolute inset-0 h-full w-full"
-          viewBox="0 0 800 1000"
-          preserveAspectRatio="xMidYMid slice"
-          aria-hidden="true"
-        >
-          <defs>
-            <linearGradient id="ciel" x1="0" y1="0" x2="0.4" y2="1">
-              <stop offset="0%" stop-color="#1c273c" />
-              <stop offset="55%" stop-color="#3d2f9e" />
-              <stop offset="100%" stop-color="#3366ff" />
-            </linearGradient>
-            <linearGradient id="eau" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#161f33" />
-              <stop offset="100%" stop-color="#0f1526" />
-            </linearGradient>
-          </defs>
-
-          <rect width="800" height="1000" fill="url(#ciel)" />
-
-          <!-- Jauge — la précision de la mesure, thème filé dans tout l'ERP -->
-          <g stroke="#ffffff" stroke-opacity="0.08" fill="none">
-            <circle cx="640" cy="230" r="150" />
-            <circle cx="640" cy="230" r="110" />
-            <circle cx="640" cy="230" r="70" />
-          </g>
-
-          <!-- Grille technique, très estompée -->
-          <g stroke="#ffffff" stroke-opacity="0.04">
-            <line x1="0" y1="120" x2="800" y2="120" />
-            <line x1="0" y1="240" x2="800" y2="240" />
-            <line x1="0" y1="360" x2="800" y2="360" />
-            <line x1="160" y1="0" x2="160" y2="560" />
-            <line x1="320" y1="0" x2="320" y2="560" />
-            <line x1="480" y1="0" x2="480" y2="560" />
-          </g>
-
-          <!-- Terminal — silhouette de cuves de stockage -->
-          <g fill="#0f1526" fill-opacity="0.55">
-            <ellipse cx="130" cy="470" rx="42" ry="10" />
-            <rect x="88" y="410" width="84" height="60" rx="4" />
-            <ellipse cx="130" cy="410" rx="42" ry="10" />
-
-            <ellipse cx="230" cy="480" rx="34" ry="8" />
-            <rect x="196" y="430" width="68" height="50" rx="4" />
-            <ellipse cx="230" cy="430" rx="34" ry="8" />
-          </g>
-
-          <!-- Ligne d'horizon -->
-          <rect x="0" y="560" width="800" height="440" fill="url(#eau)" />
-          <rect x="0" y="558" width="800" height="3" fill="#00cccc" fill-opacity="0.35" />
-
-          <!-- Barge — coque simplifiée -->
-          <g fill="#f4f5f8" fill-opacity="0.9">
-            <path d="M120 640 L520 640 L494 690 L146 690 Z" />
-            <rect x="190" y="600" width="70" height="42" rx="3" />
-            <rect x="205" y="580" width="18" height="24" rx="2" />
-          </g>
-          <rect x="60" y="690" width="500" height="4" fill="#0f1526" fill-opacity="0.4" />
-
-          <!-- Ondes -->
-          <g stroke="#00cccc" stroke-opacity="0.18" fill="none" stroke-width="2">
-            <path d="M0 760 Q 40 750 80 760 T 160 760 T 240 760 T 320 760 T 400 760 T 480 760 T 560 760 T 640 760 T 720 760 T 800 760" />
-            <path d="M0 830 Q 50 818 100 830 T 200 830 T 300 830 T 400 830 T 500 830 T 600 830 T 700 830 T 800 830" />
-            <path d="M0 900 Q 60 886 120 900 T 240 900 T 360 900 T 480 900 T 600 900 T 720 900 T 800 900" />
-          </g>
-        </svg>
-
-        <!-- Voile de lisibilité, uniforme : la position exacte du bloc de
-             texte dépend de la distribution flex, pas d'une zone fixe de la
-             scène — un dégradé qui suppose « le texte est en haut et en bas »
-             laisserait un creux de contraste juste sous le titre. -->
-        <div class="absolute inset-0 bg-[#0f1526]/55"></div>
-
-        <div class="relative flex items-center gap-2.5">
-          <div class="flex h-7 w-7 items-center justify-center rounded-[3px] bg-white text-primary">
-            <erp-icon name="layers" [size]="15" />
-          </div>
-          <span class="text-[13px] font-semibold text-white">Elyon Trading</span>
-        </div>
-
-        <div class="relative max-w-md">
-          <h2 class="text-[26px] font-semibold leading-[1.25] tracking-[-0.02em] text-white">
-            Distribution pétrolière :<br />de l’affaire à la facture.
-          </h2>
-          <p class="mt-4 text-[14px] leading-relaxed text-white/75">
-            Gasoil et essence, du quai d’Abidjan jusqu’au dernier kilomètre.
-          </p>
-        </div>
-
-        <p class="relative text-[11px] text-white/50">Côte d’Ivoire</p>
-      </div>
+      <div
+        class="hidden w-[46%] bg-cover bg-center lg:block"
+        style="background-image: url('/assets/brand/fond-connexion.png')"
+        role="img"
+        aria-label="Elyon Trading — Powering Confidence"
+      ></div>
 
       <!-- Panneau de saisie -->
       <div class="flex flex-1 items-center justify-center px-6 py-12">
         <div class="w-full max-w-[340px]">
           <div class="mb-7 lg:hidden">
-            <div class="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-[3px] bg-primary text-white">
-              <erp-icon name="layers" [size]="18" />
-            </div>
-            <h1 class="text-[17px] font-semibold text-ink">Elyon Trading</h1>
+            <img src="/assets/brand/logo.png" alt="Elyon Trading" class="h-12 w-auto" />
           </div>
 
           <h1 class="page-title">Connexion</h1>

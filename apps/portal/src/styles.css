@@ -17,29 +17,36 @@
 
 @layer base {
   :root {
+    /*
+     * Palette officielle Elyon Trading — voir apps/web/src/styles.css pour
+     * le détail des cinq couleurs de marque. Les gris intermédiaires et les
+     * couleurs sémantiques de statut restent hors charte, comme côté console.
+     */
     --gray-100: #f4f5f8;
-    --gray-200: #e3e7ed;
+    --gray-200: #e5e7eb; /* Gris clair officiel */
     --gray-300: #cdd4e0;
     --gray-400: #b4bdce;
     --gray-500: #97a3b9;
     --gray-600: #7987a1;
     --gray-700: #596882;
     --gray-800: #3b4863;
-    --gray-900: #1c273c;
+    --gray-900: #2f343b; /* Gris anthracite officiel */
 
-    --paper: #f4f5f8;
+    --paper: #e5e7eb;
     --surface: #ffffff;
-    --headline: #031b4e;
-    --ink: #1c273c;
+    --headline: #2f343b;
+    --ink: #2f343b;
     --ink-soft: #4e5f83;
     --ink-muted: #7987a1;
     --ink-faint: #b4bdce;
-    --rule: #e3e7ed;
+    --rule: #e5e7eb;
     --rule-strong: #cdd4e0;
 
-    --primary: #5b47fb;
-    --primary-hover: #4531fa;
-    --primary-wash: #eeecff;
+    --primary: #0b3d91; /* Bleu Elyon */
+    --primary-hover: #082c6b;
+    --primary-wash: #e7ecf4;
+    --gold: #d4af37; /* Or Elyon — accent, prestige : à doser */
+    --gold-wash: #fbf7eb;
     --secondary: #3366ff;
     --teal: #00cccc;
 
@@ -57,7 +64,7 @@
     --h-base: 38px;
     --h-header: 64px;
     --w-sidebar: 240px;
-    --shadow-soft: 0 0 30px rgba(28, 39, 60, 0.08);
+    --shadow-soft: 0 0 30px rgba(47, 52, 59, 0.08);
 
     color-scheme: light;
   }
@@ -200,7 +207,7 @@
   .field:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 2px rgba(91, 71, 251, 0.25);
+    box-shadow: 0 0 0 2px rgba(11, 61, 145, 0.25); /* Bleu Elyon */
   }
   textarea.field {
     @apply py-2;
