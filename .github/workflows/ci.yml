@@ -1,5 +1,11 @@
 name: CI
 
+# Vérification du correctif du heredoc de déploiement staging (commit
+# 26c54d3) : ce commentaire, sans effet fonctionnel, touche un chemin
+# surveillé par `push.paths` pour forcer un vrai déclenchement de CI puis
+# du déploiement staging qui en découle - un commit vide n'aurait touché
+# aucun fichier et serait resté invisible pour ce filtre.
+#
 # Réf. l'étude de faisabilité CI/CD et le plan « staging d'abord ».
 #
 # Deux jobs : compiler les trois applications (échoue vite sur une erreur de
