@@ -5,6 +5,7 @@ import {
   NotFoundException,
   Param,
   ParseUUIDPipe,
+  Query,
   Req,
 } from '@nestjs/common';
 import {
@@ -91,6 +92,31 @@ export interface FieldOperationSummary {
   listedBecause: FieldListingReason;
   /** Phases dont la checklist est renseignée et attend le contrôleur HSE. */
   checksAwaitingValidation: OperationPhase[];
+}
+
+/**
+ * Une ligne d'historique. Pas `FieldOperationSummary` — celui-ci porte
+ * `listedBecause`/`checksAwaitingValidation`, deux notions de liste de
+ * travail EN COURS qui n'ont aucun sens pour une opération déjà clôturée.
+ */
+export interface FieldOperationHistoryEntry {
+  id: string;
+  reference: string;
+  transportMode: TransportMode;
+  plannedVolume: number;
+  uom: UnitOfMeasure;
+  actualLoadingDate: Date | null;
+  actualDischargeDate: Date | null;
+  originLocation: string;
+  destinationLocation: string;
+  clientLegalName: string;
+  siteName: string | null;
+  productName: string;
+}
+
+export interface FieldOperationHistoryPage {
+  items: FieldOperationHistoryEntry[];
+  hasMore: boolean;
 }
 
 /** Spécifications produit — ce que l'agent confronte au relevé, pas un tarif. */
@@ -348,6 +374,15 @@ const FIELD_LIST_CAP = 100;
 /** Profondeur de l'historique de site imposée par le § 10.3. */
 const SITE_HISTORY_DEPTH = 10;
 
+/**
+ * Taille de page de l'historique PERSONNEL de l'agent (à distinguer de
+ * l'historique de SITE ci-dessus, borné à une profondeur fixe). Celui-ci
+ * s'accumule sans fin au fil des mois — une vraie pagination, pas un plafond
+ * dur, est nécessaire pour qu'un agent en poste depuis longtemps puisse
+ * toujours remonter au-delà des dix dernières.
+ */
+const FIELD_HISTORY_PAGE_SIZE = 20;
+
 // ===========================================================================
 //  Service
 // ===========================================================================
@@ -439,6 +474,65 @@ export class FieldOperationsService {
       listedBecause: row.fieldAgentId === actor.id ? 'ASSIGNED' : 'AWAITING_HSE_VALIDATION',
       checksAwaitingValidation: row.hseChecks.map((check) => check.phase),
     }));
+  }
+
+  /**
+   * Historique personnel — opérations clôturées qui lui ont été affectées.
+   *
+   * Volontairement `fieldAgentId: effectif.id` seul, jamais `this.scope()` :
+   * ce dernier élargit au contrôleur HSE les opérations en attente de SA
+   * validation, une notion de travail EN COURS sans objet ici — l'historique
+   * ne montre que ce que l'agent a lui-même réalisé, pas ce qu'il a contrôlé.
+   */
+  async history(actor: FieldActor, page: number): Promise<FieldOperationHistoryPage> {
+    const effectif = await this.perimetre.effectiveActor(actor);
+    const rows = await this.prisma.operation.findMany({
+      where: { fieldAgentId: effectif.id, status: OperationStatus.CLOSED },
+      orderBy: [
+        { actualDischargeDate: { sort: 'desc', nulls: 'last' } },
+        { createdAt: 'desc' },
+      ],
+      skip: (page - 1) * FIELD_HISTORY_PAGE_SIZE,
+      // Une ligne de plus que la page : sa seule présence dit s'il reste une
+      // page suivante, sans recompter le total séparément.
+      take: FIELD_HISTORY_PAGE_SIZE + 1,
+      select: {
+        id: true,
+        reference: true,
+        transportMode: true,
+        plannedVolume: true,
+        uom: true,
+        actualLoadingDate: true,
+        actualDischargeDate: true,
+        originLocation: true,
+        destinationLocation: true,
+        deal: {
+          select: {
+            client: { select: { legalName: true } },
+            product: { select: { name: true } },
+          },
+        },
+        destinationSite: { select: { name: true } },
+      },
+    });
+
+    const hasMore = rows.length > FIELD_HISTORY_PAGE_SIZE;
+    const items = rows.slice(0, FIELD_HISTORY_PAGE_SIZE).map((row) => ({
+      id: row.id,
+      reference: row.reference,
+      transportMode: row.transportMode,
+      plannedVolume: toNumber(row.plannedVolume),
+      uom: row.uom,
+      actualLoadingDate: row.actualLoadingDate,
+      actualDischargeDate: row.actualDischargeDate,
+      originLocation: row.originLocation,
+      destinationLocation: row.destinationLocation,
+      clientLegalName: row.deal.client.legalName,
+      siteName: row.destinationSite?.name ?? null,
+      productName: row.deal.product.name,
+    }));
+
+    return { items, hasMore };
   }
 
   /** Détail d'une opération, dans la vue terrain et rien d'autre. */
@@ -849,6 +943,24 @@ export class FieldOperationsController {
   @FieldRoles(FieldRole.FIELD_AGENT, FieldRole.HSE_CONTROLLER)
   list(@Req() req: { auth: { sub: string; role?: string } }): Promise<FieldOperationSummary[]> {
     return this.service.list({ id: req.auth.sub, role: req.auth.role });
+  }
+
+  /**
+   * Historique personnel, paginé.
+   *
+   * ⚠️ DOIT PRÉCÉDER `@Get(':id')` CI-DESSOUS. NestJS route dans l'ordre de
+   *    déclaration : après `:id`, une requête sur `/history` s'y ferait
+   *    happer en premier, et `ParseUUIDPipe` la rejetterait avant même
+   *    d'atteindre ce gestionnaire-ci.
+   */
+  @Get('history')
+  @FieldRoles(FieldRole.FIELD_AGENT, FieldRole.HSE_CONTROLLER)
+  history(
+    @Query('page') page: string | undefined,
+    @Req() req: { auth: { sub: string; role?: string } },
+  ): Promise<FieldOperationHistoryPage> {
+    const pageNum = Math.max(1, parseInt(page ?? '1', 10) || 1);
+    return this.service.history({ id: req.auth.sub, role: req.auth.role }, pageNum);
   }
 
   @Get(':id')

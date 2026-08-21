@@ -39,6 +39,31 @@ export interface FieldOperationSummary {
   checksAwaitingValidation: string[];
 }
 
+/**
+ * Une ligne d'historique — pas `FieldOperationSummary` : `listedBecause` et
+ * `checksAwaitingValidation` sont des notions de travail EN COURS, sans objet
+ * pour une opération déjà clôturée.
+ */
+export interface FieldOperationHistoryEntry {
+  id: string;
+  reference: string;
+  transportMode: string;
+  plannedVolume: number;
+  uom: string;
+  actualLoadingDate: string | null;
+  actualDischargeDate: string | null;
+  originLocation: string;
+  destinationLocation: string;
+  clientLegalName: string;
+  siteName: string | null;
+  productName: string;
+}
+
+export interface FieldOperationHistoryPage {
+  items: FieldOperationHistoryEntry[];
+  hasMore: boolean;
+}
+
 export interface FieldProductView {
   code: string;
   name: string;
@@ -264,6 +289,15 @@ export class FieldApiService {
     return this.http
       .get<FieldOperationSummary[]>(`${this.base}/operations`)
       .pipe(tap((lignes) => lignes.forEach((l) => this.retenirResume(l))));
+  }
+
+  /**
+   * Historique personnel, paginé — opérations clôturées qui lui ont été
+   * affectées. `page` commence à 1, comme côté serveur.
+   */
+  historique(page: number): Observable<FieldOperationHistoryPage> {
+    const params = new HttpParams().set('page', String(page));
+    return this.http.get<FieldOperationHistoryPage>(`${this.base}/operations/history`, { params });
   }
 
   operation(id: string): Observable<FieldOperationDetail> {
