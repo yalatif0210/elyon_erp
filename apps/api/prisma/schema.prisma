@@ -713,6 +713,7 @@ model FieldUser {
   mustChangePassword Boolean   @default(true) @map("must_change_password")
   totpSecretEnc      String?   @map("totp_secret_enc") @db.VarChar(512)
   totpEnabled        Boolean   @default(false) @map("totp_enabled")
+  failedLoginAttempts Int      @default(0) @map("failed_login_attempts") @db.SmallInt
   lockedUntil        DateTime? @map("locked_until") @db.Timestamptz(3)
   lastLoginAt        DateTime? @map("last_login_at") @db.Timestamptz(3)
 

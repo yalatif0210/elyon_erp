@@ -340,7 +340,9 @@ export class AuthService {
     realm: Realm,
     ctx: LoginContext,
   ): Promise<void> {
-    if (!account || !account.isActive || (account.lockedUntil && account.lockedUntil > new Date())) {
+    // Compte inexistant ou désactivé : message générique — révéler lequel
+    // des deux permettrait de deviner quels courriels ont un compte.
+    if (!account || !account.isActive) {
       await this.audit.record({
         actorType: AuditService.actorTypeFor(realm),
         actorLabel: email,
@@ -350,6 +352,33 @@ export class AuthService {
         userAgent: ctx.userAgent,
       });
       throw new UnauthorizedException('Identifiants invalides');
+    }
+
+    // Compte verrouillé : message EXPLICITE, avec l'heure de déblocage.
+    //
+    // ⚠️ Fondu jusqu'ici dans le même message générique que « mot de passe
+    //    faux » — un titulaire qui retapait le bon mot de passe pendant le
+    //    verrou recevait la même phrase que s'il s'était trompé, sans aucun
+    //    moyen de savoir qu'attendre suffisait. Constaté en direct : un
+    //    agent terrain jugé « bloqué sans raison » alors que son compte
+    //    était simplement verrouillé depuis un échec antérieur.
+    if (account.lockedUntil && account.lockedUntil > new Date()) {
+      await this.audit.record({
+        actorType: AuditService.actorTypeFor(realm),
+        actorLabel: email,
+        action: AuditAction.LOGIN_FAILED,
+        entityType: realm,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+      });
+      const heure = account.lockedUntil.toLocaleTimeString('fr-FR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Africa/Abidjan',
+      });
+      throw new UnauthorizedException(
+        `Compte verrouillé après plusieurs échecs de connexion. Réessayez après ${heure}.`,
+      );
     }
   }
 
@@ -447,10 +476,25 @@ export class AuthService {
         });
       }
     } else {
-      await this.prisma.fieldUser.update({
+      // ⚠️ VERROUILLAIT AUPARAVANT SUR LE TOUT PREMIER ÉCHEC — sans seuil,
+      //    contrairement aux deux branches ci-dessus. `FieldUser` n'avait
+      //    d'ailleurs même pas de colonne `failed_login_attempts` : ce
+      //    déséquilibre n'était pas un raccourci délibéré, un oubli. Constaté
+      //    en direct : une simple faute de frappe sur une tablette terrain
+      //    verrouillait 15 minutes, rendant TOUTE tentative suivante — même
+      //    avec le bon mot de passe — indiscernable d'un compte réellement
+      //    bloqué. Aligné sur le même seuil que les deux autres réalmes.
+      const updated = await this.prisma.fieldUser.update({
         where: { id: subjectId },
-        data: { lockedUntil: lockUntil },
+        data: { failedLoginAttempts: { increment: 1 } },
+        select: { failedLoginAttempts: true },
       });
+      if (updated.failedLoginAttempts >= maxFailedAttempts) {
+        await this.prisma.fieldUser.update({
+          where: { id: subjectId },
+          data: { lockedUntil: lockUntil, failedLoginAttempts: 0 },
+        });
+      }
     }
 
     await this.audit.record({
