@@ -35,7 +35,7 @@ const NAV: NavItem[] = [
                border-b border-gray-900/[0.12] bg-surface px-6 shadow-soft"
       >
         <div class="flex items-center gap-2.5">
-          <img src="/assets/brand/logo.png" alt="Elyon Trading" class="h-9 w-auto" />
+          <img src="/assets/brand/logo.png?v=2" alt="Elyon Trading" class="h-9 w-auto" />
           <span class="font-display text-[13px] font-semibold tracking-[-0.01em] text-ink-muted">
             Portail client
           </span>

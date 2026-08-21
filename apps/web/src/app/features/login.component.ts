@@ -18,7 +18,7 @@ import { IconComponent } from '../shared/icon.component';
     <div
       class="relative flex min-h-screen items-center justify-center bg-cover bg-center px-4
              py-10 lg:justify-end lg:px-[6vw]"
-      style="background-image: url('/assets/brand/fond-connexion.png'); background-color: #0a0a0a"
+      style="background-image: url('/assets/brand/fond-connexion.png?v=2'); background-color: #0a0a0a"
       role="img"
       aria-label="Elyon Trading — Powering Confidence"
     >

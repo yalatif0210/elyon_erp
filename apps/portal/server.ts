@@ -3,7 +3,7 @@ import { CommonEngine } from '@angular/ssr';
 import express from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import bootstrap from './src/main.server';
 
 // The Express app is exported so that it can be used by serverless Functions.
@@ -42,9 +42,23 @@ export function app(): express.Express {
   );
 
   // Serve static files from /browser
+  //
+  // ⚠️ `src/assets/` (logo, fond de connexion...) N'EST JAMAIS EMPREINT D'UN
+  //    HASH DE CONTENU, CONTRAIREMENT AUX PAQUETS JS/CSS COMPILÉS — un cache
+  //    d'un an y figerait indéfiniment toute mise à jour de logo ou d'image
+  //    de marque, aussi bien côté navigateur que côté CDN. Constaté en
+  //    direct : Cloudflare a servi une 404 en cache pendant des heures pour
+  //    un fichier pourtant bien présent, mise en cache avant même son ajout.
+  //    `setHeaders` réduit le cache à une heure spécifiquement pour ce
+  //    dossier, sans toucher au `maxAge` long des paquets compilés.
   server.get('**', express.static(browserDistFolder, {
     maxAge: '1y',
     index: 'index.html',
+    setHeaders: (res, filePath) => {
+      if (filePath.includes(`${sep}assets${sep}`)) {
+        res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate');
+      }
+    },
   }));
 
   // All regular routes use the Angular engine
