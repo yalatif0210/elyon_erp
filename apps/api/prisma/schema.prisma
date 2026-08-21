@@ -959,7 +959,6 @@ model Partner {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   portalUsers       PortalUser[]
-  sites             PartnerSite[]
   contacts          PartnerContact[]
   bankAccounts      PartnerBankAccount[]
   complianceRecords ComplianceRecord[]
@@ -1041,10 +1040,13 @@ model Site {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  /// Les tiers qui s'y font livrer — plusieurs, et c'est le cas courant.
-  partnerSites PartnerSite[]
   /// Opérations qui en PARTENT.
   operationsAsOrigin Operation[] @relation("OperationOrigin")
+  /// Opérations qui y LIVRENT — plusieurs clients au même lieu, et c'est le
+  /// cas courant (§ 6.2). Voir la note sur `Operation.destinationSiteId`.
+  operationsAsDestination Operation[] @relation("OperationDestination")
+  /// Affaires dont ce lieu est la destination.
+  deals Deal[]
   tariffsAsOrigin      CarrierTariff[] @relation("CarrierTariffOrigin")
   tariffsAsDestination CarrierTariff[] @relation("CarrierTariffDestination")
   /// Ce qu'il faut savoir avant d'y envoyer quelqu'un.
@@ -1143,55 +1145,6 @@ model OperationSiteRequirementAck {
 
   @@unique([operationId, requirementId])
   @@map("operation_site_requirement_acks")
-}
-
-/// RATTACHEMENT d'un tiers à un site de livraison.
-///
-/// Ce n'est plus le lieu : c'est le fait que CE client se fait livrer LÀ. Le
-/// même lieu porte autant de rattachements que de clients qui l'exploitent.
-model PartnerSite {
-  id        String  @id @default(uuid()) @db.Uuid
-  partnerId String  @map("partner_id") @db.Uuid
-  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
-
-  /// Le LIEU. Facultatif le temps de la reprise, puis obligatoire.
-  siteId String? @map("site_id") @db.Uuid
-  site   Site?   @relation(fields: [siteId], references: [id], onDelete: Restrict)
-
-  /// Code et nom TELS QUE CE CLIENT LES EMPLOIE. Un même dépôt s'appelle
-  /// « Site Man » chez l'un et « MIN-004 » chez l'autre : les bons de
-  /// livraison doivent porter la désignation que le client reconnaît.
-  code        String  @db.VarChar(24)
-  name        String  @db.VarChar(160)
-
-  /// ⚠️ Colonnes du LIEU, conservées le temps de la reprise. Elles ne doivent
-  ///    plus être lues : la vérité est sur `site`. Deux exemplaires
-  ///    d'une consigne de sécurité, c'est un exemplaire périmé.
-  addressLine String? @map("address_line") @db.VarChar(255)
-  city        String? @db.VarChar(120)
-  countryCode String  @map("country_code") @db.Char(2)
-
-  latitude  Decimal? @db.Decimal(10, 7)
-  longitude Decimal? @db.Decimal(10, 7)
-
-  accessInstructions String? @map("access_instructions") @db.VarChar(2000)
-  openingHours       String? @map("opening_hours") @db.VarChar(500)
-  safetyInstructions String? @map("safety_instructions") @db.VarChar(2000)
-
-  defaultHseRiskLevel HseRiskLevel @default(STANDARD) @map("default_hse_risk_level")
-
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
-
-
-  // --- Relations inverses du lot 2 ---
-  deals Deal[]
-  operationsAsDestination Operation[] @relation("OperationDestination")
-
-  @@unique([partnerId, code])
-  @@index([partnerId, isActive])
-  @@map("partner_sites")
 }
 
 model PartnerContact {
@@ -2533,10 +2486,31 @@ model Deal {
   contractId String?   @map("contract_id") @db.Uuid
   contract   Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
 
-  clientId String       @map("client_id") @db.Uuid
-  client   Partner      @relation("DealClient", fields: [clientId], references: [id], onDelete: Restrict)
-  siteId   String?      @map("site_id") @db.Uuid
-  site     PartnerSite? @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  clientId String  @map("client_id") @db.Uuid
+  client   Partner @relation("DealClient", fields: [clientId], references: [id], onDelete: Restrict)
+
+  /// LIEU de livraison, directement — jamais via un rattachement client.
+  ///
+  /// ⚠️ POINTAIT AUPARAVANT VERS `PartnerSite`, UNE TABLE SANS AUCUNE
+  ///    INTERFACE DE CRÉATION DANS L'APPLICATION QUI TOURNE.
+  ///
+  ///    Un site créé au référentiel autonome des sites n'apparaissait donc
+  ///    JAMAIS dans le choix du lieu de livraison d'une affaire, pour aucun
+  ///    client — le formulaire ne lisait que les rattachements déjà en base
+  ///    (semis initial), qu'aucun écran ne permettait de compléter. Le seul
+  ///    repli était un champ libre, sans consigne HSE rattachée. Constaté en
+  ///    direct : la base de staging ne comptait ni pool ni rattachement,
+  ///    l'écran de création d'affaire était donc inutilisable pour tout site
+  ///    réel.
+  ///
+  ///    `CarrierTariff` référence déjà `Site` directement des deux côtés
+  ///    (origine et destination) — c'est le motif que ce champ suit
+  ///    maintenant, au lieu de rester l'exception. La désignation « telle que
+  ///    le client la reconnaît », raison d'être invoquée de `PartnerSite`,
+  ///    n'était de toute façon lue nulle part : ni le gabarit de bon de
+  ///    livraison ni son générateur ne consultaient ce champ.
+  siteId String? @map("site_id") @db.Uuid
+  site   Site?   @relation(fields: [siteId], references: [id], onDelete: SetNull)
 
   productId String  @map("product_id") @db.Uuid
   product   Product @relation("DealProduct", fields: [productId], references: [id], onDelete: Restrict)
@@ -2746,23 +2720,26 @@ model Operation {
   uom           UnitOfMeasure
   transportMode TransportMode @map("transport_mode")
 
-  originLocation      String       @map("origin_location") @db.VarChar(200)
+  originLocation String  @map("origin_location") @db.VarChar(200)
   /// SITE DE CHARGEMENT — le lieu d'où part le produit (§ 6.2).
-  ///
-  /// ⚠️ Il pointe le LIEU directement, là où la destination passe par le
-  ///    rattachement client (`PartnerSite`). L'asymétrie est voulue : le bon
-  ///    de livraison doit porter la désignation que LE CLIENT reconnaît pour
-  ///    sa destination, alors qu'un dépôt de chargement n'appartient à aucune
-  ///    relation commerciale — c'est un lieu, point.
-  ///
-  ///    Ses exigences s'appliquent de la même façon : un badge d'accès se
-  ///    retire pour charger comme pour livrer.
-  originSiteId String? @map("origin_site_id") @db.Uuid
-  originSite   Site?   @relation("OperationOrigin", fields: [originSiteId], references: [id], onDelete: SetNull)
+  originSiteId   String? @map("origin_site_id") @db.Uuid
+  originSite     Site?   @relation("OperationOrigin", fields: [originSiteId], references: [id], onDelete: SetNull)
 
-  destinationSiteId   String?      @map("destination_site_id") @db.Uuid
-  destinationSite     PartnerSite? @relation("OperationDestination", fields: [destinationSiteId], references: [id], onDelete: SetNull)
-  destinationLocation String       @map("destination_location") @db.VarChar(200)
+  /// SITE DE LIVRAISON — hérité du `siteId` de l'affaire (§ 6.2), jamais
+  /// choisi indépendamment par l'appelant : une opération qui s'écarterait
+  /// du lieu contracté serait une erreur, pas un choix (voir `create()` dans
+  /// `operations.controller.ts`).
+  ///
+  /// ⚠️ POINTAIT AUPARAVANT VERS `PartnerSite` — une asymétrie avec l'origine
+  ///    ci-dessus qui se voulait délibérée (« le bon de livraison doit porter
+  ///    la désignation que le client reconnaît ») mais dont la fonctionnalité
+  ///    n'était : ni créable (aucun écran ne permettait d'ajouter un
+  ///    rattachement client-site), ni même lue par le générateur de bon de
+  ///    livraison. Symétrique avec l'origine désormais, comme le fait déjà
+  ///    `CarrierTariff` des deux côtés de son propre trajet.
+  destinationSiteId   String? @map("destination_site_id") @db.Uuid
+  destinationSite     Site?   @relation("OperationDestination", fields: [destinationSiteId], references: [id], onDelete: SetNull)
+  destinationLocation String  @map("destination_location") @db.VarChar(200)
 
   plannedLoadingDate  DateTime? @map("planned_loading_date") @db.Date
   actualLoadingDate   DateTime? @map("actual_loading_date") @db.Date

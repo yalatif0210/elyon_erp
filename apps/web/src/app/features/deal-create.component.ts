@@ -113,71 +113,69 @@ interface SiteOption {
           }
         </div>
 
-        @if (clientId) {
-          <div class="sm:col-span-2">
-            <label class="label" for="site">
-              Site de livraison
-              @if (sitesDuClient().length > 0) {
-                <span class="text-crit">*</span>
-              }
-            </label>
-            @if (sitesDuClient().length > 0) {
-              <select id="site" class="field" [(ngModel)]="siteId" (ngModelChange)="onSiteChange()">
-                <option value="" disabled>Choisir…</option>
-                @for (s of sitesDuClient(); track s.id) {
-                  <option [ngValue]="s.id">{{ s.label }}</option>
-                }
-              </select>
-            } @else {
-              <input id="site" class="field" [(ngModel)]="deliveryLocation" maxlength="200" />
-              <p class="mt-1 text-[11px] text-ink-faint">
-                Ce client n’a aucun site enregistré : lieu saisi librement, sans exigence
-                rattachée. Un site créé au référentiel des tiers apparaîtra ici au prochain
-                choix de ce client.
-              </p>
+        <div class="sm:col-span-2">
+          <label class="label" for="site">
+            Site de livraison connu (facultatif)
+          </label>
+          <!--
+            Le référentiel AUTONOME des sites — jamais celui d'un client
+            précis : un lieu peut servir plusieurs clients, il n'appartient à
+            aucun d'eux (§ 6.2). Choisir un site ici pré-remplit le lieu en
+            clair ci-dessous et affiche ses exigences ; ne pas en choisir
+            laisse le lieu en texte libre, sans exigence rattachée.
+          -->
+          <select id="site" class="field" [(ngModel)]="siteId" (ngModelChange)="onSiteChange()">
+            <option value="">Aucun — lieu en texte libre</option>
+            @for (s of sites(); track s.id) {
+              <option [ngValue]="s.id">{{ s.label }}</option>
             }
+          </select>
 
-            <!-- ============ Ce que ce site exige ============
-                 Purement informatif à ce stade : ce n'est pas ici que
-                 l'exigence bloque, mais au chargement de l'opération qui
-                 livrera cette affaire. La rappeler maintenant évite au
-                 commercial de la découvrir après coup (§ discussion 15/08). -->
-            @if (exigencesDuSite(); as ex) {
-              @if (ex.length > 0) {
-                <div class="mt-3 rounded-[3px] border border-rule-strong bg-gray-100 px-3.5 py-3">
-                  <p class="flex items-center gap-1.5 text-[12px] font-semibold text-ink">
-                    <erp-icon name="shield" [size]="14" />
-                    Ce que ce site exige
-                  </p>
-                  <ul class="mt-2 space-y-2">
-                    @for (e of ex; track e.id) {
-                      <li class="text-[12px] leading-snug">
-                        <span class="font-medium text-ink">{{ e.type.label }}</span>
-                        @if (e.isBlocking) {
-                          <span
-                            class="ml-1.5 inline-flex items-center gap-1 rounded-[3px] bg-crit px-1.5
-                                   py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
-                          >
-                            <erp-icon name="lock" [size]="10" />
-                            Bloquant
-                          </span>
-                        }
-                        <span class="block text-ink-soft">{{ e.detail }}</span>
-                      </li>
-                    }
-                  </ul>
-                  @if (bloquantes() > 0) {
-                    <p class="mt-2 text-[11px] leading-snug text-crit">
-                      {{ bloquantes() }} exigence(s) bloquante(s) : sans conséquence sur cette
-                      affaire, mais l’opération qui la livrera ne pourra pas partir au
-                      chargement tant qu’elles n’auront pas été levées et acquittées.
-                    </p>
+          <!-- ============ Ce que ce site exige ============
+               Purement informatif à ce stade : ce n'est pas ici que
+               l'exigence bloque, mais au chargement de l'opération qui
+               livrera cette affaire. La rappeler maintenant évite au
+               commercial de la découvrir après coup (§ discussion 15/08). -->
+          @if (exigencesDuSite(); as ex) {
+            @if (ex.length > 0) {
+              <div class="mt-3 rounded-[3px] border border-rule-strong bg-gray-100 px-3.5 py-3">
+                <p class="flex items-center gap-1.5 text-[12px] font-semibold text-ink">
+                  <erp-icon name="shield" [size]="14" />
+                  Ce que ce site exige
+                </p>
+                <ul class="mt-2 space-y-2">
+                  @for (e of ex; track e.id) {
+                    <li class="text-[12px] leading-snug">
+                      <span class="font-medium text-ink">{{ e.type.label }}</span>
+                      @if (e.isBlocking) {
+                        <span
+                          class="ml-1.5 inline-flex items-center gap-1 rounded-[3px] bg-crit px-1.5
+                                 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
+                        >
+                          <erp-icon name="lock" [size]="10" />
+                          Bloquant
+                        </span>
+                      }
+                      <span class="block text-ink-soft">{{ e.detail }}</span>
+                    </li>
                   }
-                </div>
-              }
+                </ul>
+                @if (bloquantes() > 0) {
+                  <p class="mt-2 text-[11px] leading-snug text-crit">
+                    {{ bloquantes() }} exigence(s) bloquante(s) : sans conséquence sur cette
+                    affaire, mais l’opération qui la livrera ne pourra pas partir au
+                    chargement tant qu’elles n’auront pas été levées et acquittées.
+                  </p>
+                }
+              </div>
             }
-          </div>
-        }
+          }
+        </div>
+
+        <div class="sm:col-span-2">
+          <label class="label" for="deliveryLocation">Lieu de livraison</label>
+          <input id="deliveryLocation" class="field" [(ngModel)]="deliveryLocation" maxlength="200" required />
+        </div>
       </div>
     </section>
 
@@ -331,18 +329,9 @@ export class DealCreateComponent implements OnInit {
   protected readonly produitService = computed(
     () => this.products().find((p) => p.id === this.productId)?.isService ?? false,
   );
-  protected readonly sitesDuClient = computed<SiteOption[]>(() => {
-    const client = this.clients().find((p) => p.id === this.clientId);
-    if (!client) return [];
-    return client.sites.map((s) => ({
-      id: s.id,
-      label: `${s.name}${s.city ? ' (' + s.city + ')' : ''}`,
-      deliveryLocation: s.site?.name ?? s.name,
-      exigences: s.site?.requirements ?? [],
-    }));
-  });
+  protected readonly sites = signal<SiteOption[]>([]);
   protected readonly exigencesDuSite = computed(
-    () => this.sitesDuClient().find((s) => s.id === this.siteId)?.exigences ?? [],
+    () => this.sites().find((s) => s.id === this.siteId)?.exigences ?? [],
   );
   protected readonly bloquantes = computed(
     () => this.exigencesDuSite().filter((e) => e.isBlocking).length,
@@ -371,20 +360,30 @@ export class DealCreateComponent implements OnInit {
     this.api.currencies().subscribe((rows) => this.currencies.set(rows as CurrencyOption[]));
     this.api.parameterCatalogue().subscribe((c) => this.catalogue.set(c));
     this.api.products().subscribe((rows) => this.products.set(rows as ProductOption[]));
+    // Référentiel autonome, chargé UNE FOIS : un site ne dépend pas du client
+    // choisi, il n'y a donc rien à recharger à chaque changement de client.
+    this.api.sites('DELIVERY').subscribe((rows) =>
+      this.sites.set(
+        rows.map((s) => ({
+          id: s.id,
+          label: `${s.name}${s.city ? ' (' + s.city + ')' : ''}`,
+          deliveryLocation: s.name,
+          exigences: s.requirements,
+        })),
+      ),
+    );
   }
 
   /** Le segment par défaut du client est repris — geste par défaut, pas une
    *  contrainte : rien n'empêche de le changer ensuite. */
   protected onClientChange(): void {
     this.contractId = '';
-    this.siteId = '';
-    this.deliveryLocation = '';
     const client = this.clients().find((p) => p.id === this.clientId);
     if (client?.segment) this.segment = client.segment;
   }
 
   protected onSiteChange(): void {
-    const site = this.sitesDuClient().find((s) => s.id === this.siteId);
+    const site = this.sites().find((s) => s.id === this.siteId);
     if (site) this.deliveryLocation = site.deliveryLocation;
   }
 

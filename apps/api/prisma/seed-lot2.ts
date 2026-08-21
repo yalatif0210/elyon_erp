@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   const sir = await prisma.partner.findUniqueOrThrow({ where: { code: 'SUP-SIR' } });
   const carrier = await prisma.partner.findUniqueOrThrow({ where: { code: 'CAR-001' } });
   const diesel = await prisma.product.findUniqueOrThrow({ where: { code: 'DIESEL' } });
-  const site = await prisma.partnerSite.findFirstOrThrow({ where: { partnerId: client.id } });
+  const site = await prisma.site.findUniqueOrThrow({ where: { code: 'MINE-OUEST' } });
   const vehicle = await prisma.vehicle.findUniqueOrThrow({ where: { registration: 'CI-4821-AB' } });
   const driver = await prisma.driver.findFirstOrThrow({ where: { employeeNumber: 'CH-014' } });
 

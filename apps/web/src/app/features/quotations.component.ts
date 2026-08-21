@@ -4,7 +4,6 @@ import { RouterLink } from '@angular/router';
 import {
   ApiService,
   DeviseOption,
-  Partner,
   QuotationRequestInternalRow,
   ReferentialSpec,
   SiteRequirement,
@@ -265,26 +264,30 @@ const PROFORMA_STATUS_LABEL: Record<string, string> = {
                               </select>
                             </div>
                             <div>
-                              <label class="label" for="site-{{ d.id }}">Site de livraison</label>
-                              @if (sitesDuTiers().length > 0) {
-                                <select
-                                  id="site-{{ d.id }}"
-                                  class="field"
-                                  [(ngModel)]="convSiteId"
-                                  (change)="onConvSiteChange()"
-                                >
-                                  <option [ngValue]="''">Choisir</option>
-                                  @for (s of sitesDuTiers(); track s.id) {
-                                    <option [ngValue]="s.id">{{ s.label }}</option>
-                                  }
-                                </select>
-                              } @else {
-                                <input
-                                  class="field"
-                                  [(ngModel)]="convDeliveryLocation"
-                                  placeholder="Ce tiers n’a aucun site enregistré : lieu en texte libre"
-                                />
-                              }
+                              <label class="label" for="site-{{ d.id }}">
+                                Site de livraison connu (facultatif)
+                              </label>
+                              <!-- Référentiel autonome des sites — un lieu peut servir
+                                   plusieurs clients, il n'appartient à aucun d'eux (§ 6.2). -->
+                              <select
+                                id="site-{{ d.id }}"
+                                class="field"
+                                [(ngModel)]="convSiteId"
+                                (change)="onConvSiteChange()"
+                              >
+                                <option [ngValue]="''">Aucun — lieu en texte libre</option>
+                                @for (s of sites(); track s.id) {
+                                  <option [ngValue]="s.id">{{ s.label }}</option>
+                                }
+                              </select>
+                            </div>
+                            <div>
+                              <label class="label" for="lieu-{{ d.id }}">Lieu de livraison</label>
+                              <input
+                                id="lieu-{{ d.id }}"
+                                class="field"
+                                [(ngModel)]="convDeliveryLocation"
+                              />
                             </div>
                             @if (exigencesDuSite().length > 0) {
                               <div class="md:col-span-3 rounded-[3px] border border-warn/30 bg-warn-wash px-3 py-2">
@@ -380,7 +383,6 @@ export class QuotationsComponent implements OnInit {
   protected readonly detailOuvert = signal<string | null>(null);
   protected readonly stateProforma = new ActionState();
   protected readonly devises = signal<DeviseOption[]>([]);
-  protected readonly partners = signal<Partner[]>([]);
   private readonly catalogue = signal<ReferentialSpec[]>([]);
 
   protected proformaVolume: number | null = null;
@@ -402,25 +404,13 @@ export class QuotationsComponent implements OnInit {
     return lus.length > 0 ? lus : TRANSPORT_FALLBACK;
   });
 
-  protected readonly sitesDuTiers = computed<SiteOption[]>(() => {
-    const id = this.detailOuvert();
-    const d = this.demandes().find((x) => x.id === id);
-    if (!d) return [];
-    const partner = this.partners().find((p) => p.id === d.partnerId);
-    if (!partner) return [];
-    return partner.sites.map((s) => ({
-      id: s.id,
-      label: `${s.name}${s.city ? ' (' + s.city + ')' : ''}`,
-      deliveryLocation: s.site?.name ?? s.name,
-      exigences: s.site?.requirements ?? [],
-    }));
-  });
+  protected readonly sites = signal<SiteOption[]>([]);
   protected readonly exigencesDuSite = computed(
-    () => this.sitesDuTiers().find((s) => s.id === this.convSiteId)?.exigences ?? [],
+    () => this.sites().find((s) => s.id === this.convSiteId)?.exigences ?? [],
   );
 
   protected onConvSiteChange(): void {
-    const site = this.sitesDuTiers().find((s) => s.id === this.convSiteId);
+    const site = this.sites().find((s) => s.id === this.convSiteId);
     if (site) this.convDeliveryLocation = site.deliveryLocation;
   }
 
@@ -509,8 +499,17 @@ export class QuotationsComponent implements OnInit {
       const defaut = rows.find((r) => r.isLocal) ?? rows[0];
       if (defaut) this.proformaCurrency = defaut.code;
     });
-    this.api.partners(1).subscribe((p) => this.partners.set(p.items));
     this.api.parameterCatalogue().subscribe((c) => this.catalogue.set(c));
+    this.api.sites('DELIVERY').subscribe((rows) =>
+      this.sites.set(
+        rows.map((s) => ({
+          id: s.id,
+          label: `${s.name}${s.city ? ' (' + s.city + ')' : ''}`,
+          deliveryLocation: s.name,
+          exigences: s.requirements,
+        })),
+      ),
+    );
   }
 
   protected appliquerFiltre(value: string | undefined): void {

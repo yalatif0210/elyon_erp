@@ -465,15 +465,7 @@ export class OperationActionsComponent {
   /** Note de levée, par exigence — saisie avant d'attester. */
   protected notesExigence: Record<string, string> = {};
 
-  /**
-   * ⚠️ CORRIGÉ — lisait `deliverySite`, un champ que le serveur ne rend
-   *    jamais (`site`, voir `api.service.ts`). Cette liste était donc
-   *    TOUJOURS vide : aucune exigence de site ne s'affichait jamais ici,
-   *    ni ne pouvait donc être levée depuis cet écran.
-   */
-  protected readonly exigences = computed(
-    () => this.operation.destinationSite?.site?.requirements ?? [],
-  );
+  protected readonly exigences = computed(() => this.operation.destinationSite?.requirements ?? []);
 
   /** L'acquittement d'une exigence, s'il existe. */
   protected acquittee(requirementId: string) {

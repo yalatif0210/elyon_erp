@@ -764,20 +764,24 @@ export class FieldOperationsService {
             // AVANT de se présenter. Elles ne sont pas commerciales : c'est
             // du badge, du créneau, du permis de travail — exactement ce qui
             // fait repartir un camion à vide quand on l'ignore.
-            site: {
+            requirements: {
+              where: { isActive: true },
+              orderBy: { type: { displayOrder: 'asc' } },
               select: {
-                requirements: {
-                  where: { isActive: true },
-                  orderBy: { type: { displayOrder: 'asc' } },
-                  select: {
-                    detail: true,
-                    isBlocking: true,
-                    type: { select: { label: true, description: true } },
-                  },
-                },
+                detail: true,
+                isBlocking: true,
+                type: { select: { label: true, description: true } },
               },
             },
-            partner: {
+          },
+        },
+        // Le contact sur place vient du CLIENT de l'affaire, pas du site :
+        // un lieu partagé par plusieurs clients n'a pas de contact qui lui
+        // soit propre (§ 6.2) — c'est l'affaire qui porte la relation
+        // commerciale, jamais le lieu lui-même.
+        deal: {
+          select: {
+            client: {
               select: {
                 legalName: true,
                 // Un contact n'est pas visible du terrain parce qu'il est
@@ -845,7 +849,7 @@ export class FieldOperationsService {
 
     return {
       operationId: operation.id,
-      clientLegalName: site.partner.legalName,
+      clientLegalName: operation.deal.client.legalName,
       site: {
         id: site.id,
         code: site.code,
@@ -860,13 +864,13 @@ export class FieldOperationsService {
         safetyInstructions: site.safetyInstructions,
         defaultHseRiskLevel: site.defaultHseRiskLevel,
       },
-      requirements: (site.site?.requirements ?? []).map((r) => ({
+      requirements: site.requirements.map((r) => ({
         label: r.type.label,
         description: r.type.description,
         detail: r.detail,
         isBlocking: r.isBlocking,
       })),
-      contacts: site.partner.contacts.map((contact) => ({
+      contacts: operation.deal.client.contacts.map((contact) => ({
         fullName: contact.fullName,
         role: contact.role,
         phone: contact.phone,

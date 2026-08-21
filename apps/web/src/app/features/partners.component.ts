@@ -59,7 +59,7 @@ const SEGMENT_LABELS: Record<string, string> = {
         <thead>
           <tr>
             <th>Code</th><th>Raison sociale</th><th>Type</th><th>Segment</th>
-            <th>Pays</th><th class="num">Délai</th><th class="num">Sites</th>
+            <th>Pays</th><th class="num">Délai</th>
             <th class="num">Moyens</th><th>Crédit</th><th style="width: 130px"></th>
           </tr>
         </thead>
@@ -82,7 +82,6 @@ const SEGMENT_LABELS: Record<string, string> = {
               <td class="num font-mono text-ink-soft">
                 {{ p.paymentTermsDays === 0 ? 'comptant' : p.paymentTermsDays + ' j' }}
               </td>
-              <td class="num font-mono text-ink-soft">{{ p.sites.length }}</td>
               <td class="num font-mono text-ink-soft">{{ p._count.vehicles + p._count.drivers }}</td>
               <td>
                 @if (p.creditStatus === 'ACTIVE') {

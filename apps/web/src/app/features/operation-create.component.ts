@@ -7,7 +7,6 @@ import {
   OperationTypeRow,
   Partner,
   ReferentialSpec,
-  SiteRequirement,
 } from '../core/api.service';
 import {
   ActionFeedbackComponent,
@@ -16,26 +15,6 @@ import {
 } from '../shared/action-panel.component';
 import { IconComponent } from '../shared/icon.component';
 import { dealStatus } from './deals.component';
-
-/**
- * Site de livraison, aplati depuis les tiers.
- *
- * Un site n'a de sens qu'accompagné de son propriétaire : deux dépôts
- * s'appellent « Vridi » chez deux clients différents.
- */
-interface SiteOption {
-  id: string;
-  label: string;
-  /**
-   * Ce que le site EXIGE, tel qu'il est paramétré au référentiel.
-   *
-   * Exposé au moment du choix, et non plus tard : celui qui prépare
-   * l'opération doit voir le badge d'accès et le créneau réservé quand il
-   * décide, pas quand le camion est devant la barrière. Une exigence
-   * bloquante non levée empêchera d'ailleurs le départ.
-   */
-  exigences: SiteRequirement[];
-}
 
 /**
  * Noms de champs du registre où lire les valeurs admises d'une énumération.
@@ -306,57 +285,21 @@ const TRANSPORT_FIELDS = ['transportMode', 'applicableTransportModes'];
           </div>
 
           <div>
-            <label class="label" for="site">Site de livraison</label>
-            <select id="site" class="field" [(ngModel)]="destinationSiteId">
-              <option [ngValue]="''">Choisir</option>
-              @for (s of sites(); track s.id) {
-                <option [ngValue]="s.id">{{ s.label }}</option>
-              }
-            </select>
-            <p class="mt-1 text-[11px] text-ink-faint">
-              Site référencé du tiers, lorsque la livraison s’y fait. La destination reste
-              saisie : toutes les livraisons ne se font pas sur un site connu.
+            <label class="label">Site de livraison</label>
+            <!--
+              N'est plus un choix ici, et c'est volontaire : hérité du site de
+              l'affaire de rattachement — une opération qui s'écarterait du
+              lieu contracté serait une erreur, pas une variante légitime. Le
+              serveur l'impose déjà (operations.controller.ts, create()) ;
+              l'écran ne fait plus que l'annoncer.
+            -->
+            <p class="field flex items-center bg-gray-100 text-ink-soft">
+              {{ siteDeLAffaire() ?? 'Aucun site référencé sur cette affaire' }}
             </p>
-
-            <!-- ============ Ce que ce site exige ============
-                 Affiché dès que le site est choisi. Les exigences se
-                 saisissent au référentiel des sites ; ici on les LIT. Le
-                 bloquant est distingué du reste par l'icône ET le mot, jamais
-                 par la seule couleur (§ 17.2). -->
-            @if (exigencesDuSite(); as ex) {
-              @if (ex.length > 0) {
-                <div class="mt-3 rounded-[3px] border border-rule-strong bg-gray-100 px-3.5 py-3">
-                  <p class="flex items-center gap-1.5 text-[12px] font-semibold text-ink">
-                    <erp-icon name="shield" [size]="14" />
-                    Ce que ce site exige
-                  </p>
-                  <ul class="mt-2 space-y-2">
-                    @for (e of ex; track e.id) {
-                      <li class="text-[12px] leading-snug">
-                        <span class="font-medium text-ink">{{ e.type.label }}</span>
-                        @if (e.isBlocking) {
-                          <span
-                            class="ml-1.5 inline-flex items-center gap-1 rounded-[3px] bg-crit px-1.5
-                                   py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
-                          >
-                            <erp-icon name="lock" [size]="10" />
-                            Bloquant
-                          </span>
-                        }
-                        <span class="block text-ink-soft">{{ e.detail }}</span>
-                      </li>
-                    }
-                  </ul>
-                  @if (bloquantes() > 0) {
-                    <p class="mt-2 text-[11px] leading-snug text-crit">
-                      {{ bloquantes() }} exigence(s) bloquante(s) : l’opération ne pourra pas partir
-                      au chargement tant qu’elles n’auront pas été levées et acquittées. S’y
-                      présenter sans elles, c’est repartir à vide avec un produit déjà payé.
-                    </p>
-                  }
-                </div>
-              }
-            }
+            <p class="mt-1 text-[11px] text-ink-faint">
+              Repris de l’affaire de rattachement ; ses exigences éventuelles ont déjà été
+              rappelées à la création de l’affaire, et s’appliqueront au chargement.
+            </p>
           </div>
           <div>
             <label class="label" for="owner">Propriétaire du produit</label>
@@ -393,7 +336,8 @@ export class OperationCreateComponent implements OnInit {
   protected readonly types = signal<OperationTypeRow[]>([]);
   protected readonly sequence = signal<OperationTypeRow[]>([]);
   protected readonly partners = signal<Partner[]>([]);
-  protected readonly sites = signal<SiteOption[]>([]);
+  /** Site de l'affaire de rattachement — affiché, jamais choisi ici. */
+  protected readonly siteDeLAffaire = signal<string | null>(null);
   protected readonly segment = signal<string | null>(null);
 
   /** Registre de paramétrage — seule source d'API pour les énumérations. */
@@ -407,15 +351,6 @@ export class OperationCreateComponent implements OnInit {
   protected transportMode = '';
   protected originLocation = '';
   protected destinationLocation = '';
-  protected destinationSiteId = '';
-
-  /** Exigences du site actuellement choisi — vide tant qu'aucun n'est retenu. */
-  protected readonly exigencesDuSite = computed(
-    () => this.sites().find((s) => s.id === this.destinationSiteId)?.exigences ?? [],
-  );
-  protected readonly bloquantes = computed(
-    () => this.exigencesDuSite().filter((e) => e.isBlocking).length,
-  );
   protected plannedLoadingDate = '';
   protected productOwnerId = '';
 
@@ -443,22 +378,7 @@ export class OperationCreateComponent implements OnInit {
     this.api.deals(1, {}).subscribe((p) => this.deals.set(p.items));
     this.api.parameterCatalogue().subscribe((c) => this.catalogue.set(c));
     this.loadTypes(null);
-    this.api.partners(1).subscribe((p) => {
-      this.partners.set(p.items);
-      this.sites.set(
-        p.items.flatMap((partner) =>
-          partner.sites.map((s) => ({
-            id: s.id,
-            label: `${partner.legalName} · ${s.name}${s.city ? ' (' + s.city + ')' : ''}`,
-            // Les exigences viennent du LIEU que ce rattachement désigne.
-            // ⚠️ CORRIGÉ — `deliverySite` n'existe pas côté serveur (`site`) :
-            //    cette liste était TOUJOURS vide, le bandeau ne s'affichait
-            //    jamais (§ api.service.ts).
-            exigences: s.site?.requirements ?? [],
-          })),
-        ),
-      );
-    });
+    this.api.partners(1).subscribe((p) => this.partners.set(p.items));
   }
 
   protected statusLabel(code: string): string {
@@ -475,6 +395,7 @@ export class OperationCreateComponent implements OnInit {
   protected onDealChange(): void {
     if (!this.dealId) {
       this.segment.set(null);
+      this.siteDeLAffaire.set(null);
       this.loadTypes(null);
       return;
     }
@@ -486,6 +407,9 @@ export class OperationCreateComponent implements OnInit {
       // l'opération porte alors son propre mode de transport.
       if (d.transportMode) this.transportMode = d.transportMode;
       if (!this.destinationLocation) this.destinationLocation = d.deliveryLocation;
+      // Affiché seulement — l'opération l'héritera d'elle-même à l'envoi,
+      // le serveur ne lit jamais un site transmis par ce formulaire.
+      this.siteDeLAffaire.set(d.site ? `${d.site.name}${d.site.city ? ' (' + d.site.city + ')' : ''}` : null);
       this.loadTypes(d.segment);
     });
   }
@@ -571,7 +495,6 @@ export class OperationCreateComponent implements OnInit {
         operationTypeIds: this.sequence().map((t) => t.id),
         originLocation: this.originLocation,
         destinationLocation: this.destinationLocation,
-        destinationSiteId: this.destinationSiteId || undefined,
         plannedLoadingDate: this.plannedLoadingDate || undefined,
         productOwnerId: this.productOwnerId || undefined,
       })

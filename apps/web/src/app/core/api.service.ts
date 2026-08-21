@@ -136,41 +136,25 @@ export interface Partner {
   creditStatus: string;
   paymentTermsDays: number;
   isCompliant: boolean;
-  sites: {
-    id: string;
-    code: string;
-    name: string;
-    city: string | null;
-    /**
-     * Le LIEU que ce rattachement désigne, avec ses exigences.
-     *
-     * Elles appartiennent au lieu et non au client : plusieurs clients se font
-     * livrer au même endroit, et une consigne recopiée se périme d'un côté.
-     */
-    /**
-     * ⚠️ CORRIGÉ — LE CHAMP S'APPELLE `site`, PAS `deliverySite`.
-     *
-     *    L'interface portait un nom que la réponse serveur ne rend jamais
-     *    (`referentials.controller.ts` sélectionne `sites: { site: {...} }`).
-     *    `s.deliverySite` valait donc toujours `undefined`, et le bandeau
-     *    « Ce que ce site exige » ne s'affichait JAMAIS — sur aucun des trois
-     *    écrans qui le consomment, création d'opération comprise. Un
-     *    site déclaré CRITICAL avec des exigences bloquantes se choisissait
-     *    donc sans qu'aucune n'apparaisse.
-     */
-    site: {
-      id: string;
-      code: string;
-      name: string;
-      city: string | null;
-      accessInstructions: string | null;
-      openingHours: string | null;
-      safetyInstructions: string | null;
-      defaultHseRiskLevel: string;
-      requirements: SiteRequirement[];
-    } | null;
-  }[];
   _count: { complianceRecords: number; vehicles: number; drivers: number };
+}
+
+/**
+ * Un site sélectionnable comme lieu de livraison — le référentiel autonome
+ * des sites, jamais une fiche tiers : un lieu peut servir plusieurs clients,
+ * il n'appartient à aucun d'eux (§ 6.2).
+ */
+export interface DeliverySite {
+  id: string;
+  code: string;
+  name: string;
+  city: string | null;
+  usages: string[];
+  accessInstructions: string | null;
+  openingHours: string | null;
+  safetyInstructions: string | null;
+  defaultHseRiskLevel: string;
+  requirements: SiteRequirement[];
 }
 
 // --- Lot 2 : chaîne commerciale et exécution --------------------------------
@@ -249,6 +233,9 @@ export interface ContractRow {
 
 export interface DealDetail extends DealRow {
   deliveryLocation: string;
+  /** Site référencé de l'affaire, le cas échéant — hérité par toute
+   *  opération qui en découle (§ 6.2), jamais choisi indépendamment. */
+  site: { name: string; city: string | null } | null;
   targetDeliveryDate: string | null;
   transportMode: string | null;
   contract: { reference: string; title: string } | null;
@@ -402,22 +389,17 @@ export interface OperationDetail extends Omit<OperationRow, 'deal'> {
    *  qui permet de le rattacher à une facture fournisseur (§ 14.6). */
   costLines: OperationCostLineRow[];
 
-  /** Le site de livraison et, par lui, ce qu'il exige (§ 6.2). */
+  /** Le site de livraison, directement, et ce qu'il exige (§ 6.2). */
   destinationSite: {
     id: string;
     code: string;
     name: string;
     city: string | null;
-    /** ⚠️ Voir la même correction sur `Partner.sites[].site` ci-dessus. */
-    site: {
-      id: string;
-      code: string;
-      name: string;
-      accessInstructions: string | null;
-      openingHours: string | null;
-      safetyInstructions: string | null;
-      requirements: SiteRequirement[];
-    } | null;
+    usages: string[];
+    accessInstructions: string | null;
+    openingHours: string | null;
+    safetyInstructions: string | null;
+    requirements: SiteRequirement[];
   } | null;
 
   /** Ce qui a déjà été levé, par qui et quand. */
@@ -1427,6 +1409,16 @@ export class ApiService {
 
   costPosts(): Observable<unknown[]> {
     return this.http.get<unknown[]>(`${this.base}/referentials/cost-posts`);
+  }
+
+  /**
+   * Sites actifs, filtrés par usage. Référentiel autonome : un lieu peut
+   * servir plusieurs clients, il ne se choisit plus depuis une fiche tiers.
+   */
+  sites(usage?: 'LOADING' | 'DELIVERY'): Observable<DeliverySite[]> {
+    let params = new HttpParams();
+    if (usage) params = params.set('usage', usage);
+    return this.http.get<DeliverySite[]>(`${this.base}/referentials/sites`, { params });
   }
 
   /**

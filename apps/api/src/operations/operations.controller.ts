@@ -90,14 +90,20 @@ class CreateOperationDto {
 
   @IsString() @MaxLength(200) originLocation!: string;
   @IsString() @MaxLength(200) destinationLocation!: string;
-  @IsOptional() @IsUUID() destinationSiteId?: string;
 
   /**
    * SITE DE CHARGEMENT — le lieu d'où part le produit (§ 6.2).
    *
-   * Facultatif comme la destination : toutes les origines ne sont pas des
-   * lieux référencés. Mais dès qu'il l'est, ses exigences s'opposent — un
-   * badge d'accès se retire pour charger comme pour livrer.
+   * Facultatif : toutes les origines ne sont pas des lieux référencés. Mais
+   * dès qu'il l'est, ses exigences s'opposent — un badge d'accès se retire
+   * pour charger comme pour livrer.
+   *
+   * ⚠️ PAS DE `destinationSiteId` ICI, ET CE N'EST PAS UN OUBLI.
+   *
+   *    Le site de livraison est hérité du `siteId` de l'affaire, jamais
+   *    choisi indépendamment par l'appelant — voir `create()` ci-dessous.
+   *    Une opération qui s'écarterait du lieu contracté par l'affaire dont
+   *    elle découle serait une erreur, pas une variante légitime.
    */
   @IsOptional() @IsUUID() originSiteId?: string;
   @IsOptional() @IsISO8601() plannedLoadingDate?: string;
@@ -313,19 +319,14 @@ export class OperationsService {
         // opération. Une exigence bloquante non levée empêche le départ.
         destinationSite: {
           select: {
-            id: true, code: true, name: true, city: true,
-            site: {
+            id: true, code: true, name: true, city: true, usages: true,
+            accessInstructions: true, openingHours: true, safetyInstructions: true,
+            requirements: {
+              where: { isActive: true },
+              orderBy: { type: { displayOrder: 'asc' } },
               select: {
-                id: true, code: true, name: true,
-                accessInstructions: true, openingHours: true, safetyInstructions: true,
-                requirements: {
-                  where: { isActive: true },
-                  orderBy: { type: { displayOrder: 'asc' } },
-                  select: {
-                    id: true, detail: true, isBlocking: true,
-                    type: { select: { code: true, label: true } },
-                  },
-                },
+                id: true, detail: true, isBlocking: true,
+                type: { select: { code: true, label: true } },
               },
             },
           },
@@ -419,6 +420,17 @@ export class OperationsService {
   async create(dto: CreateOperationDto, actorId: string) {
     const reference = await this.reference.annual('OP');
 
+    // ⚠️ LE SITE DE LIVRAISON EST HÉRITÉ DE L'AFFAIRE, JAMAIS ACCEPTÉ DU DTO.
+    //
+    //    Une opération qui s'écarterait du lieu contracté par son affaire
+    //    serait une erreur, pas une variante légitime — constaté en direct :
+    //    rien n'empêchait auparavant de saisir un site totalement étranger à
+    //    l'affaire, ou d'en omettre un que l'affaire avait pourtant précisé.
+    const deal = await this.prisma.deal.findUniqueOrThrow({
+      where: { id: dto.dealId },
+      select: { siteId: true },
+    });
+
     const created = await this.prisma.operation.create({
       data: {
         reference,
@@ -431,7 +443,7 @@ export class OperationsService {
         transportMode: dto.transportMode,
         originLocation: dto.originLocation,
         originSiteId: dto.originSiteId ?? null,
-        destinationSiteId: dto.destinationSiteId ?? null,
+        destinationSiteId: deal.siteId,
         destinationLocation: dto.destinationLocation,
         plannedLoadingDate: dto.plannedLoadingDate ? new Date(dto.plannedLoadingDate) : null,
         fieldAgentId: dto.fieldAgentId ?? null,
@@ -696,7 +708,7 @@ export class OperationsService {
       select: {
         transportMode: true,
         plannedVolume: true,
-        destinationSite: { select: { siteId: true } },
+        destinationSiteId: true,
         deal: { select: { productId: true, currencyCode: true } },
       },
     });
@@ -722,7 +734,7 @@ export class OperationsService {
           }[]
         >`SELECT * FROM resolve_carrier_tariff(
             ${t.id}::uuid, ${op.transportMode}::text, ${op.deal.productId}::uuid,
-            ${op.destinationSite?.siteId ?? null}::uuid, CURRENT_DATE)`;
+            ${op.destinationSiteId ?? null}::uuid, CURRENT_DATE)`;
 
         // Conformité du moyen : un transporteur non conforme ne s'affecte pas
         // sans dérogation, et le savoir AVANT de le choisir évite un aller-retour.
@@ -790,7 +802,7 @@ export class OperationsService {
         id: requirementId,
         site: {
           OR: [
-            { partnerSites: { some: { operationsAsDestination: { some: { id: operationId } } } } },
+            { operationsAsDestination: { some: { id: operationId } } },
             { operationsAsOrigin: { some: { id: operationId } } },
           ],
         },

@@ -28,6 +28,7 @@ import {
   PartnerType,
   PriceReferenceType,
   PrismaClient,
+  SiteUsage,
   TransportMode,
   UnitOfMeasure,
   UserRole,
@@ -291,17 +292,25 @@ async function main(): Promise<void> {
   console.log(`  ✓ ${partnerDefs.length} tiers — 4 clients (3 segments), 3 fournisseurs, 2 transporteurs, 1 inspecteur`);
 
   // --- Sites : ce que voit l'application terrain (§ 10.3) ---
+  //
+  // ⚠️ AUTONOMES, PLUS RATTACHÉS À UN CLIENT.
+  //
+  //    Semés auparavant comme `PartnerSite` — une table sans aucune interface
+  //    de création dans l'application qui tourne. Un site créé au référentiel
+  //    n'apparaissait donc jamais dans le choix du lieu de livraison d'une
+  //    affaire, pour aucun client. `Deal.siteId`/`Operation.destinationSiteId`
+  //    pointent maintenant directement vers `Site`, comme `CarrierTariff` le
+  //    fait déjà des deux côtés de son propre trajet.
   const siteDefs = [
-    { partnerCode: 'CLI-001', code: 'ABJ-TERM', name: 'Port d\'Abidjan, Terminal pétrolier', city: 'Abidjan', countryCode: 'CI', accessInstructions: 'Entrée porte 3. Badge portuaire obligatoire. Se présenter au poste de garde.', openingHours: 'Lun-Sam 06h00-18h00', safetyInstructions: 'EPI complet. Interdiction de téléphoner sur le quai. Point de rassemblement : quai nord.', defaultHseRiskLevel: HseRiskLevel.CRITICAL },
-    { partnerCode: 'CLI-002', code: 'MINE-OUEST', name: 'Site minier, Ouest', city: 'Man', countryCode: 'CI', accessInstructions: 'Piste non revêtue sur 12 km. Prévenir 24 h à l\'avance.', openingHours: 'Lun-Ven 07h00-16h00', safetyInstructions: 'Induction sécurité site obligatoire. Vitesse limitée à 30 km/h.', defaultHseRiskLevel: HseRiskLevel.REINFORCED },
-    { partnerCode: 'CLI-003', code: 'STA-COCODY', name: 'Station Cocody, Boulevard Latrille', city: 'Abidjan', countryCode: 'CI', accessInstructions: 'Livraison hors heures de pointe.', openingHours: '24h/24', safetyInstructions: 'Balisage de la zone de dépotage. Extincteur à portée.', defaultHseRiskLevel: HseRiskLevel.STANDARD },
+    { code: 'ABJ-TERM', name: 'Port d\'Abidjan, Terminal pétrolier', city: 'Abidjan', countryCode: 'CI', usages: [SiteUsage.DELIVERY], accessInstructions: 'Entrée porte 3. Badge portuaire obligatoire. Se présenter au poste de garde.', openingHours: 'Lun-Sam 06h00-18h00', safetyInstructions: 'EPI complet. Interdiction de téléphoner sur le quai. Point de rassemblement : quai nord.', defaultHseRiskLevel: HseRiskLevel.CRITICAL },
+    { code: 'MINE-OUEST', name: 'Site minier, Ouest', city: 'Man', countryCode: 'CI', usages: [SiteUsage.DELIVERY], accessInstructions: 'Piste non revêtue sur 12 km. Prévenir 24 h à l\'avance.', openingHours: 'Lun-Ven 07h00-16h00', safetyInstructions: 'Induction sécurité site obligatoire. Vitesse limitée à 30 km/h.', defaultHseRiskLevel: HseRiskLevel.REINFORCED },
+    { code: 'STA-COCODY', name: 'Station Cocody, Boulevard Latrille', city: 'Abidjan', countryCode: 'CI', usages: [SiteUsage.DELIVERY], accessInstructions: 'Livraison hors heures de pointe.', openingHours: '24h/24', safetyInstructions: 'Balisage de la zone de dépotage. Extincteur à portée.', defaultHseRiskLevel: HseRiskLevel.STANDARD },
   ];
   for (const s of siteDefs) {
-    const { partnerCode, ...rest } = s;
-    await prisma.partnerSite.upsert({
-      where: { partnerId_code: { partnerId: partners[partnerCode], code: s.code } },
+    await prisma.site.upsert({
+      where: { code: s.code },
       update: {},
-      create: { ...rest, partnerId: partners[partnerCode] },
+      create: s,
     });
   }
   console.log(`  ✓ ${siteDefs.length} sites de livraison, avec consignes terrain`);

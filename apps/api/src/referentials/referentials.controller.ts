@@ -426,34 +426,10 @@ export class ReferentialsService {
                 creditStatus: true as const,
               }
             : {}),
-          // Les sites d'un tiers, AVEC les exigences du lieu qu'ils désignent.
-          //
-          // Les exigences appartiennent au LIEU et se saisissent au
-          // référentiel des sites (§ 6.2). Elles sont exposées ICI parce que
-          // c'est là qu'on choisit une destination : celui qui prépare
-          // l'opération doit les voir au moment où il décide, pas quand le
-          // camion est à la barrière.
-          sites: {
-            where: { isActive: true },
-            select: {
-              id: true, code: true, name: true, city: true,
-              site: {
-                select: {
-                  id: true, code: true, name: true, city: true,
-                  accessInstructions: true, openingHours: true, safetyInstructions: true,
-                  defaultHseRiskLevel: true,
-                  requirements: {
-                    where: { isActive: true },
-                    orderBy: { type: { displayOrder: 'asc' } },
-                    select: {
-                      id: true, detail: true, isBlocking: true,
-                      type: { select: { code: true, label: true, description: true } },
-                    },
-                  },
-                },
-              },
-            },
-          },
+          // Le site de livraison ne se choisit plus depuis la fiche tiers : il
+          // vient du référentiel autonome des sites (`GET .../sites?usage=
+          // DELIVERY`), qui l'expose déjà avec ses exigences — un lieu peut
+          // servir plusieurs clients, il n'appartient pas à l'un d'eux (§ 6.2).
           _count: { select: { complianceRecords: true, vehicles: true, drivers: true } },
         },
       }),
