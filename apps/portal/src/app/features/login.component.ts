@@ -12,10 +12,7 @@ import { IconComponent } from '../shared/icon.component';
     <div class="flex min-h-screen">
       <div class="hidden w-[46%] flex-col justify-between border-r border-rule bg-surface p-10 lg:flex">
         <div class="flex items-center gap-2.5">
-          <div class="flex h-7 w-7 items-center justify-center rounded-[3px] bg-primary text-white">
-            <erp-icon name="layers" [size]="15" />
-          </div>
-          <span class="text-[13px] font-semibold text-ink">Elyon Trading</span>
+          <img src="/assets/brand/logo.png" alt="Elyon Trading" class="h-8 w-auto" />
         </div>
 
         <div class="max-w-md">
@@ -34,10 +31,7 @@ import { IconComponent } from '../shared/icon.component';
       <div class="flex flex-1 items-center justify-center px-6 py-12">
         <div class="w-full max-w-[340px]">
           <div class="mb-7 lg:hidden">
-            <div class="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-[3px] bg-primary text-white">
-              <erp-icon name="layers" [size]="18" />
-            </div>
-            <h1 class="text-[17px] font-semibold text-ink">Elyon Trading</h1>
+            <img src="/assets/brand/logo.png" alt="Elyon Trading" class="h-11 w-auto" />
           </div>
 
           <h1 class="page-title">Connexion</h1>

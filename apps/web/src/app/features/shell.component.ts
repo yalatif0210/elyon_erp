@@ -136,14 +136,7 @@ const NAV: NavGroup[] = [
                border-b border-gray-900/[0.12] bg-surface px-6 shadow-soft"
       >
         <div class="flex items-center gap-2.5">
-          <div
-            class="flex h-8 w-8 items-center justify-center rounded-[3px] bg-primary text-white"
-          >
-            <erp-icon name="layers" [size]="17" />
-          </div>
-          <span class="font-display text-[16px] font-bold tracking-[-0.01em] text-headline">
-            Elyon Trading
-          </span>
+          <img src="/assets/brand/logo.png" alt="Elyon Trading" class="h-9 w-auto" />
         </div>
 
         <div class="flex items-center gap-4">

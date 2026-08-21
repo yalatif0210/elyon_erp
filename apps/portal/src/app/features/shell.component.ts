@@ -35,11 +35,9 @@ const NAV: NavItem[] = [
                border-b border-gray-900/[0.12] bg-surface px-6 shadow-soft"
       >
         <div class="flex items-center gap-2.5">
-          <div class="flex h-8 w-8 items-center justify-center rounded-[3px] bg-primary text-white">
-            <erp-icon name="layers" [size]="17" />
-          </div>
-          <span class="font-display text-[16px] font-bold tracking-[-0.01em] text-headline">
-            Elyon Trading · Portail client
+          <img src="/assets/brand/logo.png" alt="Elyon Trading" class="h-9 w-auto" />
+          <span class="font-display text-[13px] font-semibold tracking-[-0.01em] text-ink-muted">
+            Portail client
           </span>
         </div>
 
