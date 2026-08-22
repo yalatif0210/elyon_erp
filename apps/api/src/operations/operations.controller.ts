@@ -113,26 +113,21 @@ class CreateOperationDto {
   @IsOptional() @IsUUID() fieldAgentId?: string;
 }
 
+/**
+ * ⚠️ PLUS DE `carrierId` NI DE CHAMPS FRET ICI — REVU LE 22/08/2026.
+ *
+ *    Le transporteur et son coût se choisissent désormais au chiffrage de
+ *    l'affaire (`DealCostLineDto`, poste TRANSPORT), comparés au tarif
+ *    négocié à ce moment-là. `assign()` copie le transporteur déjà retenu ;
+ *    il ne le reçoit plus en entrée, et ne reçoit plus de fret à comparer.
+ */
 class AssignMeansDto {
-  @IsOptional() @IsUUID() carrierId?: string;
   @IsOptional() @IsUUID() vehicleId?: string;
   @IsOptional() @IsUUID() driverId?: string;
   @IsOptional() @IsString() @MaxLength(120) vehicleIdentifier?: string;
 
-  @Type(() => Number) @IsNumber() @Min(0) freightCost!: number;
-  @IsString() @Length(3, 3) currencyCode!: string;
-
   /** Obligatoire si l'un des moyens est non conforme — DG seul (§ 11.2). */
   @IsOptional() @IsUUID() complianceDerogationId?: string;
-
-  /**
-   * Motif de l'écart au TARIF NÉGOCIÉ du transporteur (§ 5.4).
-   *
-   * Exigé par la base au-delà de la tolérance du tarif — laquelle vaut 0 par
-   * défaut, règle stricte. Le montant reste saisissable : un déroutement, une
-   * attente facturée existent. Ce qui est proscrit, c'est l'écart silencieux.
-   */
-  @IsOptional() @IsString() @MaxLength(500) freightVarianceReason?: string;
 }
 
 export class TransitionDto {
@@ -240,7 +235,11 @@ export class OperationsService {
             },
           },
           assignment: {
-            select: { vehicleIdentifier: true, vehicle: { select: { registration: true } } },
+            select: {
+              vehicleIdentifier: true,
+              vehicle: { select: { registration: true } },
+              carrier: { select: { id: true, legalName: true } },
+            },
           },
           fieldAgent: { select: { fullName: true } },
           _count: { select: { hseChecks: true, measurements: true, costLines: true } },
@@ -274,6 +273,7 @@ export class OperationsService {
             // bloquantes, seule source de vérité (§ 6.4).
             carrier: {
               select: {
+                id: true,
                 code: true,
                 legalName: true,
                 complianceRecords: {
@@ -492,14 +492,27 @@ export class OperationsService {
    * l'affectation sans dérogation du DG.
    */
   async assign(operationId: string, dto: AssignMeansDto, actorId: string) {
+    // ⚠️ LE TRANSPORTEUR N'EST PLUS CHOISI ICI — REVU LE 22/08/2026.
+    //
+    //    Il vient de la ligne de coût TRANSPORT de l'affaire, retenue au
+    //    chiffrage, jamais ressaisi ni modifiable à l'affectation des moyens.
+    //    Recopié en lecture seule pour que la vérification de conformité du
+    //    transporteur, au moment de l'affectation, continue de porter sur le
+    //    bon tiers.
+    const operationDeal = await this.prisma.operation.findUniqueOrThrow({
+      where: { id: operationId },
+      select: { dealId: true },
+    });
+    const posteTransport = await this.prisma.dealCostLine.findFirst({
+      where: { dealId: operationDeal.dealId, costPost: { code: 'TRANSPORT' } },
+      select: { supplierId: true },
+    });
+
     const data = {
-      carrierId: dto.carrierId ?? null,
+      carrierId: posteTransport?.supplierId ?? null,
       vehicleId: dto.vehicleId ?? null,
       driverId: dto.driverId ?? null,
       vehicleIdentifier: dto.vehicleIdentifier ?? null,
-      freightCost: dto.freightCost.toFixed(4),
-      currencyCode: dto.currencyCode,
-      freightVarianceReason: dto.freightVarianceReason ?? null,
       complianceDerogationId: dto.complianceDerogationId ?? null,
       assignedById: actorId,
       assignedAt: new Date(),
@@ -510,21 +523,6 @@ export class OperationsService {
       update: data,
       create: { operationId, ...data },
     });
-
-    // ⚠️ LE FRET DOIT ENTRER DANS LA MARGE.
-    //
-    //    Il était stocké ici et lu nulle part : `directChargesForDeal` ne lit
-    //    que les lignes de coût. Le PRINCIPAL coût direct d'une opération de
-    //    transport était donc absent de toute marge, sauf ressaisie manuelle —
-    //    laquelle produisait alors un double comptage, puisque rien ne reliait
-    //    les deux saisies.
-    //
-    //    On matérialise donc une ligne de coût SYSTÈME, reconnaissable et
-    //    unique : elle est mise à jour quand l'affectation change, jamais
-    //    dupliquée. Une ligne saisie à la main par quelqu'un qui aurait
-    //    ressaisi le fret reste distincte — le rapprochement des coûts la fera
-    //    apparaître comme un écart, ce qui est le bon endroit pour la voir.
-    await this.materialiseFret(operationId, dto);
 
     await this.audit.record({
       actorType: ActorType.INTERNAL_USER,
@@ -691,95 +689,6 @@ export class OperationsService {
   }
 
   /**
-   * TARIF PROPOSÉ pour affecter les moyens.
-   *
-   * Sert à orienter AVANT la saisie : afficher le tarif au moment du refus ne
-   * guide personne — c'est le défaut qui avait été corrigé sur le barème de
-   * coûts, et il valait aussi ici. Conserver la proposition doit être le geste
-   * par défaut ; s'en écarter reste possible, mais se motive.
-   *
-   * Rendu POUR CHAQUE TRANSPORTEUR conforme, avec son tarif s'il en a un : le
-   * coordinateur choisit alors en connaissant le coût, au lieu de choisir puis
-   * de découvrir.
-   */
-  async freightGuidance(operationId: string) {
-    const op = await this.prisma.operation.findUniqueOrThrow({
-      where: { id: operationId },
-      select: {
-        transportMode: true,
-        plannedVolume: true,
-        destinationSiteId: true,
-        deal: { select: { productId: true, currencyCode: true } },
-      },
-    });
-
-    const transporteurs = await this.prisma.partner.findMany({
-      where: { type: 'CARRIER', isActive: true },
-      orderBy: { legalName: 'asc' },
-      select: { id: true, code: true, legalName: true },
-    });
-
-    const volume = Number(op.plannedVolume);
-
-    return Promise.all(
-      transporteurs.map(async (t) => {
-        const [tarif] = await this.prisma.$queryRaw<
-          {
-            tariff_id: string;
-            basis: string;
-            amount: string;
-            currency_code: string;
-            uom: string | null;
-            tolerance_pct: string | null;
-          }[]
-        >`SELECT * FROM resolve_carrier_tariff(
-            ${t.id}::uuid, ${op.transportMode}::text, ${op.deal.productId}::uuid,
-            ${op.destinationSiteId ?? null}::uuid, CURRENT_DATE)`;
-
-        // Conformité du moyen : un transporteur non conforme ne s'affecte pas
-        // sans dérogation, et le savoir AVANT de le choisir évite un aller-retour.
-        const [conformite] = await this.prisma.$queryRaw<{ is_compliant: boolean }[]>`
-          SELECT is_compliant FROM v_transport_compliance
-           WHERE subject_kind = 'CARRIER' AND subject_id = ${t.id}::uuid`;
-
-        if (!tarif) {
-          return {
-            carrierId: t.id,
-            code: t.code,
-            name: t.legalName,
-            isCompliant: conformite?.is_compliant ?? true,
-            // Pas de grille : ce n'est pas bloquant — il faut pouvoir rouler
-            // avec un transporteur d'appoint un jour de rupture — mais ça se
-            // voit, et la grille doit être complétée.
-            tariff: null,
-          };
-        }
-
-        const montant =
-          tarif.basis === 'PER_UNIT' ? Number(tarif.amount) * volume : Number(tarif.amount);
-
-        return {
-          carrierId: t.id,
-          code: t.code,
-          name: t.legalName,
-          isCompliant: conformite?.is_compliant ?? true,
-          tariff: {
-            id: tarif.tariff_id,
-            basis: tarif.basis,
-            unitAmount: Number(tarif.amount),
-            uom: tarif.uom,
-            currencyCode: tarif.currency_code,
-            // Ce que le tarif donne POUR CETTE OPÉRATION : c'est le chiffre
-            // que le coordinateur doit comparer, pas le tarif unitaire.
-            expectedAmount: round6(montant),
-            tolerancePct: tarif.tolerance_pct === null ? 0 : Number(tarif.tolerance_pct),
-          },
-        };
-      }),
-    );
-  }
-
-  /**
    * ACQUITTEMENT d'une exigence de site.
    *
    * Une exigence bloquante non levée empêche le départ. L'acquittement dit
@@ -831,55 +740,6 @@ export class OperationsService {
     });
 
     return ack;
-  }
-
-  /**
-   * Ligne de coût portant le fret de l'affectation.
-   *
-   * `isSystemComputed` la distingue d'une saisie humaine : la base refuse
-   * qu'on force ce drapeau depuis l'extérieur, et le rapprochement des coûts
-   * sait donc qu'aucun fournisseur ne la facturera séparément.
-   *
-   * Le poste employé vient du RÉFÉRENTIEL, par son code. S'il a été désactivé
-   * ou renommé, on ne matérialise rien plutôt que d'inventer un poste : une
-   * charge rattachée à un poste fantôme fausserait tous les regroupements.
-   */
-  private async materialiseFret(operationId: string, dto: AssignMeansDto): Promise<void> {
-    const poste = await this.prisma.costPost.findFirst({
-      where: { code: 'TRANSPORT', isActive: true },
-      select: { id: true },
-    });
-    if (!poste) return;
-
-    const operation = await this.prisma.operation.findUniqueOrThrow({
-      where: { id: operationId },
-      select: { dealId: true, deal: { select: { currencyCode: true } } },
-    });
-    const cours = await this.margins.rateBetween(dto.currencyCode, operation.deal.currencyCode);
-
-    const existante = await this.prisma.operationCostLine.findFirst({
-      where: { operationId, costPostId: poste.id, isSystemComputed: true },
-      select: { id: true },
-    });
-
-    const donnees = {
-      description: 'Fret transporteur : affectation des moyens',
-      supplierId: dto.carrierId ?? null,
-      estimatedAmount: dto.freightCost.toFixed(4),
-      actualAmount: dto.freightCost.toFixed(4),
-      currencyCode: dto.currencyCode,
-      fxRateToDeal: cours.toFixed(8),
-    };
-
-    if (existante) {
-      await this.prisma.operationCostLine.update({ where: { id: existante.id }, data: donnees });
-    } else {
-      await this.prisma.operationCostLine.create({
-        data: { operationId, costPostId: poste.id, isSystemComputed: true, ...donnees },
-      });
-    }
-
-    await this.margins.recompute(operation.dealId);
   }
 
   /**
@@ -1096,19 +956,6 @@ export class OperationsController {
   @Roles(UserRole.LOGISTICS_COORD, UserRole.CCOO)
   create(@Body() dto: CreateOperationDto, @Req() req: { auth: { sub: string } }) {
     return this.service.create(dto, req.auth.sub);
-  }
-
-  /**
-   * Tarifs proposés AVANT d'affecter — un par transporteur.
-   *
-   * Afficher le tarif au moment du refus ne guide personne : le coordinateur
-   * doit voir ce que chaque transporteur coûte, et lequel est conforme, au
-   * moment où il choisit.
-   */
-  @Get(':id/freight-guidance')
-  @Roles(UserRole.LOGISTICS_COORD, UserRole.CCOO, UserRole.DG, UserRole.FINANCE_CFO)
-  freightGuidance(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.freightGuidance(id);
   }
 
   /** Acquittement d'une exigence bloquante du site de livraison (§ 6.2). */

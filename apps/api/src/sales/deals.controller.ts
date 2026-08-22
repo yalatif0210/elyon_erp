@@ -126,9 +126,21 @@ class DealCostLineDto {
   @Type(() => Number) @IsNumber() @Min(0) amount!: number;
 
   @IsOptional() @IsString() @MaxLength(255) description?: string;
+
+  /**
+   * Fournisseur pressenti — facultatif, SAUF pour le poste TRANSPORT dès
+   * qu'un montant y est engagé : la base y exige alors un tiers de type
+   * transporteur (`trg_deal_transport_tariff`, § 5.4). C'est ici que le
+   * transporteur d'une affaire se choisit désormais, plus à l'affectation
+   * des moyens.
+   */
   @IsOptional() @IsUUID() supplierId?: string;
 
-  /** Exigé dès que l'écart au barème dépasse la tolérance. */
+  /**
+   * Exigé dès que l'écart au barème dépasse la tolérance — et, pour le poste
+   * TRANSPORT, dès que l'écart au tarif négocié du transporteur la dépasse
+   * aussi (un seul champ, un seul motif à lire pour les deux vérifications).
+   */
   @IsOptional() @IsString() @MaxLength(500) varianceReason?: string;
 }
 
@@ -294,6 +306,94 @@ export class DealsService {
     );
 
     return { currencyCode: deal.currencyCode, contractedVolume: volume, postes: guidance };
+  }
+
+  /**
+   * Tarifs proposés AVANT de retenir un transporteur, pour le poste
+   * TRANSPORT du chiffrage (§ 5.4).
+   *
+   * Ajouté le 22/08/2026 : le transporteur se choisit désormais au
+   * chiffrage, jamais à l'affectation des moyens (qui n'existe pas encore à
+   * ce stade) — c'est ici, et seulement ici, que la comparaison au tarif
+   * négocié a un sens. Rendu POUR CHAQUE TRANSPORTEUR conforme, avec son
+   * tarif s'il en a un, sur le même principe que `costGuidance` : afficher
+   * l'écart après coup ne guide personne.
+   *
+   * ⚠️ ORIGINE NULLE, ASSUMÉE : l'affaire ne connaît que la destination
+   *    (`site_id`). Le dépôt d'origine est une décision de sourcing qui
+   *    n'existe qu'à l'opération — voir `20_tarif_transporteur.sql`. Un
+   *    tarif nommant une origine précise ne peut donc jamais ressortir ici.
+   */
+  async carrierGuidance(dealId: string) {
+    const deal = await this.prisma.deal.findUniqueOrThrow({
+      where: { id: dealId },
+      select: { transportMode: true, productId: true, siteId: true, contractedVolume: true },
+    });
+
+    const transporteurs = await this.prisma.partner.findMany({
+      where: { type: 'CARRIER', isActive: true },
+      orderBy: { legalName: 'asc' },
+      select: { id: true, code: true, legalName: true },
+    });
+
+    const volume = Number(deal.contractedVolume);
+
+    return Promise.all(
+      transporteurs.map(async (t) => {
+        const [tarif] = await this.prisma.$queryRaw<
+          {
+            tariff_id: string;
+            basis: string;
+            amount: string;
+            currency_code: string;
+            uom: string | null;
+            tolerance_pct: string | null;
+          }[]
+        >`SELECT * FROM resolve_carrier_tariff(
+            ${t.id}::uuid, ${deal.transportMode}::text, ${deal.productId}::uuid,
+            NULL::uuid, ${deal.siteId ?? null}::uuid, CURRENT_DATE)`;
+
+        // Conformité du moyen : un transporteur non conforme ne s'affecte pas
+        // sans dérogation, et le savoir AVANT de le choisir évite un aller-retour.
+        const [conformite] = await this.prisma.$queryRaw<{ is_compliant: boolean }[]>`
+          SELECT is_compliant FROM v_transport_compliance
+           WHERE subject_kind = 'CARRIER' AND subject_id = ${t.id}::uuid`;
+
+        if (!tarif) {
+          return {
+            carrierId: t.id,
+            code: t.code,
+            name: t.legalName,
+            isCompliant: conformite?.is_compliant ?? true,
+            // Pas de grille : ce n'est pas bloquant — il faut pouvoir chiffrer
+            // avec un transporteur d'appoint un jour de rupture — mais ça se
+            // voit, et la grille doit être complétée.
+            tariff: null,
+          };
+        }
+
+        const montant =
+          tarif.basis === 'PER_UNIT' ? Number(tarif.amount) * volume : Number(tarif.amount);
+
+        return {
+          carrierId: t.id,
+          code: t.code,
+          name: t.legalName,
+          isCompliant: conformite?.is_compliant ?? true,
+          tariff: {
+            id: tarif.tariff_id,
+            basis: tarif.basis,
+            unitAmount: Number(tarif.amount),
+            uom: tarif.uom,
+            currencyCode: tarif.currency_code,
+            // Ce que le tarif donne POUR CETTE AFFAIRE : c'est le chiffre que
+            // le commercial doit comparer, pas le tarif unitaire.
+            expectedAmount: round4(montant),
+            tolerancePct: tarif.tolerance_pct === null ? 0 : Number(tarif.tolerance_pct),
+          },
+        };
+      }),
+    );
   }
 
   /**
@@ -1114,6 +1214,17 @@ export class DealsController {
   @Roles(UserRole.SALES_REP, UserRole.CCOO, UserRole.FINANCE_CFO, UserRole.DG)
   costGuidance(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.costGuidance(id);
+  }
+
+  /**
+   * Tarifs proposés par transporteur, pour le poste TRANSPORT du chiffrage
+   * (§ 5.4, revu le 22/08/2026 : le transporteur se choisit ici, plus à
+   * l'affectation des moyens).
+   */
+  @Get(':id/carrier-guidance')
+  @Roles(UserRole.SALES_REP, UserRole.CCOO, UserRole.FINANCE_CFO, UserRole.DG)
+  carrierGuidance(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.carrierGuidance(id);
   }
 
   /** Chiffrage des coûts — le commercial, tant que l'affaire n'est pas exécutée. */

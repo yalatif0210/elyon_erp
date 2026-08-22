@@ -231,11 +231,15 @@ SELECT 'REFUS_TERRAIN', 'LOGISTICS_COORD', 'ANOMALIE',
 
 UNION ALL
 -- 10. Fret engagé hors tarif, sans transporteur ou sans motif.
+-- ⚠️ POINTAIT VERS 'operations' ET LISAIT ft.operation — LE FRET SE CHIFFRE
+--    DÉSORMAIS AU CHIFFRAGE DE L'AFFAIRE, PAS À L'AFFECTATION DES MOYENS
+--    (§ 5.4, revu le 22/08/2026). v_fret_hors_tarif porte maintenant
+--    deal_id/affaire, et le lien va vers la fiche de l'affaire.
 SELECT 'FRET_HORS_TARIF', 'FINANCE_CFO', 'ANOMALIE',
-       ft.operation,
+       ft.affaire,
        'Fret hors tarif : ' || round(ft.freight_cost, 0) || ' ' || ft.currency_code ||
          COALESCE(' contre ' || round(ft.tarif_attendu, 0) || ' négocié', ', sans tarif négocié'),
-       'operations',
+       'affaires/' || ft.deal_id::text,
        now()
   FROM v_fret_hors_tarif ft
 

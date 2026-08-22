@@ -8,7 +8,6 @@ import {
   HseGate,
   MeasurementSummary,
   OperationRow,
-  FreightGuidance,
   OperationDetail,
 } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
@@ -81,18 +80,18 @@ const NEXT_STEPS: { to: string; label: string }[] = [
           moyen non conforme est refusé, sauf dérogation du DG.
         </p>
 
+        <!-- ============ Transporteur : lecture seule ============
+             Retenu au chiffrage de l'affaire, avec son coût comparé au tarif
+             négocié (§ 5.4, revu le 22/08/2026) — plus choisi ni modifiable
+             ici. -->
+        <p class="mb-3 text-[13px]">
+          <span class="text-ink-muted">Transporteur retenu au chiffrage : </span>
+          <span class="font-semibold text-ink">
+            {{ operation.assignment?.carrier?.legalName ?? 'aucun (voir le chiffrage de l’affaire)' }}
+          </span>
+        </p>
+
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div>
-            <label class="label" for="carrier">Transporteur</label>
-            <select id="carrier" class="field" [(ngModel)]="carrierId">
-              <option [ngValue]="''">Choisir</option>
-              @for (c of subjects('CARRIER'); track c.subject_id) {
-                <option [ngValue]="c.subject_id">
-                  {{ c.subject_label }}{{ c.is_compliant ? '' : ' (non conforme)' }}
-                </option>
-              }
-            </select>
-          </div>
           <div>
             <label class="label" for="vehicle">Véhicule</label>
             <select id="vehicle" class="field" [(ngModel)]="vehicleId">
@@ -116,70 +115,6 @@ const NEXT_STEPS: { to: string; label: string }[] = [
               }
             </select>
           </div>
-          <div>
-            <label class="label" for="freight">Coût de fret</label>
-            <input
-              id="freight"
-              class="field text-right font-mono"
-              inputmode="decimal"
-              [(ngModel)]="freightCost"
-            />
-            <!-- ============ Le tarif négocié, AVANT la saisie ============
-                 Afficher le tarif au moment du refus ne guide personne : c'est
-                 le défaut corrigé sur le barème de coûts, et il valait ici. -->
-            @if (tarifRetenu(); as t) {
-              <p class="mt-1 flex items-baseline gap-1.5 text-[11px] leading-snug">
-                <span class="text-ink-muted">Tarif négocié :</span>
-                <span class="font-mono font-semibold text-ink">{{ t.expectedAmount }}</span>
-                <span class="text-ink-faint">
-                  {{ t.currencyCode }}
-                  @if (t.basis === 'PER_UNIT') {
-                    ({{ t.unitAmount }}/{{ t.uom }})
-                  } @else {
-                    (forfait)
-                  }
-                </span>
-                <button
-                  type="button"
-                  class="ml-1 font-semibold text-primary underline underline-offset-2"
-                  (click)="reprendreTarif()"
-                >
-                  reprendre
-                </button>
-              </p>
-              @if (ecartPct() !== null && ecartPct()! > t.tolerancePct) {
-                <p class="mt-1 text-[11px] leading-snug text-crit">
-                  Écart de {{ ecartPct() }} % pour une tolérance de {{ t.tolerancePct }} %, un
-                  motif circonstancié est exigé, et son absence bloque la saisie.
-                </p>
-              }
-            } @else if (carrierId !== '') {
-              <p class="mt-1 text-[11px] leading-snug text-warn-ink">
-                Aucun tarif négocié pour ce transporteur. L’affectation reste possible, il faut
-                pouvoir rouler avec un transporteur d’appoint, mais la grille devrait être
-                complétée au paramétrage.
-              </p>
-            }
-          </div>
-
-          @if (motifExige()) {
-            <div class="md:col-span-2">
-              <label class="label" for="motif-fret">
-                Motif de l’écart au tarif <span class="text-crit">*</span>
-              </label>
-              <input
-                id="motif-fret"
-                class="field"
-                maxlength="500"
-                placeholder="Déroutement, attente facturée, négociation ponctuelle…"
-                [(ngModel)]="freightVarianceReason"
-              />
-              <p class="mt-1 text-[11px] leading-snug text-ink-faint">
-                Dix caractères au minimum. Un écart que personne n’explique aujourd’hui, personne
-                ne l’expliquera dans six mois.
-              </p>
-            </div>
-          }
         </div>
 
         <!-- ============ Dérogation de conformité (§ 11.2, § 11.4) ============
@@ -455,11 +390,8 @@ export class OperationActionsComponent {
   protected readonly steps = NEXT_STEPS;
   protected readonly compliance = signal<ComplianceSubject[]>([]);
 
-  protected carrierId = '';
   protected vehicleId = '';
   protected driverId = '';
-  protected freightCost: number | null = null;
-  protected freightVarianceReason = '';
   protected readonly complianceDerogationId = signal<string | null>(null);
 
   /** Note de levée, par exigence — saisie avant d'attester. */
@@ -492,34 +424,6 @@ export class OperationActionsComponent {
       });
   }
 
-  /** Tarifs proposés, un par transporteur. */
-  protected readonly tarifs = signal<FreightGuidance[]>([]);
-
-  /** Le tarif du transporteur actuellement choisi, s'il en a un. */
-  protected readonly tarifRetenu = computed(
-    () => this.tarifs().find((t) => t.carrierId === this.carrierId)?.tariff ?? null,
-  );
-
-  /** Écart entre le fret saisi et le tarif, en pourcentage. */
-  protected readonly ecartPct = computed(() => {
-    const t = this.tarifRetenu();
-    const saisi = Number(this.freightCost ?? 0);
-    if (!t || t.expectedAmount === 0 || !saisi) return null;
-    return Math.round((Math.abs(saisi - t.expectedAmount) / t.expectedAmount) * 10000) / 100;
-  });
-
-  /**
-   * Le motif devient obligatoire au-delà de la tolérance.
-   *
-   * On l'exige À L'ÉCRAN pour ne pas laisser produire un appel voué au refus :
-   * la base refuserait, et l'utilisateur perdrait sa saisie.
-   */
-  protected readonly motifExige = computed(() => {
-    const t = this.tarifRetenu();
-    const e = this.ecartPct();
-    return t !== null && e !== null && e > t.tolerancePct;
-  });
-
   protected loaded: number | null = null;
   protected discharged: number | null = null;
   protected density = 0.84;
@@ -540,9 +444,6 @@ export class OperationActionsComponent {
     // Les moyens proposés viennent de la vue de conformité : leur statut y est
     // dérivé des pièces à échéance, jamais stocké sur le moyen lui-même.
     this.api.complianceOverview().subscribe((c) => this.compliance.set(c));
-    // Les tarifs sont chargés AVEC l'écran, pas au choix du transporteur : le
-    // coordinateur doit pouvoir comparer avant de choisir, pas après.
-    this.api.freightGuidance(this.operation.id).subscribe((t) => this.tarifs.set(t));
     this.api.costPosts2().subscribe((c) => this.costPosts.set(c));
   }
 
@@ -616,11 +517,17 @@ export class OperationActionsComponent {
     });
   }
 
-  /** Le premier moyen SÉLECTIONNÉ qui n'est pas conforme, désigné par son libellé. */
+  /**
+   * Le premier moyen non conforme, désigné par son libellé.
+   *
+   * Le transporteur n'est plus SÉLECTIONNÉ ici : il vient du chiffrage de
+   * l'affaire (§ 5.4). Sa conformité se vérifie donc sur celui déjà retenu,
+   * pas sur un choix fait à cet écran.
+   */
   protected moyenNonConforme(): string | null {
     if (this.complianceDerogationId()) return null;
     const selection = [
-      { id: this.carrierId, kind: 'CARRIER' as const },
+      { id: this.operation.assignment?.carrier?.id ?? null, kind: 'CARRIER' as const },
       { id: this.vehicleId, kind: 'VEHICLE' as const },
       { id: this.driverId, kind: 'DRIVER' as const },
     ];
@@ -632,28 +539,13 @@ export class OperationActionsComponent {
     return null;
   }
 
-  /** Reprend le tarif négocié : conserver la proposition est le geste normal. */
-  protected reprendreTarif(): void {
-    const t = this.tarifRetenu();
-    if (t) {
-      this.freightCost = t.expectedAmount;
-      this.freightVarianceReason = '';
-    }
-  }
-
   protected assign(): void {
     if (this.state.busy()) return;
     this.state.start();
     this.api
       .assignMeans(this.operation.id, {
-        carrierId: this.carrierId || undefined,
         vehicleId: this.vehicleId || undefined,
         driverId: this.driverId || undefined,
-        freightCost: Number(this.freightCost ?? 0),
-        currencyCode: this.deviseLocale(),
-        ...(this.freightVarianceReason.trim()
-          ? { freightVarianceReason: this.freightVarianceReason.trim() }
-          : {}),
         ...(this.complianceDerogationId()
           ? { complianceDerogationId: this.complianceDerogationId()! }
           : {}),

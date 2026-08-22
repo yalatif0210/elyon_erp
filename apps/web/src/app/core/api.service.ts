@@ -303,7 +303,12 @@ export interface OperationRow {
     client: { code: string; legalName: string };
     product: { code: string; name: string };
   };
-  assignment: { vehicleIdentifier: string | null; vehicle: { registration: string } | null } | null;
+  assignment: {
+    vehicleIdentifier: string | null;
+    vehicle: { registration: string } | null;
+    /** Retenu au chiffrage de l'affaire (§ 5.4) — lecture seule ici. */
+    carrier: { id: string; legalName: string } | null;
+  } | null;
   fieldAgent: { fullName: string } | null;
   _count: { hseChecks: number; measurements: number; costLines: number };
 }
@@ -512,6 +517,12 @@ export interface DealCostLine {
   standardBasis: 'PER_UNIT' | 'FIXED' | null;
   varianceReason: string | null;
   description: string | null;
+  supplierId: string | null;
+  supplier: { code: string; legalName: string } | null;
+  /** Poste TRANSPORT uniquement (§ 5.4) — tarif négocié figé au chiffrage. */
+  carrierTariffId: string | null;
+  tariffAmount: string | null;
+  tariffTolerancePct: string | null;
   costPost: { code: string; label: string; nature: string };
 }
 
@@ -556,6 +567,12 @@ export interface DealCostLineInput {
   basis?: 'PER_UNIT' | 'FIXED';
   amount: number;
   description?: string;
+  /**
+   * Fournisseur pressenti — pour le poste TRANSPORT, exigé dès qu'un montant
+   * est engagé, et doit être un tiers de type transporteur (§ 5.4). C'est
+   * ici que le transporteur d'une affaire se choisit désormais.
+   */
+  supplierId?: string;
   varianceReason?: string;
 }
 
@@ -1157,12 +1174,13 @@ export interface ReferentialSpec {
  * apparaît.
  */
 /**
- * Ce que coûte un transporteur pour CETTE opération, avec sa conformité.
+ * Ce que coûte un transporteur pour CETTE affaire, avec sa conformité.
  *
- * Rendu par transporteur : le coordinateur choisit en connaissant le coût, au
+ * Le transporteur se choisit au chiffrage (§ 5.4, revu le 22/08/2026) —
+ * rendu par transporteur : le commercial choisit en connaissant le coût, au
  * lieu de choisir puis de découvrir au refus.
  */
-export interface FreightGuidance {
+export interface CarrierGuidance {
   carrierId: string;
   code: string;
   name: string;
@@ -1173,7 +1191,7 @@ export interface FreightGuidance {
     unitAmount: number;
     uom: string | null;
     currencyCode: string;
-    /** Ce que le tarif donne pour CETTE opération — le chiffre à comparer. */
+    /** Ce que le tarif donne pour CETTE affaire — le chiffre à comparer. */
     expectedAmount: number;
     tolerancePct: number;
   } | null;
@@ -1580,6 +1598,11 @@ export class ApiService {
     return this.http.put(`${this.base}/deals/${id}/cost-lines`, { costLines });
   }
 
+  /** Tarifs proposés par transporteur, pour le poste TRANSPORT du chiffrage. */
+  carrierGuidance(dealId: string): Observable<CarrierGuidance[]> {
+    return this.http.get<CarrierGuidance[]>(`${this.base}/deals/${dealId}/carrier-guidance`);
+  }
+
   // --- Opérations (§ 7, § 11.2) --------------------------------------------
 
   operations(
@@ -1610,7 +1633,6 @@ export class ApiService {
 
   // --- Actions sur une opération (§ 7, § 11.2) -----------------------------
 
-  /** Tarifs proposés, un par transporteur, AVANT d'affecter. */
   /** MA file de tâches — le rôle vient du jeton, jamais d'un paramètre. */
   taches(): Observable<Tache[]> {
     return this.http.get<Tache[]>(`${this.base}/supervision/taches`);
@@ -1618,12 +1640,6 @@ export class ApiService {
 
   compteurTaches(): Observable<CompteurTaches> {
     return this.http.get<CompteurTaches>(`${this.base}/supervision/taches/compteur`);
-  }
-
-  freightGuidance(operationId: string): Observable<FreightGuidance[]> {
-    return this.http.get<FreightGuidance[]>(
-      `${this.base}/operations/${operationId}/freight-guidance`,
-    );
   }
 
   /** Acquittement d'une exigence bloquante du site de livraison. */
@@ -1645,15 +1661,16 @@ export class ApiService {
     });
   }
 
+  /**
+   * Le transporteur n'est plus transmis ici — il vient du chiffrage de
+   * l'affaire (§ 5.4, revu le 22/08/2026) et s'affiche en lecture seule.
+   */
   assignMeans(
     id: string,
     body: {
-      carrierId?: string;
       vehicleId?: string;
       driverId?: string;
       vehicleIdentifier?: string;
-      freightCost: number;
-      currencyCode: string;
       complianceDerogationId?: string;
     },
   ): Observable<unknown> {

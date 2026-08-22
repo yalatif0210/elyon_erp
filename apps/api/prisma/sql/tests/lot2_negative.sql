@@ -146,13 +146,13 @@ UNION ALL SELECT _t('Suppleance HSE par le CFO (DG seul)',
 \echo ''
 \echo '=== F. VERROU DE CONFORMITE ==='
 SELECT _t('Affectation du vehicule au controle technique expire',
-  $s$INSERT INTO operation_assignments (id,operation_id,vehicle_id,currency_code,updated_at)
+  $s$INSERT INTO operation_assignments (id,operation_id,vehicle_id,updated_at)
      VALUES (gen_random_uuid(),'33333333-3333-3333-3333-333333333333',
-     (SELECT id FROM vehicles WHERE registration='CI-7734-CD'),'XOF',now())$s$)
+     (SELECT id FROM vehicles WHERE registration='CI-7734-CD'),now())$s$)
 UNION ALL SELECT _p('Affectation d''un vehicule conforme',
-  $s$INSERT INTO operation_assignments (id,operation_id,vehicle_id,currency_code,updated_at)
+  $s$INSERT INTO operation_assignments (id,operation_id,vehicle_id,updated_at)
      VALUES (gen_random_uuid(),'33333333-3333-3333-3333-333333333333',
-     (SELECT id FROM vehicles WHERE registration='CI-4821-AB'),'XOF',now())$s$);
+     (SELECT id FROM vehicles WHERE registration='CI-4821-AB'),now())$s$);
 
 \echo ''
 \echo '=== G. CHAINE DE FACTURATION ==='

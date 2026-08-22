@@ -188,12 +188,12 @@ Avant le détail, la carte du terrain. Une affaire traverse ces étapes dans cet
 
 | Étape | § | Qui agit |
 |---|---|---|
-| Chiffrer l'affaire | 2.1 | **Commercial** |
+| Chiffrer l'affaire, dont le transporteur et son coût | 2.1 | **Commercial** |
 | La marge se calcule (jamais saisie) | 2.2 | Consultée par DG, Directeur Financier, CCOO, Commercial - jamais par le Coordinateur Logistique |
 | Seuils et dérogations | 2.3 | Réglés par le Directeur Financier ; la dérogation reste au DG |
 | Approbation crédit puis marge | 2.4 | **Directeur Financier** (crédit), puis **DG** si la marge l'exige |
 | Créer l'opération | 2.5 | **Coordinateur Logistique** |
-| Affecter les moyens et le fret | 2.6 | **Coordinateur Logistique** |
+| Affecter le véhicule et le chauffeur | 2.6 | **Coordinateur Logistique** |
 | Lever les exigences du site de livraison | 2.6 | **Coordinateur Logistique** |
 | Contrôle HSE : renseigner | 2.7 | **Agent terrain** |
 | Contrôle HSE : valider ou rejeter | 2.7 | **Contrôleur HSE** (à distance, depuis sa propre tablette) |
@@ -216,6 +216,8 @@ Une affaire naît d'un écran de création qui rassemble tout ce qu'un devis doi
 - **Prix d'achat** - jamais saisi directement : il vient d'un **prix fournisseur déjà validé par le DG** (Partie 1, groupe Tiers et engagements commerciaux). Chiffrer une affaire est donc une raison de plus pour ne jamais laisser un prix fournisseur en attente de validation.
 - **Remise** (facultative) - un montant ou un pourcentage.
 - **Charges directes chiffrées** - le transport, la manutention, l'inspection, chacune sur son poste de coût, à sa **base** propre (au litre pour un transport, au forfait pour une inspection, imposée par le barème et non choisie par le commercial). Sans elles, la marge annoncée à l'approbation ignore ces montants et paraît meilleure qu'elle ne l'est - c'est précisément ce que le chiffrage sert à éviter.
+
+**Le poste Transport porte, en plus, un transporteur.** Depuis le 22 août 2026, c'est **ici**, au chiffrage, que le transporteur d'une affaire se choisit - jamais plus tard, à la création de l'opération. Dès qu'un montant de transport est engagé, un transporteur du référentiel devient obligatoire, et son **tarif négocié** (Partie 1, § Référentiel logistique) est comparé au montant retenu, exactement comme le barème juste à côté : la proposition du tarif s'affiche, la conserver est le geste par défaut, s'en écarter au-delà de la tolérance négociée exige un motif circonstancié d'au moins dix caractères - bloquant, comme tout écart dans cet écran. Sans tarif négocié pour ce transporteur, rien n'est bloqué : il faut pouvoir chiffrer avec un transporteur d'appoint un jour de rupture. Toutes les informations qui déterminent la marge se rassemblent ainsi à un seul endroit, avant même que l'affaire ne soit approuvée.
 
 À la création, l'affaire prend le statut **Brouillon**, puis évolue au fil de l'étude (**Étude de faisabilité**, **Chiffrée**) jusqu'à sa soumission, § 2.4.
 
@@ -305,11 +307,11 @@ Chaque action envoyée depuis la tablette (checklist, relevé, avancement, incid
 
 Un refus jamais repris reste visible du Coordinateur Logistique, regroupé par opération, sur le tableau de bord des tâches - c'est lui qui relance l'agent si un refus traîne.
 
-## 2.6 Affecter les moyens et le tarif de fret (Coordinateur Logistique)
+## 2.6 Affecter les moyens (Coordinateur Logistique)
 
-Affecter un véhicule, un chauffeur et un transporteur à une opération suppose qu'ils soient **conformes** - une pièce à jour (assurance, agrément, visite technique...) enregistrée dans l'écran Conformité. Un moyen non conforme ne peut être affecté sans dérogation du DG.
+**Le transporteur ne se choisit plus ici.** Depuis le 22 août 2026, il a déjà été retenu au chiffrage de l'affaire, avec son coût comparé au tarif négocié (§ 2.1) - il s'affiche sur la fiche de l'opération, en lecture seule. Ce qui reste à affecter à ce stade, c'est le **véhicule** et le **chauffeur** précis qui exécuteront réellement cette opération.
 
-Le **fret retenu** est confronté au tarif négocié pour ce transporteur, ce mode et ce trajet (Partie 1, § Référentiel logistique). Sans tarif négocié pour ce transporteur, l'affectation n'est pas bloquée - un transporteur d'appoint doit rester mobilisable un jour de rupture. Mais si un tarif existe et que le montant retenu s'en écarte au-delà de la tolérance négociée (réglée à 0 % par défaut, une règle stricte de la direction), un **motif circonstancié d'au moins dix caractères est exigé** avant d'enregistrer l'affectation. Un écart qu'on ne motive pas aujourd'hui, personne ne saura l'expliquer dans six mois.
+Affecter un véhicule et un chauffeur à une opération suppose qu'ils soient **conformes** - une pièce à jour (assurance, agrément, visite technique...) enregistrée dans l'écran Conformité - tout comme le transporteur retenu au chiffrage, revérifié à cet instant : une conformité valable au chiffrage peut avoir expiré depuis. Un moyen non conforme ne peut être affecté sans dérogation du DG.
 
 ### Lever les exigences du site de livraison
 
@@ -534,7 +536,7 @@ Rôle commercial de première ligne, cantonné au cycle de vente.
 
 Rôle opérationnel, structurellement privé de la vision financière des affaires - une restriction posée au niveau du serveur, pas seulement masquée à l'écran (§ 2.2).
 
-**Peut notamment** : créer une opération à partir d'une affaire approuvée, affecter véhicule/chauffeur/transporteur et le fret (§ 2.5-2.6), lever les exigences du site de livraison, enregistrer un relevé de volume (§ 2.8), rattacher une dérogation HSE ; déposer des documents de conformité ; consulter (sans les valider) les checklists HSE.
+**Peut notamment** : créer une opération à partir d'une affaire approuvée, affecter le véhicule et le chauffeur (§ 2.5-2.6 - le transporteur, lui, vient déjà du chiffrage), lever les exigences du site de livraison, enregistrer un relevé de volume (§ 2.8), rattacher une dérogation HSE ; déposer des documents de conformité ; consulter (sans les valider) les checklists HSE.
 
 **Ne peut jamais** : voir la marge ou le prix d'achat d'une affaire, quel que soit l'écran ; valider ou rejeter une checklist HSE ; encaisser un paiement ni créer une facture ; gérer un compte terrain - « il affecte des agents à des opérations, il ne gouverne pas leurs accès ».
 

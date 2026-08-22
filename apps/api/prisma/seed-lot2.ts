@@ -394,8 +394,6 @@ async function main(): Promise<void> {
         carrierId: carrier.id,
         vehicleId: vehicle.id,
         driverId: driver.id,
-        freightCost: '900000.0000',
-        currencyCode: 'XOF',
         assignedById: logistics.id,
         assignedAt: T('2026-08-06T08:00:00Z'),
       },

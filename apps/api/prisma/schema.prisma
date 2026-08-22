@@ -440,7 +440,6 @@ model Currency {
   // --- Relations inverses du lot 2 ---
   contracts Contract[] @relation("ContractCurrency")
   deals Deal[] @relation("DealCurrency")
-  assignments OperationAssignment[] @relation("AssignmentCurrency")
   purchaseOrders PurchaseOrder[] @relation("PoCurrency")
   operationCostLines OperationCostLine[] @relation("CostLineCurrency")
   dealCostLines      DealCostLine[]     @relation("DealCostLineCurrency")
@@ -2861,6 +2860,11 @@ model OperationAssignment {
   operationId String    @unique @map("operation_id") @db.Uuid
   operation   Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
 
+  /// Transporteur RETENU AU CHIFFRAGE (§ 5.4, déplacé le 22/08/2026) — copié
+  /// depuis le fournisseur de la ligne de coût TRANSPORT de l'affaire, jamais
+  /// choisi ni modifié ici. Conservé sur cette table uniquement pour que la
+  /// vérification de conformité au moment de l'affectation continue de
+  /// porter sur le transporteur réellement engagé.
   carrierId String?  @map("carrier_id") @db.Uuid
   carrier   Partner? @relation("AssignmentCarrier", fields: [carrierId], references: [id], onDelete: Restrict)
   vehicleId String?  @map("vehicle_id") @db.Uuid
@@ -2870,24 +2874,6 @@ model OperationAssignment {
 
   /// Nom du navire, de la barge ou identifiant de ligne pipeline selon le mode.
   vehicleIdentifier String? @map("vehicle_identifier") @db.VarChar(120)
-
-  freightCost   Decimal   @default(0) @map("freight_cost") @db.Decimal(18, 4)
-
-  /// Tarif du transporteur ayant servi de référence, et écart assumé.
-  ///
-  /// Le montant reste saisissable — un déplacement exceptionnel, une attente
-  /// facturée, une négociation ponctuelle existent — mais l'écart au tarif
-  /// négocié doit être MOTIVÉ. C'est la même règle que le barème de coûts, et
-  /// elle est tenue en base.
-  carrierTariffId String? @map("carrier_tariff_id") @db.Uuid
-  /// Montant qu'aurait donné le tarif, FIGÉ au moment de l'affectation : un
-  /// tarif révisé ensuite ne doit pas requalifier un écart déjà motivé.
-  tariffAmount    Decimal? @map("tariff_amount") @db.Decimal(18, 4)
-  tariffTolerancePct Decimal? @map("tariff_tolerance_pct") @db.Decimal(6, 3)
-  freightVarianceReason String? @map("freight_variance_reason") @db.VarChar(500)
-  currencyCode  String    @map("currency_code") @db.Char(3)
-  currency      Currency  @relation("AssignmentCurrency", fields: [currencyCode], references: [code], onDelete: Restrict)
-  fxRateToPivot Decimal   @default(1) @map("fx_rate_to_pivot") @db.Decimal(18, 8)
 
   /// Dérogation obligatoire si l'un des moyens est non conforme — DG seul.
   complianceDerogationId String?     @unique @map("compliance_derogation_id") @db.Uuid
@@ -3489,6 +3475,17 @@ model DealCostLine {
   /// Obligatoire dès que l'écart au barème dépasse la tolérance. Un écart
   /// silencieux est indistinguable d'une erreur de saisie.
   varianceReason String? @map("variance_reason") @db.VarChar(500)
+
+  /// Tarif du transporteur ayant servi de référence, et écart assumé —
+  /// UNIQUEMENT pour le poste TRANSPORT (§ 5.4). Résolu et FIGÉ par le
+  /// trigger au moment du chiffrage : un tarif révisé ensuite ne doit pas
+  /// requalifier un écart déjà motivé. Vient de l'affectation des moyens
+  /// jusqu'au 22/08/2026 — déplacé ici pour que la marge se calcule à un
+  /// seul endroit : le transporteur se choisit désormais au chiffrage, pas
+  /// à la création de l'opération.
+  carrierTariffId    String?  @map("carrier_tariff_id") @db.Uuid
+  tariffAmount       Decimal? @map("tariff_amount") @db.Decimal(18, 4)
+  tariffTolerancePct Decimal? @map("tariff_tolerance_pct") @db.Decimal(6, 3)
 
   currencyCode  String   @map("currency_code") @db.Char(3)
   currency      Currency @relation("DealCostLineCurrency", fields: [currencyCode], references: [code], onDelete: Restrict)

@@ -2,6 +2,7 @@ import { Component, Input, OnChanges, computed, inject, signal } from '@angular/
 import { FormsModule } from '@angular/forms';
 import {
   ApiService,
+  CarrierGuidance,
   CostGuidance,
   DealCostLine,
   DealCostLineInput,
@@ -15,6 +16,8 @@ interface Draft {
   amount: number | null;
   description: string;
   varianceReason: string;
+  /** Transporteur — poste TRANSPORT uniquement (§ 5.4). */
+  carrierId: string | null;
 }
 
 /**
@@ -121,6 +124,52 @@ interface Draft {
                   }
                 </td>
               </tr>
+
+              <!-- ============ Transporteur : poste TRANSPORT uniquement ============
+                   Retenu ICI, au chiffrage, avec son coût comparé au tarif
+                   négocié (§ 5.4, revu le 22/08/2026) — jamais choisi ni
+                   modifié plus tard, à l'affectation des moyens. -->
+              @if (isTransport(l)) {
+                <tr>
+                  <td colspan="7" class="bg-gray-50">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <label class="shrink-0 text-[12px] text-ink-soft" [attr.for]="'carrier-' + $index">
+                        Transporteur
+                      </label>
+                      <select
+                        [id]="'carrier-' + $index"
+                        class="field max-w-xs"
+                        [(ngModel)]="l.carrierId"
+                        (ngModelChange)="onCarrierChange(l)"
+                        [disabled]="status !== 'DRAFT'"
+                      >
+                        <option [ngValue]="null">Choisir</option>
+                        @for (c of carriers(); track c.carrierId) {
+                          <option [ngValue]="c.carrierId">
+                            {{ c.name }}{{ c.isCompliant ? '' : ' (non conforme)' }}
+                          </option>
+                        }
+                      </select>
+                      @if (carrierTariff(l); as t) {
+                        <span class="text-[11px] leading-snug text-ink-faint">
+                          Tarif négocié :
+                          <span class="font-mono font-semibold text-ink">{{ t.expectedAmount }}</span>
+                          {{ t.currencyCode }}
+                          @if (t.basis === 'PER_UNIT') {
+                            ({{ t.unitAmount }}/{{ t.uom }})
+                          } @else {
+                            (forfait)
+                          }
+                        </span>
+                      } @else if (l.carrierId) {
+                        <span class="text-[11px] leading-snug text-warn-ink">
+                          Aucun tarif négocié pour ce transporteur : à compléter au paramétrage.
+                        </span>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              }
 
               <!-- Le motif n'apparaît que s'il est exigé : un champ toujours
                    visible se remplit machinalement et ne veut plus rien dire. -->
@@ -233,6 +282,7 @@ export class DealCostingComponent implements OnChanges {
         amount: Number(l.inputAmount),
         description: l.description ?? '',
         varianceReason: l.varianceReason ?? '',
+        carrierId: l.supplierId,
       })),
     );
     // Le poste est rattaché par son code : le détail ne rend pas l'identifiant.
@@ -242,6 +292,8 @@ export class DealCostingComponent implements OnChanges {
   }
 
   protected readonly posts = signal<CostGuidance[]>([]);
+  /** Tarifs par transporteur, pour le poste TRANSPORT (§ 5.4). */
+  protected readonly carriers = signal<CarrierGuidance[]>([]);
   protected readonly drafts = signal<Draft[]>([]);
   protected readonly busy = signal(false);
   protected readonly dirty = signal(false);
@@ -264,6 +316,44 @@ export class DealCostingComponent implements OnChanges {
       this.posts.set(g.postes);
       this.bindPosts();
     });
+    this.api.carrierGuidance(this.dealId).subscribe((c) => this.carriers.set(c));
+  }
+
+  /** Le poste sélectionné est-il le TRANSPORT, seul concerné par le transporteur ? */
+  protected isTransport(l: Draft): boolean {
+    return this.standard(l)?.code === 'TRANSPORT';
+  }
+
+  /** Le tarif du transporteur choisi pour cette ligne, s'il en a un. */
+  protected carrierTariff(l: Draft): CarrierGuidance['tariff'] | null {
+    return this.carriers().find((c) => c.carrierId === l.carrierId)?.tariff ?? null;
+  }
+
+  /**
+   * À la sélection d'un transporteur, son tarif est PROPOSÉ.
+   * Conserver la proposition doit être le geste par défaut, comme pour le barème.
+   */
+  protected onCarrierChange(l: Draft): void {
+    const t = this.carrierTariff(l);
+    if (t) {
+      l.amount = t.expectedAmount;
+      l.varianceReason = '';
+    }
+    this.touch();
+  }
+
+  /** Écart entre le montant saisi et le tarif négocié, en fraction (0,05 = 5 %). */
+  private carrierGap(l: Draft): number {
+    const t = this.carrierTariff(l);
+    if (!t || t.expectedAmount === 0) return 0;
+    return Math.abs(this.total(l) - t.expectedAmount) / t.expectedAmount;
+  }
+
+  /** Le motif devient obligatoire au-delà de la tolérance du tarif négocié. */
+  protected needsCarrierReason(l: Draft): boolean {
+    const t = this.carrierTariff(l);
+    if (!t) return false;
+    return this.carrierGap(l) > (t.tolerancePct ?? 0) / 100 + 0.0001;
   }
 
   private bindPosts(): void {
@@ -296,6 +386,10 @@ export class DealCostingComponent implements OnChanges {
       l.amount = std.amount;
       l.varianceReason = '';
     }
+    // Le transporteur n'a de sens QUE pour le poste TRANSPORT : un autre
+    // choix de poste ne doit pas laisser traîner un transporteur qui ne le
+    // concerne plus.
+    if (std?.code !== 'TRANSPORT') l.carrierId = null;
     this.touch();
   }
 
@@ -323,7 +417,7 @@ export class DealCostingComponent implements OnChanges {
   protected add(): void {
     this.drafts.update((d) => [
       ...d,
-      { costPostId: '', amount: null, description: '', varianceReason: '' },
+      { costPostId: '', amount: null, description: '', varianceReason: '', carrierId: null },
     ]);
     this.touch();
   }
@@ -369,6 +463,7 @@ export class DealCostingComponent implements OnChanges {
    * conserver ou justifier, il n'y a pas de troisième voie.
    */
   protected needsReason(l: Draft): boolean {
+    if (this.needsCarrierReason(l)) return true;
     const std = this.standard(l);
     if (std?.standardTotal === null || std?.standardTotal === undefined) return false;
     return this.gap(l) > (std.tolerancePct ?? 0) / 100 + 0.0001;
@@ -381,7 +476,8 @@ export class DealCostingComponent implements OnChanges {
   }
 
   protected variancePct(l: Draft): string {
-    return `${(this.gap(l) * 100).toFixed(1)} %`;
+    const ecart = Math.max(this.gap(l), this.carrierGap(l));
+    return `${(ecart * 100).toFixed(1)} %`;
   }
 
   protected varianceClass(l: Draft): string {
@@ -406,6 +502,15 @@ export class DealCostingComponent implements OnChanges {
       this.error.set('Chaque ligne doit porter un poste et une valeur.');
       return;
     }
+    // Vérifié aussi en base (§ 5.4) : autant le dire ici plutôt que de
+    // laisser partir un appel voué au refus.
+    const sansTransporteur = lines.find(
+      (l) => this.isTransport(l) && Number(l.amount) > 0 && !l.carrierId,
+    );
+    if (sansTransporteur) {
+      this.error.set('Un coût de transport engagé exige un transporteur.');
+      return;
+    }
 
     this.busy.set(true);
     this.error.set(null);
@@ -416,6 +521,7 @@ export class DealCostingComponent implements OnChanges {
       basis: this.standard(l)?.basis ?? 'FIXED',
       amount: Number(l.amount),
       description: l.description || undefined,
+      supplierId: l.carrierId ?? undefined,
       varianceReason: l.varianceReason || undefined,
     }));
 

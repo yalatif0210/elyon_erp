@@ -75,3 +75,16 @@ DROP VIEW IF EXISTS v_ullage_statistiques CASCADE;
 DROP VIEW IF EXISTS v_credit_depasse CASCADE;
 DROP VIEW IF EXISTS v_partner_credit_exposure CASCADE;
 DROP VIEW IF EXISTS v_fret_hors_tarif CASCADE;
+
+-- ⚠️ MÊME PROBLÈME, AVEC UN DÉCLENCHEUR PLUTÔT QU'UNE VUE (22/08/2026).
+--
+--    Le DDL généré par Prisma peut vouloir DROP COLUMN sur une colonne que le
+--    corps d'un déclencheur référence explicitement (`NEW.freight_cost`) —
+--    PostgreSQL le refuse pour la même raison qu'une vue. Le fret quittant
+--    `operation_assignments` pour `deal_cost_lines` (§ 5.4), ces déclencheurs
+--    et leurs fonctions doivent être déposés ICI, avant le DDL, pas seulement
+--    à leur emplacement habituel dans `20_tarif_transporteur.sql`.
+DROP TRIGGER IF EXISTS trg_freight_tariff ON operation_assignments;
+DROP FUNCTION IF EXISTS enforce_freight_tariff();
+DROP TRIGGER IF EXISTS trg_carrier_is_carrier ON operation_assignments;
+DROP FUNCTION IF EXISTS enforce_carrier_is_carrier();

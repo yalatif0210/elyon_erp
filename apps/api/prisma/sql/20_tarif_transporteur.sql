@@ -19,6 +19,37 @@
 --     c'est la règle que la direction a posée pour le barème de coûts, et elle
 --     vaut ici pour la même raison.
 --
+--  ⚠️ REVU LE 22/08/2026 — LE FRET SE FIXE DÉSORMAIS AU CHIFFRAGE, PAS À
+--     L'AFFECTATION DES MOYENS.
+--
+--     Le fret vivait sur `operation_assignments`, comparé au tarif du
+--     transporteur choisi à ce moment-là — alors que `deal_cost_lines`
+--     portait déjà, séparément, un chiffrage du même poste comparé au
+--     BARÈME interne (une valeur générique, pas liée à un transporteur).
+--     Deux montants pour un seul coût, dont un seul comptait réellement dans
+--     la marge (l'affectation, matérialisée en `OperationCostLine` système) :
+--     la marge ESTIMÉE au chiffrage ignorait donc le fret réel jusqu'à ce
+--     qu'une opération existe.
+--
+--     Décision de la direction : le transporteur se choisit au chiffrage,
+--     avec son coût. La comparaison au tarif négocié s'y fait aussi,
+--     BLOQUANTE — même règle que le barème juste à côté, jamais un écart
+--     silencieux. Le verrou et ses trois contrôles (transporteur exigé, tarif
+--     comparé, tiers de type transporteur) migrent donc de
+--     `operation_assignments` vers `deal_cost_lines`, sur le SEUL poste dont
+--     le code est TRANSPORT — les autres postes directs (manutention,
+--     inspection...) gardent leur fournisseur facultatif et leur seule
+--     comparaison au barème.
+--
+--     Conséquence assumée : `resolve_carrier_tariff` compare un tarif sur un
+--     trajet à DEUX bouts. Le chiffrage ne connaît que la destination
+--     (`deals.site_id`) — l'origine (quel dépôt charge) est une décision de
+--     sourcing qui n'existe qu'à l'opération. La résolution se fait donc ici
+--     avec une origine NULLE : elle retient un tarif général du transporteur
+--     ou un tarif ne nommant que la destination, jamais un tarif à trajet
+--     complet. Léger recul de précision, accepté comme contrepartie du choix
+--     de tout regrouper au chiffrage.
+--
 --  Injecté dans la migration Prisma — pas de BEGIN/COMMIT.
 -- ===========================================================================
 
@@ -83,60 +114,87 @@ COMMENT ON FUNCTION resolve_carrier_tariff IS
 
 
 -- ---------------------------------------------------------------------------
---  VERROU 1 — un fret suppose un TRANSPORTEUR ENREGISTRÉ.
---
---  Un coût sans contrepartie identifiée ne se rapproche d'aucune facture, ne
---  s'impute à aucun contrat, et ne se conteste devant personne. Le champ était
---  facultatif ; il ne l'est plus dès qu'un montant est engagé.
---
---  Le fret NUL reste admis sans transporteur : un transport pour compte propre
---  ou un enlèvement par le client n'engagent aucun coût externe.
+--  VERROUS 1 À 3 — le poste TRANSPORT d'une affaire suppose un transporteur
+--  enregistré, comparé à son tarif négocié, l'écart motivé au-delà de la
+--  tolérance. Un seul déclencheur porte les trois : ils partagent le même
+--  chemin de lecture (poste, tiers, tarif) et la même ligne à corriger.
 -- ---------------------------------------------------------------------------
-ALTER TABLE operation_assignments
-  DROP CONSTRAINT IF EXISTS chk_assignment_freight_needs_carrier,
-  ADD  CONSTRAINT chk_assignment_freight_needs_carrier
-       CHECK (freight_cost = 0 OR carrier_id IS NOT NULL);
-
-
--- ---------------------------------------------------------------------------
---  VERROU 2 — l'écart au tarif négocié doit être MOTIVÉ.
---
---  Le montant reste saisissable : une attente facturée, un déplacement
---  exceptionnel, une négociation ponctuelle existent. Ce qui ne doit pas
---  exister, c'est un écart SILENCIEUX — celui que personne ne voit passer et
---  que personne ne saura expliquer six mois plus tard.
---
---  La tolérance vient du tarif lui-même. Vide ou nulle : tout écart se motive.
---  C'est la règle STRICTE retenue par la direction pour le barème de coûts.
--- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION enforce_freight_tariff()
+CREATE OR REPLACE FUNCTION enforce_deal_transport_tariff()
 RETURNS TRIGGER AS $$
 DECLARE
-  op        record;
-  t         record;
-  attendu   numeric;
-  ecart_pct numeric;
-  tolerance numeric;
+  poste_code text;
+  aff        record;
+  transporteur_type text;
+  transporteur_nom  text;
+  t          record;
+  attendu    numeric;
+  ecart_pct  numeric;
+  tolerance  numeric;
 BEGIN
-  IF NEW.carrier_id IS NULL OR NEW.freight_cost = 0 THEN
+  SELECT code INTO poste_code FROM cost_posts WHERE id = NEW.cost_post_id;
+
+  -- Cette règle ne porte que sur le poste TRANSPORT. Les autres postes
+  -- directs (manutention, inspection...) gardent un fournisseur facultatif,
+  -- sans comparaison à un tarif de transporteur.
+  IF poste_code IS DISTINCT FROM 'TRANSPORT' THEN
     RETURN NEW;
   END IF;
 
-  SELECT o.transport_mode::text AS mode, o.planned_volume,
-         o.origin_site_id, d.product_id, o.destination_site_id
-    INTO op
-    FROM operations o
-    JOIN deals d ON d.id = o.deal_id
-   WHERE o.id = NEW.operation_id;
+  -- VERROU 1 — un fret engagé suppose un TRANSPORTEUR ENREGISTRÉ.
+  --
+  -- Un coût sans contrepartie identifiée ne se rapproche d'aucune facture, ne
+  -- s'impute à aucun contrat, et ne se conteste devant personne. Le fret NUL
+  -- reste admis sans transporteur : un enlèvement par le client n'engage
+  -- aucun coût externe.
+  IF NEW.estimated_amount > 0 AND NEW.supplier_id IS NULL THEN
+    RAISE EXCEPTION
+      'TRANSPORT : un coût de transport engagé exige un transporteur enregistré comme fournisseur de la ligne.'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF NEW.supplier_id IS NULL THEN
+    NEW.carrier_tariff_id := NULL;
+    NEW.tariff_amount := NULL;
+    NEW.tariff_tolerance_pct := NULL;
+    RETURN NEW;
+  END IF;
+
+  -- VERROU 3 — le transporteur doit être un TIERS DE TYPE TRANSPORTEUR.
+  --
+  -- Rien n'empêche de désigner un client comme fournisseur d'une ligne de
+  -- coût : la clé pointe sur `partners`, qui porte aussi bien les clients
+  -- que les fournisseurs. Sans ce contrôle, une erreur de sélection passait,
+  -- et le rapprochement des coûts la découvrait des mois plus tard.
+  SELECT type::text, legal_name INTO transporteur_type, transporteur_nom
+    FROM partners WHERE id = NEW.supplier_id;
+  IF transporteur_type IS DISTINCT FROM 'CARRIER' THEN
+    RAISE EXCEPTION
+      'TRANSPORTEUR : « % » est enregistré comme %, pas comme transporteur. Le poste TRANSPORT doit être rattaché à un transporteur du référentiel : sans contrepartie identifiée, le coût ne se rapproche d''aucune facture.',
+      COALESCE(transporteur_nom, 'ce tiers'), COALESCE(transporteur_type, 'tiers inconnu')
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- VERROU 2 — l'écart au tarif négocié doit être MOTIVÉ.
+  --
+  -- Le montant reste saisissable : une négociation ponctuelle existe. Ce qui
+  -- ne doit pas exister, c'est un écart SILENCIEUX — celui que personne ne
+  -- voit passer et que personne ne saura expliquer six mois plus tard.
+  --
+  -- ⚠️ ORIGINE NULLE, VOIR L'EN-TÊTE DU FICHIER : le chiffrage ne connaît que
+  --    la destination de l'affaire, jamais le dépôt d'origine (décidé au
+  --    sourcing, à l'opération). Un tarif nommant une origine précise ne
+  --    peut donc jamais s'appliquer ici — c'est le recul de précision assumé.
+  SELECT d.site_id, d.transport_mode::text AS mode, d.product_id, d.contracted_volume
+    INTO aff
+    FROM deals d WHERE d.id = NEW.deal_id;
 
   SELECT * INTO t FROM resolve_carrier_tariff(
-    NEW.carrier_id, op.mode, op.product_id,
-    op.origin_site_id, op.destination_site_id, CURRENT_DATE);
+    NEW.supplier_id, aff.mode, aff.product_id, NULL::uuid, aff.site_id, CURRENT_DATE);
 
   -- Aucun tarif négocié pour ce transporteur : on ne bloque pas. Exiger un
-  -- tarif avant toute affectation empêcherait de travailler avec un
-  -- transporteur d'appoint un jour de rupture — et c'est précisément ce
-  -- jour-là qu'il faut pouvoir rouler.
+  -- tarif avant tout chiffrage empêcherait de travailler avec un
+  -- transporteur d'appoint — et c'est précisément ce jour-là qu'il faut
+  -- pouvoir chiffrer.
   IF t.tariff_id IS NULL THEN
     NEW.carrier_tariff_id := NULL;
     NEW.tariff_amount := NULL;
@@ -144,13 +202,12 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Le tarif RAMENÉ au montant attendu pour cette opération.
   attendu := CASE WHEN t.basis = 'PER_UNIT'
-                  THEN t.amount * COALESCE(op.planned_volume, 0)
+                  THEN t.amount * COALESCE(aff.contracted_volume, 0)
                   ELSE t.amount END;
 
-  -- FIGÉS sur l'affectation : un tarif révisé ensuite ne doit pas requalifier
-  -- un écart déjà motivé.
+  -- FIGÉS au chiffrage : un tarif révisé ensuite ne doit pas requalifier un
+  -- écart déjà motivé.
   NEW.carrier_tariff_id := t.tariff_id;
   NEW.tariff_amount := attendu;
   NEW.tariff_tolerance_pct := t.tolerance_pct;
@@ -160,17 +217,17 @@ BEGIN
   END IF;
 
   tolerance := COALESCE(t.tolerance_pct, 0);
-  ecart_pct := abs(NEW.freight_cost - attendu) / attendu * 100;
+  ecart_pct := abs(NEW.estimated_amount - attendu) / attendu * 100;
 
   IF ecart_pct <= tolerance THEN
     RETURN NEW;
   END IF;
 
-  IF NEW.freight_variance_reason IS NULL
-     OR length(trim(NEW.freight_variance_reason)) < 10 THEN
+  IF NEW.variance_reason IS NULL
+     OR length(trim(NEW.variance_reason)) < 10 THEN
     RAISE EXCEPTION
-      'TARIF TRANSPORT : fret retenu à % contre % au tarif négocié, soit % %% d''écart pour une tolérance de % %%. Un motif circonstancié est exigé : un écart que personne n''explique aujourd''hui, personne ne l''expliquera dans six mois.',
-      round(NEW.freight_cost, 2), round(attendu, 2), round(ecart_pct, 2), round(tolerance, 2)
+      'TARIF TRANSPORT : coût retenu à % contre % au tarif négocié, soit % %% d''écart pour une tolérance de % %%. Un motif circonstancié d''au moins dix caractères est exigé : un écart que personne n''explique aujourd''hui, personne ne l''expliquera dans six mois.',
+      round(NEW.estimated_amount, 2), round(attendu, 2), round(ecart_pct, 2), round(tolerance, 2)
       USING ERRCODE = 'check_violation';
   END IF;
 
@@ -178,49 +235,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS trg_freight_tariff ON operation_assignments;
-CREATE TRIGGER trg_freight_tariff
-  BEFORE INSERT OR UPDATE OF carrier_id, freight_cost, freight_variance_reason
-  ON operation_assignments
-  FOR EACH ROW EXECUTE FUNCTION enforce_freight_tariff();
-
-
--- ---------------------------------------------------------------------------
---  VERROU 3 — le transporteur doit être un TIERS DE TYPE TRANSPORTEUR.
---
---  Rien n'empêchait de désigner un client comme transporteur. La clé étrangère
---  pointe sur `partners`, qui porte aussi bien les clients que les
---  fournisseurs : sans ce contrôle, une erreur de sélection passait, et le
---  rapprochement des coûts la découvrait des mois plus tard.
--- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION enforce_carrier_is_carrier()
-RETURNS TRIGGER AS $$
-DECLARE
-  t text;
-  nom text;
-BEGIN
-  IF NEW.carrier_id IS NULL THEN RETURN NEW; END IF;
-
-  SELECT type::text, legal_name INTO t, nom FROM partners WHERE id = NEW.carrier_id;
-  IF t IS DISTINCT FROM 'CARRIER' THEN
-    RAISE EXCEPTION
-      'TRANSPORTEUR : « % » est enregistré comme %, pas comme transporteur. Le fret doit être rattaché à un transporteur du référentiel : sans contrepartie identifiée, le coût ne se rapproche d''aucune facture.',
-      COALESCE(nom, 'ce tiers'), COALESCE(t, 'tiers inconnu')
-      USING ERRCODE = 'check_violation';
-  END IF;
-
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_carrier_is_carrier ON operation_assignments;
-CREATE TRIGGER trg_carrier_is_carrier
-  BEFORE INSERT OR UPDATE OF carrier_id ON operation_assignments
-  FOR EACH ROW EXECUTE FUNCTION enforce_carrier_is_carrier();
+DROP TRIGGER IF EXISTS trg_deal_transport_tariff ON deal_cost_lines;
+CREATE TRIGGER trg_deal_transport_tariff
+  BEFORE INSERT OR UPDATE OF cost_post_id, supplier_id, estimated_amount, variance_reason
+  ON deal_cost_lines
+  FOR EACH ROW EXECUTE FUNCTION enforce_deal_transport_tariff();
 
 
 -- ---------------------------------------------------------------------------
 --  Le tarif d'un transporteur ne se pose que sur un TRANSPORTEUR.
+--  (Inchangé — ce verrou porte sur `carrier_tariffs` lui-même, jamais sur
+--  l'affectation ni le chiffrage.)
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION enforce_tariff_on_carrier()
 RETURNS TRIGGER AS $$
@@ -259,30 +284,51 @@ ALTER TABLE carrier_tariffs
 
 
 -- ---------------------------------------------------------------------------
---  Frets engagés hors tarif — l'antérieur, et ce qui échappe encore.
+--  Anciens verrous sur `operation_assignments` — déposés.
+--
+--  Le fret ne s'y saisit plus : la table ne porte plus les colonnes
+--  correspondantes (voir schema.prisma, revu le 22/08/2026). Les fonctions
+--  et le déclencheur qui les vérifiaient n'ont donc plus d'objet.
+-- ---------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_freight_tariff ON operation_assignments;
+DROP FUNCTION IF EXISTS enforce_freight_tariff();
+DROP TRIGGER IF EXISTS trg_carrier_is_carrier ON operation_assignments;
+DROP FUNCTION IF EXISTS enforce_carrier_is_carrier();
+
+ALTER TABLE operation_assignments
+  DROP CONSTRAINT IF EXISTS chk_assignment_freight_needs_carrier;
+
+
+-- ---------------------------------------------------------------------------
+--  Coûts de transport engagés hors tarif — l'antérieur, et ce qui échappe
+--  encore. Portait sur `operation_assignments`, porte désormais sur
+--  `deal_cost_lines`, au même titre que tout le reste du chiffrage.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE VIEW v_fret_hors_tarif AS
-SELECT o.reference                         AS operation,
-       p.legal_name                        AS transporteur,
-       a.freight_cost,
-       a.currency_code,
-       a.tariff_amount                     AS tarif_attendu,
-       CASE WHEN a.tariff_amount > 0
-            THEN round(abs(a.freight_cost - a.tariff_amount) / a.tariff_amount * 100, 2)
-            ELSE NULL END                  AS ecart_pct,
-       a.tariff_tolerance_pct              AS tolerance_pct,
-       a.freight_variance_reason           AS motif
-  FROM operation_assignments a
-  JOIN operations o ON o.id = a.operation_id
-  LEFT JOIN partners p ON p.id = a.carrier_id
- WHERE a.freight_cost > 0
-   AND (a.carrier_id IS NULL
-        OR a.carrier_tariff_id IS NULL
-        OR (a.tariff_amount > 0
-            AND abs(a.freight_cost - a.tariff_amount) / a.tariff_amount * 100
-                > COALESCE(a.tariff_tolerance_pct, 0)
-            AND (a.freight_variance_reason IS NULL
-                 OR length(trim(a.freight_variance_reason)) < 10)));
+SELECT d.id                                 AS deal_id,
+       d.reference                          AS affaire,
+       p.legal_name                         AS transporteur,
+       l.estimated_amount                   AS freight_cost,
+       l.currency_code,
+       l.tariff_amount                      AS tarif_attendu,
+       CASE WHEN l.tariff_amount > 0
+            THEN round(abs(l.estimated_amount - l.tariff_amount) / l.tariff_amount * 100, 2)
+            ELSE NULL END                   AS ecart_pct,
+       l.tariff_tolerance_pct               AS tolerance_pct,
+       l.variance_reason                    AS motif
+  FROM deal_cost_lines l
+  JOIN cost_posts cp ON cp.id = l.cost_post_id
+  JOIN deals d ON d.id = l.deal_id
+  LEFT JOIN partners p ON p.id = l.supplier_id
+ WHERE cp.code = 'TRANSPORT'
+   AND l.estimated_amount > 0
+   AND (l.supplier_id IS NULL
+        OR l.carrier_tariff_id IS NULL
+        OR (l.tariff_amount > 0
+            AND abs(l.estimated_amount - l.tariff_amount) / l.tariff_amount * 100
+                > COALESCE(l.tariff_tolerance_pct, 0)
+            AND (l.variance_reason IS NULL
+                 OR length(trim(l.variance_reason)) < 10)));
 
 COMMENT ON VIEW v_fret_hors_tarif IS
-  'Frets engagés sans transporteur, sans tarif négocié, ou s''en écartant sans motif (§ 5.4). Le déclencheur l''empêche désormais ; ceci montre l''antérieur et les transporteurs sans grille.';
+  'Coûts de transport engagés au chiffrage sans transporteur, sans tarif négocié, ou s''en écartant sans motif (§ 5.4). Le déclencheur l''empêche désormais pour toute nouvelle ligne ; ceci montre l''antérieur.';

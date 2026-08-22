@@ -161,8 +161,6 @@ export class BargeService {
         isCompliant: true,
         assignments: {
           select: {
-            freightCost: true,
-            currencyCode: true,
             operation: {
               select: {
                 id: true,
@@ -194,10 +192,24 @@ export class BargeService {
           volumeParUnite[uom] = (volumeParUnite[uom] ?? 0) + Number(a.operation.plannedVolume);
         }
 
+        // ⚠️ LE FRET VIENT DÉSORMAIS DU CHIFFRAGE DE L'AFFAIRE, PAS DE
+        //    L'AFFECTATION (§ 5.4, revu le 22/08/2026) — voir
+        //    `20_tarif_transporteur.sql`. Compté UNE FOIS PAR AFFAIRE, comme
+        //    le revenu ci-dessous : une affaire à plusieurs opérations ne
+        //    doit pas voir son fret additionné autant de fois qu'elle a
+        //    d'opérations, il n'a été chiffré qu'une seule fois.
         let operatingCostPivot = 0;
+        if (dealIds.size > 0) {
+          const fretsChiffres = await this.prisma.dealCostLine.findMany({
+            where: { dealId: { in: [...dealIds] }, costPost: { code: 'TRANSPORT' } },
+            select: { estimatedAmount: true, currencyCode: true },
+          });
+          for (const fret of fretsChiffres) {
+            const rate = await this.pivotRate(fret.currencyCode, pivotCode);
+            operatingCostPivot += Number(fret.estimatedAmount) * rate;
+          }
+        }
         for (const a of barge.assignments) {
-          const rate = await this.pivotRate(a.currencyCode, pivotCode);
-          operatingCostPivot += Number(a.freightCost) * rate;
           for (const line of a.operation.costLines) {
             const lineRate = await this.pivotRate(line.currencyCode, pivotCode);
             operatingCostPivot += Number(line.actualAmount ?? line.estimatedAmount) * lineRate;
