@@ -68,7 +68,12 @@ SELECT 'VALIDATION_PRIX', 'DG', 'BLOQUANT',
        p.legal_name || ' · ' || pr.code,
        'Prix fournisseur à valider : ' || round(sp.unit_price, 2) || ' ' ||
          sp.currency_code || '/' || sp.uom,
-       'referentiels',
+       -- ⚠️ POINTAIT VERS 'referentiels' — UN ÉCRAN DE CONSULTATION EN LECTURE
+       --    SEULE, SANS AUCUN BOUTON. Le bouton Valider (ajouté depuis) vit
+       --    dans Paramétrage, jamais dans ce référentiel-là. Même convention
+       --    que EXERCICE_MANQUANT/DONNEE_BUDGETAIRE ci-dessous : un lien
+       --    générique vers l'écran, pas une présélection du réglage.
+       'parametrage',
        sp.created_at
   FROM supplier_prices sp
   JOIN partners p ON p.id = sp.supplier_id
