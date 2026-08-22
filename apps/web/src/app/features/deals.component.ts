@@ -130,10 +130,10 @@ export function dealStatus(code: string): { label: string; kind: StatusKind } {
               <td class="num font-mono text-ink-soft">{{ volume(d) }}</td>
               <td class="num font-mono text-ink-soft">{{ money(d.unitSalePrice) }}</td>
               <td class="num font-mono" [class]="marginClass(d.estimatedDirectMargin)">
-                {{ perUnit(d, d.estimatedDirectMargin) }}
+                {{ money(d.estimatedDirectMargin) }}
               </td>
               <td class="num font-mono font-semibold" [class]="marginClass(d.estimatedFullMargin)">
-                {{ perUnit(d, d.estimatedFullMargin) }}
+                {{ money(d.estimatedFullMargin) }}
               </td>
               <td class="text-ink-soft">{{ d.owner?.fullName ?? '-' }}</td>
               <td>
@@ -208,13 +208,6 @@ export class DealsComponent implements OnInit {
 
   protected money(value: string): string {
     return formatNumber(Number(value), 2);
-  }
-
-  /** Les montants stockés sont totaux ; la décision se prend à l'unité. */
-  protected perUnit(d: DealRow, total: string): string {
-    const volume = Number(d.contractedVolume);
-    if (volume <= 0) return '-';
-    return formatNumber(Number(total) / volume, 2);
   }
 
   /**
