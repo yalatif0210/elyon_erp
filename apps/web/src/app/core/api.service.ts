@@ -1894,6 +1894,11 @@ export class ApiService {
     return this.http.post(`${this.base}/compliance/records`, body);
   }
 
+  /** Agrément d'Elyon Trading elle-même — jamais un tiers, véhicule ou chauffeur. */
+  addCompanyAccreditation(body: Record<string, unknown>): Observable<unknown> {
+    return this.http.post(`${this.base}/compliance/agrements`, body);
+  }
+
   /**
    * Dépôt du scan, AVANT l'enregistrement qui le référence (§ commentaire de
    * `ComplianceService.uploadDocument`). `FormData` : Angular pose lui-même

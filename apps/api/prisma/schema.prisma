@@ -533,6 +533,7 @@ model User {
   administeredPrices   AdministeredPrice[]  @relation("AdministeredPriceRecorder")
   documentsUploaded    Document[]
   complianceRecords    ComplianceRecord[]   @relation("ComplianceRecorder")
+  companyAccreditationsRecorded CompanyAccreditation[] @relation("CompanyAccreditationRecorder")
   derogationsRequested Derogation[]         @relation("DerogationRequester")
   derogationsGranted   Derogation[]         @relation("DerogationAuthority")
   delegationsGranted   Delegation[]         @relation("DelegationGrantor")
@@ -1776,6 +1777,42 @@ model ComplianceRecord {
   @@map("compliance_records")
 }
 
+/// Agréments et licences d'ELYON TRADING ELLE-MÊME — jamais un tiers, un
+/// véhicule ou un chauffeur (voir `ComplianceRecord`, qui exige au contraire
+/// EXACTEMENT un de ces trois porteurs). Agrément douanier, agrément
+/// ministériel, licence import/export : ce que l'entreprise doit détenir
+/// pour opérer, distinct de ce que ses sous-traitants et leurs moyens
+/// doivent détenir pour être affectés.
+model CompanyAccreditation {
+  id   String         @id @default(uuid()) @db.Uuid
+  type ComplianceType
+
+  reference   String  @db.VarChar(120)
+  issuingBody String? @map("issuing_body") @db.VarChar(160)
+
+  issueDate  DateTime  @map("issue_date") @db.Date
+  expiryDate DateTime? @map("expiry_date") @db.Date
+
+  /// Projection du dernier calcul, comme sur `ComplianceRecord` — la vue de
+  /// suivi refait le calcul à la lecture, cette colonne ne sert que d'index
+  /// et d'affichage (§ compliance_statut_effectif, réutilisée telle quelle).
+  status ComplianceStatus @default(VALID)
+
+  documentId String?   @map("document_id") @db.Uuid
+  document   Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  expiryAlertSentAt DateTime? @map("expiry_alert_sent_at") @db.Timestamptz(3)
+
+  recordedById String? @map("recorded_by_id") @db.Uuid
+  recordedBy   User?   @relation("CompanyAccreditationRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([type, expiryDate])
+  @@map("company_accreditations")
+}
+
 // ============================================================================
 //  HSE — MODÈLES DE CONTRÔLE (paramétrage)
 //  Réf. § 7 — les checklists sont extensibles SANS développement.
@@ -1992,6 +2029,7 @@ model Document {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   complianceRecords ComplianceRecord[]
+  companyAccreditations CompanyAccreditation[]
 
   @@index([type, expiryDate])
   @@index([partnerId, type])

@@ -52,6 +52,10 @@ const SQL_FILES = [
   '14_conformite_dans_le_temps.sql',
   '02_audit_immutability.sql',
   '03_views_and_functions.sql',
+  // Étend v_compliance_expiry_watch (définie juste au-dessus) : doit venir
+  // APRÈS pour que sa propre version l'emporte — CREATE OR REPLACE VIEW,
+  // le dernier qui s'exécute gagne.
+  '40_agrements_entreprise.sql',
   '05_lot2_invariants.sql',
   '06_lot2_views.sql',
   '07_apurement_avances.sql',

@@ -108,6 +108,39 @@ class CreateComplianceDto {
   isBlocking?: boolean;
 }
 
+/**
+ * Agrément de l'ENTREPRISE elle-même — jamais un tiers, un véhicule ou un
+ * chauffeur (`CreateComplianceDto` ci-dessus, qui exige au contraire l'un des
+ * trois). Mêmes champs de fond, sans porteur ni caractère bloquant : rien
+ * n'est encore opposé à une opération sur cette base, seul le suivi
+ * d'échéance est demandé.
+ */
+class CreateCompanyAccreditationDto {
+  @IsEnum(ComplianceType)
+  type!: ComplianceType;
+
+  @IsString()
+  @MaxLength(120)
+  reference!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  issuingBody?: string;
+
+  @IsDateString()
+  issueDate!: string;
+
+  @IsOptional()
+  @IsDateString()
+  expiryDate?: string;
+
+  /** Pièce numérisée, issue du même dépôt préalable que pour un tiers/moyen. */
+  @IsOptional()
+  @IsUUID()
+  documentId?: string;
+}
+
 /** Plafond de sécurité du tuyau, en octets — même principe que le terrain. */
 const PLAFOND_TUYAU = 32 * 1024 * 1024;
 
@@ -316,6 +349,45 @@ export class ComplianceService {
     return piece;
   }
 
+  /**
+   * Agréments d'Elyon Trading elle-même (§ discussion 22/08) — jamais
+   * mélangés à la conformité des tiers, véhicules et chauffeurs : ce ne sont
+   * pas la même chose, et une même liste aurait fait croire à un lien qui
+   * n'existe pas entre l'agrément douanier de l'entreprise et le permis d'un
+   * chauffeur.
+   */
+  agrements() {
+    return this.prisma.companyAccreditation.findMany({
+      orderBy: [{ expiryDate: 'asc' }, { createdAt: 'desc' }],
+      include: { document: { select: { id: true, title: true } } },
+    });
+  }
+
+  async creerAgrement(dto: CreateCompanyAccreditationDto, actorId: string) {
+    const agrement = await this.prisma.companyAccreditation.create({
+      data: {
+        type: dto.type,
+        reference: dto.reference,
+        issuingBody: dto.issuingBody ?? null,
+        issueDate: new Date(dto.issueDate),
+        expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : null,
+        documentId: dto.documentId ?? null,
+        recordedById: actorId,
+      },
+    });
+
+    await this.audit.record({
+      actorType: ActorType.INTERNAL_USER,
+      actorId,
+      action: AuditAction.CREATE,
+      entityType: 'CompanyAccreditation',
+      entityId: agrement.id,
+      after: agrement,
+    });
+
+    return agrement;
+  }
+
   findOne(id: string) {
     return this.prisma.complianceRecord.findUniqueOrThrow({
       where: { id },
@@ -409,6 +481,25 @@ export class ComplianceController {
   @Roles(UserRole.LOGISTICS_COORD, UserRole.CCOO, UserRole.ASSISTANT_DG)
   create(@Body() dto: CreateComplianceDto, @Req() req: { auth: { sub: string } }) {
     return this.service.create(dto, req.auth.sub);
+  }
+
+  /**
+   * Agréments d'Elyon Trading — lecture ouverte aux mêmes rôles que le reste
+   * de la conformité, écriture réservée aux rôles de direction : le
+   * coordinateur logistique gère la conformité des moyens, pas les agréments
+   * de l'entreprise elle-même.
+   */
+  @Get('agrements')
+  @Roles(UserRole.DG, UserRole.CCOO, UserRole.LOGISTICS_COORD, UserRole.FINANCE_CFO, UserRole.ASSISTANT_DG)
+  @Screen('conformite')
+  agrements() {
+    return this.service.agrements();
+  }
+
+  @Post('agrements')
+  @Roles(UserRole.DG, UserRole.CCOO, UserRole.ASSISTANT_DG)
+  creerAgrement(@Body() dto: CreateCompanyAccreditationDto, @Req() req: { auth: { sub: string } }) {
+    return this.service.creerAgrement(dto, req.auth.sub);
   }
 
   @Get('records/:id')

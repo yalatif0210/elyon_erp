@@ -22,6 +22,7 @@ const KIND_LABELS: Record<string, string> = {
   CARRIER: 'Transporteur',
   VEHICLE: 'Véhicule',
   DRIVER: 'Chauffeur',
+  ENTREPRISE: 'Elyon Trading',
 };
 
 /**
@@ -173,6 +174,10 @@ const KIND_LABELS: Record<string, string> = {
               <label class="label" for="porteur">Porteur</label>
               <select id="porteur" class="field" [(ngModel)]="newSubject">
                 <option [ngValue]="''">Choisir</option>
+                <!-- Sentinel sans tiers, véhicule ni chauffeur : l'agrément
+                     porte sur l'entreprise elle-même, pas un sous-traitant ni
+                     l'un de ses moyens (§ discussion 22/08). -->
+                <option [ngValue]="'ENTREPRISE:entreprise'">Elyon Trading : agrément d’entreprise</option>
                 @for (o of rows(); track o.subject_id) {
                   <option [ngValue]="o.subject_kind + ':' + o.subject_id">
                     {{ kindLabel(o.subject_kind) }} · {{ o.subject_label }}
@@ -196,12 +201,14 @@ const KIND_LABELS: Record<string, string> = {
               <label class="label" for="exp">Expire le</label>
               <input id="exp" type="date" class="field" [(ngModel)]="newExpiryDate" />
             </div>
-            <div class="flex items-end pb-2.5">
-              <label class="flex items-center gap-2 text-[13px] text-ink-soft">
-                <input type="checkbox" class="accent-[var(--primary)]" [(ngModel)]="newIsBlocking" />
-                Bloque l’affectation si expirée ou suspendue
-              </label>
-            </div>
+            @if (!estPorteurEntreprise()) {
+              <div class="flex items-end pb-2.5">
+                <label class="flex items-center gap-2 text-[13px] text-ink-soft">
+                  <input type="checkbox" class="accent-[var(--primary)]" [(ngModel)]="newIsBlocking" />
+                  Bloque l’affectation si expirée ou suspendue
+                </label>
+              </div>
+            }
             <div class="md:col-span-3">
               <label class="label" for="scan">Pièce numérisée (facultatif)</label>
               <input
@@ -510,6 +517,11 @@ export class ComplianceComponent implements OnInit {
     });
   }
 
+  /** Vrai quand le porteur choisi est l'entreprise elle-même, pas un tiers/moyen. */
+  protected estPorteurEntreprise(): boolean {
+    return this.newSubject.startsWith('ENTREPRISE:');
+  }
+
   protected addRecord(): void {
     if (this.state.busy()) return;
     const [kind, id] = this.newSubject.split(':');
@@ -519,31 +531,45 @@ export class ComplianceComponent implements OnInit {
     }
     this.state.start();
 
-    this.api
-      .addComplianceRecord({
-        type: this.newType,
-        reference: this.newReference,
-        issuingBody: this.newIssuingBody || undefined,
-        issueDate: this.newIssueDate,
-        expiryDate: this.newExpiryDate || undefined,
-        partnerId: kind === 'CARRIER' ? id : undefined,
-        vehicleId: kind === 'VEHICLE' ? id : undefined,
-        driverId: kind === 'DRIVER' ? id : undefined,
-        documentId: this.uploadedDocumentId ?? undefined,
-        isBlocking: this.newIsBlocking,
-      })
-      .subscribe({
-        next: () => {
-          this.state.succeed('Pièce enregistrée : le statut de conformité est recalculé.');
-          this.newReference = '';
-          this.newIsBlocking = true;
-          this.uploadedDocumentId = null;
-          this.uploadedTitle.set(null);
-          this.reload();
-          this.load();
-        },
-        error: (e: HttpFailure) => this.state.fail(e),
-      });
+    // Deux tables distinctes derrière un seul formulaire : un agrément
+    // d'entreprise n'a ni tiers, ni véhicule, ni chauffeur, et
+    // `chk_compliance_single_owner` refuserait de toute façon une ligne sans
+    // porteur dans `compliance_records` — d'où la route séparée.
+    const requete =
+      kind === 'ENTREPRISE'
+        ? this.api.addCompanyAccreditation({
+            type: this.newType,
+            reference: this.newReference,
+            issuingBody: this.newIssuingBody || undefined,
+            issueDate: this.newIssueDate,
+            expiryDate: this.newExpiryDate || undefined,
+            documentId: this.uploadedDocumentId ?? undefined,
+          })
+        : this.api.addComplianceRecord({
+            type: this.newType,
+            reference: this.newReference,
+            issuingBody: this.newIssuingBody || undefined,
+            issueDate: this.newIssueDate,
+            expiryDate: this.newExpiryDate || undefined,
+            partnerId: kind === 'CARRIER' ? id : undefined,
+            vehicleId: kind === 'VEHICLE' ? id : undefined,
+            driverId: kind === 'DRIVER' ? id : undefined,
+            documentId: this.uploadedDocumentId ?? undefined,
+            isBlocking: this.newIsBlocking,
+          });
+
+    requete.subscribe({
+      next: () => {
+        this.state.succeed('Pièce enregistrée : le statut de conformité est recalculé.');
+        this.newReference = '';
+        this.newIsBlocking = true;
+        this.uploadedDocumentId = null;
+        this.uploadedTitle.set(null);
+        this.reload();
+        this.load();
+      },
+      error: (e: HttpFailure) => this.state.fail(e),
+    });
   }
 
   protected typeLabel(type: string): string {
