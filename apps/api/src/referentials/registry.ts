@@ -435,7 +435,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
     writeRoles: [UserRole.DG, UserRole.IT_ADMIN, UserRole.FINANCE_CFO],
     identity: ['key'],
     caution:
-      'LA LISTE EST FERMÉE : ces réglages sont ceux que le système sait lire. En ajouter un n’a aucun effet, et l’onglet « Ce qui est enregistré » montre les vingt et un qui existent, avec leur valeur et ce à quoi chacun sert. Partez de là, bouton « Modifier », plutôt que de saisir une clé de mémoire. Ils gouvernent des calculs et des règles de sécurité, et s’appliquent dans les trente secondes, SAUF les deux plafonds de débit, qui exigent un redémarrage.',
+      'LA LISTE EST FERMÉE : ces réglages sont ceux que le système sait lire. En ajouter un n’a aucun effet, et l’onglet « Ce qui est enregistré » montre les vingt-six qui existent — posés par défaut sur tout environnement dès l’installation, réglables ensuite ligne par ligne — plus une ligne technique d’installation (PROOF_LOCK_INSTALLED_AT) à ne jamais modifier. Partez du bouton « Modifier » plutôt que de saisir une clé de mémoire. Ils gouvernent des calculs et des règles de sécurité, et s’appliquent dans les trente secondes, SAUF les deux plafonds de débit, qui exigent un redémarrage.',
     fields: [
       // ⚠️ UNE LISTE, ET NON UNE SAISIE LIBRE.
       //

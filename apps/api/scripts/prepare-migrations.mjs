@@ -67,6 +67,10 @@ const SQL_FILES = [
   '19_verrou_credit.sql',
   '20_tarif_transporteur.sql',
   '21_referentiels_administrables.sql',
+  // Valeurs par défaut des réglages système : aucune dépendance d'ordre —
+  // `system_settings` existe depuis le socle Prisma, et `ON CONFLICT DO
+  // NOTHING` ne heurte jamais une valeur déjà réglée par un exploitant.
+  '39_parametres_systeme_par_defaut.sql',
   // Exercice comptable et données budgétaires : AVANT 25, qui les lit, et
   // AVANT 22, dont deux sources de tâches lisent la couverture budgétaire.
   '24_exercice_et_budget.sql',
