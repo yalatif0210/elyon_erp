@@ -184,7 +184,7 @@ Cette partie suit une affaire réelle du premier au dernier jour : le chiffrage,
 
 ## 2.0 Vue d'ensemble : qui fait quoi, dans quel ordre
 
-Avant le détail, la carte du terrain. Une affaire traverse ces étapes dans cet ordre - certaines peuvent se répéter (une affaire donne souvent lieu à plusieurs opérations) :
+Avant le détail, la carte du terrain. Une affaire traverse ces étapes dans cet ordre - certaines peuvent se répéter (une affaire donne souvent lieu à plusieurs opérations). Une exception à cet ordre, expliquée en détail au § 2.10 : **facturer ne dépend que de l'affaire approuvée, jamais d'une opération** - la facturation peut donc démarrer avant, pendant ou après l'exécution des opérations, sans attendre leur clôture.
 
 | Étape | § | Qui agit |
 |---|---|---|
@@ -361,7 +361,9 @@ Un document produit reste rectifiable tant qu'il n'est pas **scellé**. Le scell
 
 ## 2.10 Facturer (CCOO, Directeur Financier, Comptable - Chargé de Clientèle pour la création seule)
 
-Une fois l'opération close, la facture suit un cycle propre à elle :
+**Facturer ne dépend d'aucune opération, ni de sa clôture.** La seule condition posée par la base est que l'**affaire** soit **Approuvée** (§ 2.4) - exactement la même condition que pour créer une opération (§ 2.5). Les deux découlent indépendamment de l'affaire approuvée : chez Elyon, *« le volume commandé est le volume livré »*, la facture ne s'aligne jamais sur l'avancement réel d'une opération. On peut donc facturer avant qu'une opération existe, pendant son exécution, ou après sa clôture - peu importe : rien dans la facture ne référence une opération.
+
+La facture suit un cycle propre à elle :
 
 1. **Création** - une proforma, chiffrée sur l'affaire.
 2. **Conversion** - la proforma devient la facture définitive.
