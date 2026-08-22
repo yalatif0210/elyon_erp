@@ -534,6 +534,19 @@ export class ReferentialsService {
       include[rel.name] = { select: { [cleLisible]: true } };
     }
 
+    // ⚠️ UN TABLEAU SCALAIRE D'UUID (`scalarList: true`) N'EST PAS UNE
+    //    RELATION PRISMA — AUCUN `include` NE PEUT LE RÉSOUDRE.
+    //
+    //    `allowedProductIds` sur un véhicule en est un : la boucle
+    //    précédente l'ignore explicitement (`f.scalarList`), et sans lecture
+    //    séparée, l'écran affichait les UUID bruts — « d16090f6-…,
+    //    e859a8ce-… » — au lieu des codes produit. La résolution se fait donc
+    //    à part, une fois les lignes lues : recherche groupée sur la table
+    //    visée, pas une requête par ligne.
+    const champsListeScalaire = spec.fields.filter(
+      (f) => f.type === 'referenceList' && f.scalarList && f.refTable,
+    );
+
     // ⚠️ LA COUPURE MUETTE À 500 LIGNES EST REMPLACÉE PAR UNE VRAIE PAGINATION.
     //
     //    L'écran affichait « 500 ligne(s) » sans distinguer 500 d'« au moins
@@ -599,6 +612,31 @@ export class ReferentialsService {
       delegate.count({ where }),
     ]);
 
+    // Résolution des tableaux scalaires (§ ci-dessus) : une recherche groupée
+    // par champ, sur l'UNION des identifiants portés par toutes les lignes de
+    // la page — jamais une requête par ligne.
+    const scalarListMaps = new Map<string, Map<string, string>>();
+    for (const f of champsListeScalaire) {
+      const ids = new Set<string>();
+      for (const l of lignes) {
+        for (const id of (l[f.name] as string[] | undefined) ?? []) ids.add(id);
+      }
+      if (ids.size === 0) continue;
+      const cible = findReferential(f.refTable ?? '');
+      const refKey = f.refKey ?? 'code';
+      const delegateCible = (this.prisma as unknown as Record<string, unknown>)[
+        cible?.model ?? ''
+      ] as { findMany: (a: unknown) => Promise<Record<string, unknown>[]> } | undefined;
+      const trouves =
+        (await delegateCible?.findMany({
+          where: { id: { in: [...ids] } },
+          select: { id: true, [refKey]: true },
+        })) ?? [];
+      const map = new Map<string, string>();
+      for (const r of trouves) map.set(r.id as string, String(r[refKey]));
+      scalarListMaps.set(f.name, map);
+    }
+
     // La clé lisible est posée À CÔTÉ de l'identifiant, jamais à sa place :
     // l'écran de consultation montre l'une, la modification a besoin de
     // l'autre.
@@ -613,6 +651,15 @@ export class ReferentialsService {
       for (const [champ, { relation, cle: k }] of Object.entries(relationsListe)) {
         const cibles = l[relation] as Record<string, unknown>[] | undefined;
         if (cibles) lisible[champ] = cibles.map((c) => c[k]).join(', ');
+      }
+      // Tableau scalaire d'UUID : la même jointure, mais depuis la carte
+      // construite ci-dessus plutôt que depuis un `include` Prisma.
+      for (const f of champsListeScalaire) {
+        const valeurs = l[f.name] as string[] | undefined;
+        if (valeurs && valeurs.length > 0) {
+          const map = scalarListMaps.get(f.name);
+          lisible[f.name] = valeurs.map((id) => map?.get(id) ?? id).join(', ');
+        }
       }
       return { ...l, _lisible: lisible };
     });
