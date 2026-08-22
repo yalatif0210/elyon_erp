@@ -1115,6 +1115,8 @@ export interface FieldSpec {
   valueLabels?: Record<string, string>;
   refTable?: string;
   refKey?: string;
+  /** Restreint les choix proposés à ceux qui satisfont ce filtre exact. */
+  refFilter?: Record<string, string>;
   decimals?: number;
   help?: string;
   /** Champs à vider quand ce champ prend l'une des valeurs listées ici. */
@@ -2156,8 +2158,13 @@ export class ApiService {
    * Deux formes de réponse coexistent — tableau nu, ou page pour les tables
    * volumineuses comme les tiers. Les deux sont acceptées.
    */
-  referenceOptions(refTable: string, refKey = 'code'): Observable<ReferenceOption[]> {
-    return this.http.get<unknown>(`${this.base}/referentials/${refTable}`).pipe(
+  referenceOptions(
+    refTable: string,
+    refKey = 'code',
+    refFilter?: Record<string, string>,
+  ): Observable<ReferenceOption[]> {
+    const params = refFilter ?? {};
+    return this.http.get<unknown>(`${this.base}/referentials/${refTable}`, { params }).pipe(
       map((payload) => {
         const rows = Array.isArray(payload)
           ? payload

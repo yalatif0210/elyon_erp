@@ -461,7 +461,7 @@ export class ReferentialsService {
   async parReferentiel(
     key: string,
     role?: UserRole,
-    pagination: { page?: number; pageSize?: number; search?: string } = {},
+    pagination: { page?: number; pageSize?: number; search?: string; filter?: Record<string, string> } = {},
   ) {
     const spec = findReferential(key);
     if (!spec) {
@@ -501,6 +501,7 @@ export class ReferentialsService {
       (m) => m.name.toLowerCase() === spec.model.toLowerCase(),
     );
     const relations: Record<string, { relation: string; cle: string }> = {};
+    const relationsListe: Record<string, { relation: string; cle: string }> = {};
     const include: Record<string, unknown> = {};
 
     for (const f of spec.fields) {
@@ -511,6 +512,25 @@ export class ReferentialsService {
       if (!rel) continue;
       const cleLisible = f.refKey ?? 'code';
       relations[f.name] = { relation: rel.name, cle: cleLisible };
+      include[rel.name] = { select: { [cleLisible]: true } };
+    }
+
+    // ⚠️ UNE `referenceList` PORTÉE PAR UNE VRAIE RELATION (PAS UN TABLEAU
+    //    SCALAIRE) N'ÉTAIT JAMAIS INCLUSE — LA COLONNE RESTAIT VIDE PARTOUT.
+    //
+    //    La boucle ci-dessus ne reconnaît que les références SIMPLES (`xxxId`,
+    //    relation vers UNE ligne). Un modèle de checklist HSE porte ses types
+    //    d'opération par une relation plusieurs-à-plusieurs (`operationTypes`,
+    //    § `relation` sur le champ) : sans `include`, Prisma ne rend aucune
+    //    donnée sur cette relation, et « Ce qui est enregistré » affichait un
+    //    tiret sur toutes les lignes — pas une absence de types couverts, une
+    //    absence de lecture.
+    for (const f of spec.fields) {
+      if (f.type !== 'referenceList' || f.scalarList || !f.relation) continue;
+      const rel = modele?.fields.find((x) => x.kind === 'object' && x.name === f.relation);
+      if (!rel) continue;
+      const cleLisible = f.refKey ?? 'code';
+      relationsListe[f.name] = { relation: rel.name, cle: cleLisible };
       include[rel.name] = { select: { [cleLisible]: true } };
     }
 
@@ -549,14 +569,25 @@ export class ReferentialsService {
       .filter((f) => spec.fields.some((d) => d.name === f.name))
       .map((f) => f.name);
 
+    // ⚠️ LE FILTRE N'ACCEPTE QUE DES COLONNES RÉELLEMENT DÉCLARÉES AU
+    //    RÉFÉRENTIEL — jamais une clé arbitraire venue de l'appelant, qui
+    //    atteindrait sinon une colonne quelconque du modèle Prisma, exposée
+    //    ou non par ce référentiel.
+    const filtre = pagination.filter ?? {};
+    const filtreValide: Record<string, string> = {};
+    for (const [champ, valeur] of Object.entries(filtre)) {
+      if (spec.fields.some((f) => f.name === champ)) filtreValide[champ] = valeur;
+    }
+
     const where =
       recherche && colonnesTexte.length > 0
         ? {
             OR: colonnesTexte.map((c) => ({
               [c]: { contains: recherche, mode: 'insensitive' as const },
             })),
+            ...filtreValide,
           }
-        : {};
+        : filtreValide;
 
     const [lignes, total] = await Promise.all([
       delegate.findMany({
@@ -576,6 +607,12 @@ export class ReferentialsService {
       for (const [champ, { relation, cle: k }] of Object.entries(relations)) {
         const cible = l[relation] as Record<string, unknown> | null | undefined;
         if (cible) lisible[champ] = cible[k];
+      }
+      // Une relation plusieurs-à-plusieurs rend un TABLEAU de lignes, jamais
+      // une seule : la clé lisible de chacune, jointe pour l'affichage.
+      for (const [champ, { relation, cle: k }] of Object.entries(relationsListe)) {
+        const cibles = l[relation] as Record<string, unknown>[] | undefined;
+        if (cibles) lisible[champ] = cibles.map((c) => c[k]).join(', ');
       }
       return { ...l, _lisible: lisible };
     });
@@ -835,8 +872,12 @@ export class ReferentialsController {
    *
    *    La consultation paginée vit sur `/:key/lignes`, au-dessus.
    */
-  async generique(@Param('key') key: string, @Req() req: { auth: { role: UserRole } }) {
-    const page = await this.service.parReferentiel(key, req.auth.role, { pageSize: 0 });
+  async generique(
+    @Param('key') key: string,
+    @Query() filter: Record<string, string>,
+    @Req() req: { auth: { role: UserRole } },
+  ) {
+    const page = await this.service.parReferentiel(key, req.auth.role, { pageSize: 0, filter });
     return page.items;
   }
 }

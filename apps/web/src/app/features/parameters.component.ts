@@ -702,38 +702,57 @@ export class ParametersComponent implements OnInit {
       // Les DEUX natures de référence, singulier et pluriel : elles se
       // présentent différemment à l'écran mais se lisent au même endroit.
       if ((field.type !== 'referenceList' && field.type !== 'reference') || !table) continue;
-      if (table in this.references()) continue;
 
-      // Marqué « en cours » AVANT l'appel : deux champs visant la même table ne
+      // ⚠️ LA CLÉ DE CACHE PORTE LE FILTRE, PAS SEULEMENT LA TABLE.
+      //
+      //    « Transporteur » (vehicles) et « Client » (contracts) visent tous
+      //    deux `partners`, mais avec des `refFilter` différents. Mémoriser
+      //    par table seule aurait servi, au second écran ouvert, la liste
+      //    déjà lue pour le premier — un client dans le choix du
+      //    transporteur, ou l'inverse.
+      const cle = this.cleReference(field);
+      if (cle in this.references()) continue;
+
+      // Marqué « en cours » AVANT l'appel : deux champs visant la même clé ne
       // doivent pas déclencher deux lectures.
-      this.references.update((r) => ({ ...r, [table]: undefined }));
+      this.references.update((r) => ({ ...r, [cle]: undefined }));
 
-      this.api.referenceOptions(table, field.refKey ?? 'code').subscribe({
-        next: (options) => this.references.update((r) => ({ ...r, [table]: options })),
+      this.api.referenceOptions(table, field.refKey ?? 'code', field.refFilter).subscribe({
+        next: (options) => this.references.update((r) => ({ ...r, [cle]: options })),
         // Pas de route de lecture, ou rôle non autorisé à la lire. On n'a alors
         // rien d'honnête à proposer : le champ retombe sur la saisie texte, qui
         // reste acceptée par le serveur — plutôt qu'une liste vide, qui ferait
         // croire qu'il n'y a rien à rattacher.
-        error: () => this.references.update((r) => ({ ...r, [table]: null })),
+        error: () => this.references.update((r) => ({ ...r, [cle]: null })),
       });
     }
+  }
+
+  /**
+   * Clé de mémorisation d'un champ de référence — DOIT rester identique à
+   * celle posée par `loadReferences` : deux champs visant la même table avec
+   * des `refFilter` différents (« Client » et « Transporteur » visent tous
+   * deux `partners`) ne doivent jamais partager une entrée de cache.
+   */
+  private cleReference(f: FieldSpec): string {
+    return f.refFilter ? `${f.refTable}::${JSON.stringify(f.refFilter)}` : (f.refTable ?? '');
   }
 
   /** Liste de références présentable en cases à cocher ? Sinon : saisie texte. */
   protected refPickable(f: FieldSpec): boolean {
     if (f.type !== 'referenceList' || !f.refTable) return false;
-    return this.references()[f.refTable] !== null;
+    return this.references()[this.cleReference(f)] !== null;
   }
 
   /** Référence unique présentable en liste déroulante ? Sinon : saisie texte. */
   protected refOnePickable(f: FieldSpec): boolean {
     if (f.type !== 'reference' || !f.refTable) return false;
-    return this.references()[f.refTable] !== null;
+    return this.references()[this.cleReference(f)] !== null;
   }
 
   /** Les choix lus, ou `undefined` tant que la lecture n'a pas abouti. */
   protected refChoices(f: FieldSpec): ReferenceOption[] | undefined {
-    return this.references()[f.refTable ?? ''] ?? undefined;
+    return this.references()[this.cleReference(f)] ?? undefined;
   }
 
   /**

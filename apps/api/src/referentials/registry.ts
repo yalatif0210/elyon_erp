@@ -107,6 +107,19 @@ export interface FieldSpec {
   refTable?: string;
   refKey?: string;
   /**
+   * Restreint les choix proposés à ceux qui satisfont ce filtre exact.
+   *
+   * ⚠️ SANS LUI, LA LISTE DÉROULANTE PROPOSE TOUT LE RÉFÉRENTIEL, PAS SEULEMENT
+   *    CE QUI Y A SA PLACE.
+   *
+   *    `partners` porte cinq natures (client, prospect, fournisseur,
+   *    transporteur, inspecteur) dans une seule table. Un champ « Fournisseur »
+   *    sans ce filtre proposait aussi bien un client qu'un inspecteur — rien à
+   *    l'écran ne l'aurait empêché, et rien ne l'aurait signalé non plus : le
+   *    prix se serait rattaché à un tiers du mauvais type, silencieusement.
+   */
+  refFilter?: Readonly<Record<string, string>>;
+  /**
    * Vrai lorsque la `referenceList` vise une COLONNE TABLEAU d'identifiants,
    * et non une relation.
    *
@@ -734,6 +747,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         type: 'reference',
         refTable: 'partners',
         refKey: 'code',
+        refFilter: { type: 'CLIENT' },
         required: true,
       },
       { name: 'title', label: 'Intitulé', type: 'string', required: true },
@@ -786,6 +800,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         type: 'reference',
         refTable: 'partners',
         refKey: 'code',
+        refFilter: { type: 'SUPPLIER' },
         required: true,
       },
       {
@@ -841,6 +856,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         type: 'reference',
         refTable: 'partners',
         refKey: 'code',
+        refFilter: { type: 'CLIENT' },
         required: true,
       },
       { name: 'type', label: 'Type', type: 'enum', required: true, values: values(GuaranteeType), valueLabels: FR.GuaranteeType },
@@ -1765,7 +1781,7 @@ export const REFERENTIALS: ReferentialSpec[] = [
         type: 'reference',
         refTable: 'cost-pools',
         refKey: 'code',
-        help: 'Exigé pour un poste INDIRECT, exclu pour un poste DIRECT — voir la contrainte de cohérence en base',
+        help: 'Exigé pour un poste INDIRECT, exclu pour un poste DIRECT : vidé automatiquement si vous choisissez DIRECT.',
       },
       { name: 'allocationBasis', label: 'Assiette d’absorption', type: 'enum', values: values(AllocationBasis), valueLabels: FR.AllocationBasis, help: 'Exigée pour un poste INDIRECT' },
       { name: 'displayOrder', label: 'Ordre d’affichage', type: 'integer', help: 'Rang dans les listes et les écrans : 10 apparaît avant 20. Numérotez de dix en dix pour pouvoir intercaler plus tard sans tout renuméroter. N’a aucun effet sur les calculs.' },

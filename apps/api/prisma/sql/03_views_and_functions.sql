@@ -143,7 +143,15 @@ SELECT
     (COALESCE(b.expired_count, 0) + COALESCE(b.suspended_count, 0)) = 0 AS is_compliant
   FROM partners p
   LEFT JOIN blocking b ON b.partner_id = p.id
- WHERE p.type::text IN ('CARRIER', 'SUPPLIER')
+ -- ⚠️ SUPPLIER RETIRÉ D'ICI — CETTE VUE EST « CONFORMITÉ DES MOYENS DE
+ --    TRANSPORT » (§ 6.4), PAS DES TIERS EN GÉNÉRAL. Un fournisseur de
+ --    produit n'est un moyen de rien : `vehicles.carrier_id`/`drivers.carrier_id`
+ --    ne pointent QUE des partenaires CARRIER (§ le filtre posé sur ces
+ --    champs au registre), donc un fournisseur listé ici n'avait jamais aucun
+ --    véhicule ni chauffeur à compter — il apparaissait seul, toujours
+ --    conforme par construction, dans un onglet « Par moyen » qui n'était pas
+ --    le sien.
+ WHERE p.type::text = 'CARRIER'
 
 UNION ALL
 
