@@ -47,7 +47,7 @@ import { TableauControlesComponent, TableauPagine } from '../shared/tableau';
       >
         @for (r of catalogue(); track r.key; let i = $index) {
           @if (debutDeGroupe(i)) {
-            <p class="nav-label px-[15px]" [class.pt-5]="i > 0">{{ r.group }}</p>
+            <p class="nav-label px-[15px] font-bold text-primary" [class.pt-5]="i > 0">{{ r.group }}</p>
           }
           <button
             type="button"
