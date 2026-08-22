@@ -349,6 +349,7 @@ export interface CreateOperationInput {
   sourcingMode?: string;
   operationTypeIds: string[];
   originLocation: string;
+  originSiteId?: string;
   destinationLocation: string;
   destinationSiteId?: string;
   plannedLoadingDate?: string;

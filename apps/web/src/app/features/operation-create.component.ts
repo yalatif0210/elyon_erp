@@ -4,6 +4,7 @@ import { Router, RouterLink } from '@angular/router';
 import {
   ApiService,
   DealRow,
+  DeliverySite,
   OperationTypeRow,
   Partner,
   ReferentialSpec,
@@ -275,7 +276,23 @@ const TRANSPORT_FIELDS = ['transportMode', 'applicableTransportModes'];
 
           <div>
             <label class="label" for="origine">Origine <span class="text-crit">*</span></label>
-            <input id="origine" class="field" maxlength="200" [(ngModel)]="originLocation" />
+            <select
+              id="origine"
+              class="field"
+              [(ngModel)]="originSiteId"
+              (ngModelChange)="onOriginSiteChange()"
+            >
+              <option value="" disabled>Choisir un site d’approvisionnement</option>
+              @for (s of originSites(); track s.id) {
+                <option [ngValue]="s.id">{{ s.label }}</option>
+              }
+            </select>
+            @if (originSites().length === 0) {
+              <p class="mt-1 text-[11px] text-warn-ink">
+                Aucun site n’est déclaré lieu d’approvisionnement. Il se déclare dans
+                Paramétrage · Sites, usage « Chargement ».
+              </p>
+            }
           </div>
           <div>
             <label class="label" for="dest">
@@ -317,7 +334,11 @@ const TRANSPORT_FIELDS = ['transportMode', 'applicableTransportModes'];
         </div>
 
         <div class="mt-5 flex gap-2">
-          <button class="btn-primary" (click)="submit()" [disabled]="state.busy() || !dealId">
+          <button
+            class="btn-primary"
+            (click)="submit()"
+            [disabled]="state.busy() || !dealId || !originSiteId"
+          >
             {{ state.busy() ? 'Création…' : 'Créer l’opération' }}
           </button>
           <a routerLink="/operations" class="btn-ghost">Annuler</a>
@@ -339,6 +360,8 @@ export class OperationCreateComponent implements OnInit {
   /** Site de l'affaire de rattachement — affiché, jamais choisi ici. */
   protected readonly siteDeLAffaire = signal<string | null>(null);
   protected readonly segment = signal<string | null>(null);
+  /** Sites déclarés lieu d'approvisionnement (usage « Chargement ») — origine possible d'une opération. */
+  protected readonly originSites = signal<{ id: string; label: string; name: string }[]>([]);
 
   /** Registre de paramétrage — seule source d'API pour les énumérations. */
   private readonly catalogue = signal<ReferentialSpec[]>([]);
@@ -349,6 +372,7 @@ export class OperationCreateComponent implements OnInit {
   protected plannedVolume: number | null = null;
   protected uom = '';
   protected transportMode = '';
+  protected originSiteId = '';
   protected originLocation = '';
   protected destinationLocation = '';
   protected plannedLoadingDate = '';
@@ -379,6 +403,23 @@ export class OperationCreateComponent implements OnInit {
     this.api.parameterCatalogue().subscribe((c) => this.catalogue.set(c));
     this.loadTypes(null);
     this.api.partners(1).subscribe((p) => this.partners.set(p.items));
+    // Référentiel autonome, chargé UNE FOIS : les sites d'approvisionnement
+    // ne dépendent pas de l'affaire choisie.
+    this.api.sites('LOADING').subscribe((rows: DeliverySite[]) =>
+      this.originSites.set(
+        rows.map((s) => ({
+          id: s.id,
+          label: `${s.name}${s.city ? ' (' + s.city + ')' : ''}`,
+          name: s.name,
+        })),
+      ),
+    );
+  }
+
+  /** Le lieu en clair transmis au serveur est repris du site choisi. */
+  protected onOriginSiteChange(): void {
+    const site = this.originSites().find((s) => s.id === this.originSiteId);
+    this.originLocation = site?.name ?? '';
   }
 
   protected statusLabel(code: string): string {
@@ -494,6 +535,7 @@ export class OperationCreateComponent implements OnInit {
         // L'ordre du tableau EST le déroulé : aucun tri ne s'intercale ici.
         operationTypeIds: this.sequence().map((t) => t.id),
         originLocation: this.originLocation,
+        originSiteId: this.originSiteId || undefined,
         destinationLocation: this.destinationLocation,
         plannedLoadingDate: this.plannedLoadingDate || undefined,
         productOwnerId: this.productOwnerId || undefined,
