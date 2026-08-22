@@ -214,7 +214,8 @@ export interface FieldOperationDetail {
   clientLegalName: string;
   site: { id: string; name: string; city: string | null } | null;
   product: FieldProductView;
-  means: FieldMeansView | null;
+  /** Un véhicule par ligne — plusieurs quand la capacité d'un seul ne couvre pas le volume prévu. */
+  means: FieldMeansView[];
   hse: {
     riskLevel: HseRiskLevel;
     validatedAt: Date | null;
@@ -591,7 +592,9 @@ export class FieldOperationsService {
           },
         },
         destinationSite: { select: { id: true, name: true, city: true } },
-        assignment: {
+        // Un véhicule par ligne (§ 22/08/2026) — plusieurs quand la capacité
+        // d'un seul ne couvre pas le volume prévu.
+        assignments: {
           select: {
             vehicleIdentifier: true,
             carrier: { select: { legalName: true } },
@@ -649,7 +652,6 @@ export class FieldOperationsService {
     // apprendrait à qui sonde les identifiants lesquels existent.
     if (!operation) throw new NotFoundException(notFoundMessage(id));
 
-    const assignment = operation.assignment;
     const product = operation.deal.product;
 
     return {
@@ -680,15 +682,14 @@ export class FieldOperationsService {
         flashPointC: toNumberOrNull(product.flashPointC),
         maxSulphurPct: toNumberOrNull(product.maxSulphurPct),
       },
-      means: assignment
-        ? {
-            carrierName: assignment.carrier?.legalName ?? null,
-            vehicleRegistration: assignment.vehicle?.registration ?? null,
-            vehicleIdentifier: assignment.vehicleIdentifier,
-            driverName: assignment.driver?.fullName ?? null,
-            driverPhone: assignment.driver?.phone ?? null,
-          }
-        : null,
+      // Un moyen par ligne, dans l'ordre où ils ont été affectés.
+      means: operation.assignments.map((a) => ({
+        carrierName: a.carrier?.legalName ?? null,
+        vehicleRegistration: a.vehicle?.registration ?? null,
+        vehicleIdentifier: a.vehicleIdentifier,
+        driverName: a.driver?.fullName ?? null,
+        driverPhone: a.driver?.phone ?? null,
+      })),
       hse: {
         riskLevel: operation.hseRiskLevel,
         validatedAt: operation.hseValidatedAt,

@@ -1,5 +1,6 @@
 import { Component, computed, EventEmitter, Input, Output, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import {
   ApiService,
   DeviseOption,
@@ -19,6 +20,13 @@ import {
 import { DerogationInlineComponent } from '../shared/derogation-inline.component';
 import { IconComponent } from '../shared/icon.component';
 import { MontantDirective } from '../shared/montant.directive';
+
+/** Une ligne d'affectation en cours de saisie — un véhicule, son chauffeur. */
+interface MoyenDraft {
+  vehicleId: string;
+  driverId: string;
+  complianceDerogationId: string | null;
+}
 
 /** Étapes offertes, dans l'ordre où elles se présentent réellement. */
 const NEXT_STEPS: { to: string; label: string }[] = [
@@ -60,6 +68,53 @@ const NEXT_STEPS: { to: string; label: string }[] = [
       <div class="card-body">
         <erp-action-feedback [error]="state.error()" [success]="state.done()" />
 
+        <!-- ============ Suppression du brouillon (§ 22/08/2026) ============
+             Réservée au DRAFT — même règle et même geste en deux temps que
+             pour une affaire (deal-approval.component.ts) : aucune décision
+             n'a encore été engagée, rien d'autre ne se supprime. -->
+        @if (operation.status === 'DRAFT') {
+          <div class="mb-4 flex justify-end">
+            <button
+              type="button"
+              class="btn-ghost text-crit"
+              (click)="showDeleteConfirm.set(!showDeleteConfirm())"
+              [disabled]="state.busy()"
+            >
+              <erp-icon name="trash-2" [size]="14" />
+              Supprimer le brouillon
+            </button>
+          </div>
+          @if (showDeleteConfirm()) {
+            <div class="mb-4 rounded-[3px] border border-crit/30 bg-crit-wash px-3 py-3">
+              <h3 class="mb-1 text-[13px] font-semibold text-crit">
+                Supprimer {{ operation.reference }} ?
+              </h3>
+              <p class="mb-2 text-[12px] text-ink-soft">
+                Aucune décision n’a encore été engagée sur cette opération : rien ne se supprime
+                au-delà du brouillon lui-même. L’action est définitive.
+              </p>
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  class="btn-ghost border-crit/50 text-crit"
+                  [disabled]="state.busy()"
+                  (click)="supprimer()"
+                >
+                  Confirmer la suppression
+                </button>
+                <button
+                  type="button"
+                  class="btn-ghost"
+                  [disabled]="state.busy()"
+                  (click)="showDeleteConfirm.set(false)"
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          }
+        }
+
         <!-- CORRIGÉ : les formulaires restaient affichés sur une opération
              clôturée ou annulée, sans aucune condition de statut.
              L'affectation des moyens et le relevé de volume proposaient leurs
@@ -85,8 +140,8 @@ const NEXT_STEPS: { to: string; label: string }[] = [
              négocié (§ 5.4, revu le 22/08/2026) — plus choisi ni modifiable
              ici.
 
-             ⚠️ CORRIGÉ — operation.assignment?.carrier reste NUL tant que
-                le coordinateur n'a pas affecté véhicule et chauffeur : ce
+             ⚠️ CORRIGÉ — operation.assignments[0]?.carrier reste NUL tant que
+                le coordinateur n'a pas affecté un premier véhicule : ce
                 geste est ce qui COPIE le transporteur sur l'affectation. Le
                 lire uniquement là annonçait « aucun » pour une affaire dont
                 le chiffrage avait pourtant retenu un transporteur, simplement
@@ -98,60 +153,128 @@ const NEXT_STEPS: { to: string; label: string }[] = [
           </span>
         </p>
 
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div>
-            <label class="label" for="vehicle">Véhicule</label>
-            <select id="vehicle" class="field" [(ngModel)]="vehicleId">
-              <option [ngValue]="''">Choisir</option>
-              @for (v of subjects('VEHICLE'); track v.subject_id) {
-                <option [ngValue]="v.subject_id">
-                  {{ v.subject_code }} · {{ v.subject_label
-                  }}{{ v.is_compliant ? '' : ' (non conforme)' }}
-                </option>
+        <!-- ============ Un véhicule par ligne (§ 22/08/2026) ============
+             Un volume qui dépasse la capacité d'une seule citerne en mobilise
+             plusieurs, chacune avec son propre chauffeur. La base valide la
+             capacité CUMULÉE à l'enregistrement (message précis en cas
+             d'insuffisance) — aucun aperçu n'est recalculé ici : la
+             conformité (ComplianceSubject) ne porte pas la capacité, et
+             ce n'est de toute façon pas elle qui décide. -->
+        @for (m of moyens(); track $index; let i = $index) {
+          <div class="mb-3 rounded-[3px] border border-rule-strong p-3">
+            <div class="mb-2 flex items-center justify-between">
+              <span class="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+                Véhicule {{ i + 1 }}
+              </span>
+              @if (moyens().length > 1) {
+                <button
+                  type="button"
+                  class="text-[11px] text-crit hover:underline"
+                  [disabled]="state.busy()"
+                  (click)="retirerMoyen(i)"
+                >
+                  Retirer
+                </button>
               }
-            </select>
-          </div>
-          <div>
-            <label class="label" for="driver">Chauffeur</label>
-            <select id="driver" class="field" [(ngModel)]="driverId">
-              <option [ngValue]="''">Choisir</option>
-              @for (d of subjects('DRIVER'); track d.subject_id) {
-                <option [ngValue]="d.subject_id">
-                  {{ d.subject_label }}{{ d.is_compliant ? '' : ' (non conforme)' }}
-                </option>
-              }
-            </select>
-          </div>
-        </div>
-
-        <!-- ============ Dérogation de conformité (§ 11.2, § 11.4) ============
-             ⚠️ CORRIGÉ — complianceDerogationId existait sur le DTO d'affectation
-                depuis toujours, sans aucun chemin pour le renseigner : un moyen non
-                conforme sélectionné ci-dessus était refusé par la base, sans que
-                le DG puisse jamais lever le verrou depuis l'écran. -->
-        @if (moyenNonConforme(); as label) {
-          @if (isDg()) {
-            <div class="mt-3">
-              <erp-derogation-inline
-                type="TRANSPORT_NON_COMPLIANCE"
-                subjectType="OperationAssignment"
-                [subjectId]="operation.reference"
-                [subjectLabel]="operation.reference"
-                [titre]="label + ' n’est pas conforme : dérogation du DG obligatoire'"
-                (accorde)="complianceDerogationId.set($event)"
-              />
             </div>
-          } @else if (!complianceDerogationId()) {
-            <p class="mt-3 rounded-[3px] bg-crit-wash px-3 py-2 text-[12px] text-crit">
-              {{ label }} n’est pas conforme. Seul le DG peut accorder la dérogation qui permet de
-              l’affecter malgré tout.
-            </p>
-          }
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label class="label" [for]="'vehicle-' + i">Véhicule</label>
+                <select
+                  [id]="'vehicle-' + i"
+                  class="field"
+                  [ngModel]="m.vehicleId"
+                  (ngModelChange)="setMoyen(i, 'vehicleId', $event)"
+                >
+                  <option [ngValue]="''">Choisir</option>
+                  @for (v of subjects('VEHICLE'); track v.subject_id) {
+                    <option [ngValue]="v.subject_id">
+                      {{ v.subject_code }} · {{ v.subject_label
+                      }}{{ v.is_compliant ? '' : ' (non conforme)' }}
+                    </option>
+                  }
+                </select>
+              </div>
+              <div>
+                <label class="label" [for]="'driver-' + i">Chauffeur</label>
+                <select
+                  [id]="'driver-' + i"
+                  class="field"
+                  [ngModel]="m.driverId"
+                  (ngModelChange)="setMoyen(i, 'driverId', $event)"
+                >
+                  <option [ngValue]="''">Choisir</option>
+                  @for (d of subjects('DRIVER'); track d.subject_id) {
+                    <option [ngValue]="d.subject_id">
+                      {{ d.subject_label }}{{ d.is_compliant ? '' : ' (non conforme)' }}
+                    </option>
+                  }
+                </select>
+              </div>
+            </div>
+
+            <!-- ============ Dérogation de conformité (§ 11.2, § 11.4) ============
+                 Une seule dérogation par ligne couvre transporteur, véhicule
+                 ET chauffeur de CETTE ligne (le trigger enforce_assignment_
+                 compliance ne distingue pas le sujet visé) — pas besoin
+                 d'une dérogation par sujet non conforme. -->
+            @if (moyenNonConforme(i); as label) {
+              @if (isDg()) {
+                <div class="mt-3">
+                  <erp-derogation-inline
+                    type="TRANSPORT_NON_COMPLIANCE"
+                    subjectType="OperationAssignment"
+                    [subjectId]="operation.reference + '-' + (i + 1)"
+                    [subjectLabel]="operation.reference"
+                    [titre]="label + ' n’est pas conforme : dérogation du DG obligatoire'"
+                    (accorde)="setMoyen(i, 'complianceDerogationId', $event)"
+                  />
+                </div>
+              } @else if (!m.complianceDerogationId) {
+                <p class="mt-3 rounded-[3px] bg-crit-wash px-3 py-2 text-[12px] text-crit">
+                  {{ label }} n’est pas conforme. Seul le DG peut accorder la dérogation qui
+                  permet de l’affecter malgré tout.
+                </p>
+              }
+            }
+          </div>
         }
 
-        <button class="btn-primary mt-3" (click)="assign()" [disabled]="state.busy()">
-          Affecter les moyens
-        </button>
+        <div class="flex gap-2">
+          <button type="button" class="btn-ghost" [disabled]="state.busy()" (click)="ajouterMoyen()">
+            <erp-icon name="plus" [size]="13" />
+            Ajouter un véhicule
+          </button>
+          <button class="btn-primary" (click)="assign()" [disabled]="state.busy()">
+            Enregistrer l’affectation
+          </button>
+        </div>
+
+        <!-- ============ Agent terrain (§ 22/08/2026) ============
+             ⚠️ CORRIGÉ — RIEN NE PERMETTAIT DE LE RENSEIGNER.
+                Operation.fieldAgentId existe depuis toujours et conditionne
+                tout ce qu'un agent voit sur sa tablette
+                (FieldScopeService.where()) : sans ce geste, aucun agent
+                terrain ne pouvait jamais voir aucune opération. -->
+        <h3 class="mb-2 mt-6 text-[13px] font-semibold text-ink">Agent terrain</h3>
+        <p class="mb-3 text-[11px] leading-relaxed text-ink-faint">
+          C’est ce qui rend l’opération visible sur sa tablette : sans agent affecté, elle
+          n’apparaît nulle part côté terrain.
+        </p>
+        <div class="flex items-end gap-2">
+          <div class="flex-1">
+            <label class="label" for="field-agent">Agent affecté</label>
+            <select id="field-agent" class="field" [(ngModel)]="fieldAgentId">
+              <option [ngValue]="''">Aucun</option>
+              @for (a of fieldAgents(); track a.id) {
+                <option [ngValue]="a.id">{{ a.fullName }}</option>
+              }
+            </select>
+          </div>
+          <button class="btn-ghost" (click)="affecterAgent()" [disabled]="state.busy()">
+            Affecter
+          </button>
+        </div>
 
         <!-- ============ Exigences du site de livraison ============
              Elles se saisissent au référentiel des SITES ; ici on les lève.
@@ -382,6 +505,7 @@ export class OperationActionsComponent {
     this.api.devises().subscribe((l) => this.devises.set(l));
   }
   private readonly auth = inject(AuthService);
+  private readonly router = inject(Router);
 
   /**
    * Le DOSSIER complet, pas la ligne de liste : cet écran a besoin du site de
@@ -397,9 +521,8 @@ export class OperationActionsComponent {
   protected readonly steps = NEXT_STEPS;
   protected readonly compliance = signal<ComplianceSubject[]>([]);
 
-  protected vehicleId = '';
-  protected driverId = '';
-  protected readonly complianceDerogationId = signal<string | null>(null);
+  /** Une ligne par véhicule (§ 22/08/2026) ; au moins une, vide par défaut. */
+  protected readonly moyens = signal<MoyenDraft[]>([{ vehicleId: '', driverId: '', complianceDerogationId: null }]);
 
   /** Note de levée, par exigence — saisie avant d'attester. */
   protected notesExigence: Record<string, string> = {};
@@ -443,6 +566,10 @@ export class OperationActionsComponent {
   protected costAmount: number | null = null;
   protected readonly costPosts = signal<CostPostRow[]>([]);
 
+  protected readonly showDeleteConfirm = signal(false);
+  protected fieldAgentId = '';
+  protected readonly fieldAgents = signal<{ id: string; fullName: string }[]>([]);
+
   private loadedOnce = false;
 
   ngOnChanges(): void {
@@ -452,6 +579,53 @@ export class OperationActionsComponent {
     // dérivé des pièces à échéance, jamais stocké sur le moyen lui-même.
     this.api.complianceOverview().subscribe((c) => this.compliance.set(c));
     this.api.costPosts2().subscribe((c) => this.costPosts.set(c));
+    this.api.fieldAgents().subscribe((a) => this.fieldAgents.set(a));
+    this.fieldAgentId = this.operation.fieldAgentId ?? '';
+    // Reprend les affectations déjà enregistrées — sans quoi ajouter un
+    // second véhicule à une opération qui en a déjà un obligerait à
+    // ressaisir le premier (`setAssignments` remplace tout).
+    if (this.operation.assignments.length > 0) {
+      this.moyens.set(
+        this.operation.assignments.map((a) => ({
+          vehicleId: a.vehicleId ?? '',
+          driverId: a.driverId ?? '',
+          complianceDerogationId: null,
+        })),
+      );
+    }
+  }
+
+  protected affecterAgent(): void {
+    if (this.state.busy()) return;
+    this.state.start();
+    this.api.setFieldAgent(this.operation.id, this.fieldAgentId || null).subscribe({
+      next: () => {
+        this.state.succeed('Agent terrain affecté.');
+        this.changed.emit();
+      },
+      error: (e: HttpFailure) => this.state.fail(e),
+    });
+  }
+
+  protected supprimer(): void {
+    if (this.state.busy()) return;
+    this.state.start();
+    this.api.deleteOperation(this.operation.id).subscribe({
+      next: () => void this.router.navigateByUrl('/operations'),
+      error: (e: HttpFailure) => this.state.fail(e),
+    });
+  }
+
+  protected ajouterMoyen(): void {
+    this.moyens.update((m) => [...m, { vehicleId: '', driverId: '', complianceDerogationId: null }]);
+  }
+
+  protected retirerMoyen(index: number): void {
+    this.moyens.update((m) => m.filter((_, i) => i !== index));
+  }
+
+  protected setMoyen<K extends keyof MoyenDraft>(index: number, champ: K, valeur: MoyenDraft[K]): void {
+    this.moyens.update((m) => m.map((ligne, i) => (i === index ? { ...ligne, [champ]: valeur } : ligne)));
   }
 
   /** L'acquittement d'un écart est réservé au CCOO, au CFO et au DG (§ 8.3). */
@@ -534,23 +708,25 @@ export class OperationActionsComponent {
   }
 
   protected carrierRetenu(): string | null {
-    return (this.operation.assignment?.carrier ?? this.carrierChiffrage())?.legalName ?? null;
+    return (this.operation.assignments[0]?.carrier ?? this.carrierChiffrage())?.legalName ?? null;
   }
 
   /**
-   * Le premier moyen non conforme, désigné par son libellé.
+   * Le moyen non conforme de LA LIGNE `i`, désigné par son libellé.
    *
    * Le transporteur n'est plus SÉLECTIONNÉ ici : il vient du chiffrage de
-   * l'affaire (§ 5.4). Sa conformité se vérifie donc sur celui déjà retenu,
-   * pas sur un choix fait à cet écran — et ce, dès le chiffrage, avant même
-   * qu'une affectation de moyens existe sur l'opération.
+   * l'affaire (§ 5.4), le MÊME sur toutes les lignes. Sa conformité s'ajoute
+   * donc à celle du véhicule et du chauffeur propres à cette ligne — une
+   * seule dérogation par ligne couvre les trois, le trigger ne distingue pas
+   * le sujet visé.
    */
-  protected moyenNonConforme(): string | null {
-    if (this.complianceDerogationId()) return null;
+  protected moyenNonConforme(i: number): string | null {
+    const m = this.moyens()[i];
+    if (!m || m.complianceDerogationId) return null;
     const selection = [
-      { id: (this.operation.assignment?.carrier ?? this.carrierChiffrage())?.id ?? null, kind: 'CARRIER' as const },
-      { id: this.vehicleId, kind: 'VEHICLE' as const },
-      { id: this.driverId, kind: 'DRIVER' as const },
+      { id: (this.operation.assignments[0]?.carrier ?? this.carrierChiffrage())?.id ?? null, kind: 'CARRIER' as const },
+      { id: m.vehicleId, kind: 'VEHICLE' as const },
+      { id: m.driverId, kind: 'DRIVER' as const },
     ];
     for (const s of selection) {
       if (!s.id) continue;
@@ -560,25 +736,29 @@ export class OperationActionsComponent {
     return null;
   }
 
+  /**
+   * REMPLACE intégralement les affectations existantes (§ 22/08/2026) — une
+   * ligne par véhicule, comme `setDealCostLines` remplace les lignes de coût.
+   * Les lignes sans véhicule NI chauffeur sont ignorées : un rang ajouté par
+   * erreur ne doit pas créer une affectation vide.
+   */
   protected assign(): void {
     if (this.state.busy()) return;
     this.state.start();
-    this.api
-      .assignMeans(this.operation.id, {
-        vehicleId: this.vehicleId || undefined,
-        driverId: this.driverId || undefined,
-        ...(this.complianceDerogationId()
-          ? { complianceDerogationId: this.complianceDerogationId()! }
-          : {}),
-      })
-      .subscribe({
-        next: () => {
-          this.state.succeed('Moyens affectés.');
-          this.complianceDerogationId.set(null);
-          this.changed.emit();
-        },
-        error: (e: HttpFailure) => this.state.fail(e),
-      });
+    const lignes = this.moyens()
+      .filter((m) => m.vehicleId || m.driverId)
+      .map((m) => ({
+        vehicleId: m.vehicleId || undefined,
+        driverId: m.driverId || undefined,
+        ...(m.complianceDerogationId ? { complianceDerogationId: m.complianceDerogationId } : {}),
+      }));
+    this.api.setAssignments(this.operation.id, lignes).subscribe({
+      next: () => {
+        this.state.succeed('Affectation enregistrée.');
+        this.changed.emit();
+      },
+      error: (e: HttpFailure) => this.state.fail(e),
+    });
   }
 
   protected move(to: string, label: string): void {

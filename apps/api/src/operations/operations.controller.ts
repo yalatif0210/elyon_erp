@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Injectable,
   Param,
@@ -15,6 +16,7 @@ import {
   ActorType,
   AuditAction,
   CommercialSegment,
+  FieldRole,
   MeasurementSource,
   OperationStatus,
   SourcingMode,
@@ -135,6 +137,11 @@ export class TransitionDto {
   @IsOptional() @IsString() @MaxLength(1000) reason?: string;
 }
 
+/** Nul = retire l'affectation, sans en remettre une autre. */
+class SetFieldAgentDto {
+  @IsOptional() @IsUUID() fieldAgentId?: string | null;
+}
+
 class AttachHseDerogationDto {
   @IsUUID() derogationId!: string;
 }
@@ -234,7 +241,7 @@ export class OperationsService {
               product: { select: { code: true, name: true } },
             },
           },
-          assignment: {
+          assignments: {
             select: {
               vehicleIdentifier: true,
               vehicle: { select: { registration: true } },
@@ -265,9 +272,9 @@ export class OperationsService {
             product: { select: { code: true, name: true } },
             // Transporteur retenu AU CHIFFRAGE (§ 5.4) — connu dès l'affaire
             // approuvée, bien avant qu'une affectation de moyens existe sur
-            // l'opération. `assignment.carrier` (plus bas) ne le reprend que
-            // lorsque le coordinateur affecte véhicule et chauffeur ; avant
-            // ce geste, c'est ICI qu'il faut le lire.
+            // l'opération. `assignments[].carrier` (plus bas) ne le reprend
+            // que lorsque le coordinateur affecte véhicule et chauffeur ;
+            // avant ce geste, c'est ICI qu'il faut le lire.
             costLines: {
               where: { costPost: { code: 'TRANSPORT' } },
               select: { supplier: { select: { id: true, legalName: true } } },
@@ -275,7 +282,9 @@ export class OperationsService {
           },
         },
         productOwner: { select: { code: true, legalName: true } },
-        assignment: {
+        // Un véhicule par ligne (§ 22/08/2026) — plusieurs quand la capacité
+        // d'un seul ne couvre pas le volume prévu.
+        assignments: {
           include: {
             // Le statut de conformité ne se stocke pas sur le moyen : il se
             // DÉRIVE des pièces à échéance. On remonte donc les pièces
@@ -516,18 +525,29 @@ export class OperationsService {
   /**
    * Affectation des moyens — porte le verrou de conformité.
    *
-   * Rien n'est vérifié ici : le trigger `enforce_assignment_compliance` lit
-   * le statut de conformité dérivé des pièces à échéance et refuse
-   * l'affectation sans dérogation du DG.
+   * ⚠️ PLUSIEURS VÉHICULES, REVU LE 22/08/2026.
+   *
+   *    Un volume qui dépasse la capacité d'une seule citerne en mobilise
+   *    PLUSIEURS, chacune avec son propre chauffeur : `lignes` remplace
+   *    intégralement les affectations existantes, comme
+   *    `DealsService.setCostLines` remplace les lignes de coût d'une affaire
+   *    — suppression puis recréation, dans UNE transaction. Le trigger
+   *    `enforce_vehicle_capacity` (SQL) est DIFFÉRÉ exactement pour cette
+   *    raison : il ne juge la capacité CUMULÉE qu'au commit, quand toutes les
+   *    lignes de ce remplacement sont en place.
+   *
+   *    Rien d'autre n'est vérifié ici : `enforce_assignment_compliance` et
+   *    `enforce_vehicle_allowed_products` lisent, PAR LIGNE, le statut de
+   *    conformité dérivé des pièces à échéance et refusent l'affectation sans
+   *    dérogation du DG.
    */
-  async assign(operationId: string, dto: AssignMeansDto, actorId: string) {
+  async setAssignments(operationId: string, lignes: AssignMeansDto[], actorId: string) {
     // ⚠️ LE TRANSPORTEUR N'EST PLUS CHOISI ICI — REVU LE 22/08/2026.
     //
     //    Il vient de la ligne de coût TRANSPORT de l'affaire, retenue au
     //    chiffrage, jamais ressaisi ni modifiable à l'affectation des moyens.
-    //    Recopié en lecture seule pour que la vérification de conformité du
-    //    transporteur, au moment de l'affectation, continue de porter sur le
-    //    bon tiers.
+    //    Recopié en lecture seule, SUR CHAQUE LIGNE, pour que la vérification
+    //    de conformité du transporteur continue de porter sur le bon tiers.
     const operationDeal = await this.prisma.operation.findUniqueOrThrow({
       where: { id: operationId },
       select: { dealId: true },
@@ -536,33 +556,114 @@ export class OperationsService {
       where: { dealId: operationDeal.dealId, costPost: { code: 'TRANSPORT' } },
       select: { supplierId: true },
     });
+    const carrierId = posteTransport?.supplierId ?? null;
+    const assignedAt = new Date();
 
-    const data = {
-      carrierId: posteTransport?.supplierId ?? null,
-      vehicleId: dto.vehicleId ?? null,
-      driverId: dto.driverId ?? null,
-      vehicleIdentifier: dto.vehicleIdentifier ?? null,
-      complianceDerogationId: dto.complianceDerogationId ?? null,
-      assignedById: actorId,
-      assignedAt: new Date(),
-    };
+    await this.prisma.$transaction([
+      this.prisma.operationAssignment.deleteMany({ where: { operationId } }),
+      this.prisma.operationAssignment.createMany({
+        data: lignes.map((l) => ({
+          operationId,
+          carrierId,
+          vehicleId: l.vehicleId ?? null,
+          driverId: l.driverId ?? null,
+          vehicleIdentifier: l.vehicleIdentifier ?? null,
+          complianceDerogationId: l.complianceDerogationId ?? null,
+          assignedById: actorId,
+          assignedAt,
+        })),
+      }),
+    ]);
 
-    const assignment = await this.prisma.operationAssignment.upsert({
-      where: { operationId },
-      update: data,
-      create: { operationId, ...data },
-    });
+    const assignments = await this.prisma.operationAssignment.findMany({ where: { operationId } });
 
     await this.audit.record({
       actorType: ActorType.INTERNAL_USER,
       actorId,
       action: AuditAction.UPDATE,
       entityType: 'OperationAssignment',
-      entityId: assignment.id,
-      after: assignment,
+      entityId: operationId,
+      after: { lignes: assignments.length, vehicules: assignments.map((a) => a.vehicleId) },
     });
 
-    return assignment;
+    return assignments;
+  }
+
+  /**
+   * Agents terrain actifs — de quoi peupler un choix, pas un CRUD.
+   *
+   * ⚠️ CORRIGÉ — RIEN N'AFFECTAIT JAMAIS `Operation.fieldAgentId`.
+   *
+   *    Le champ existe depuis toujours et conditionne tout ce qu'un agent
+   *    voit sur sa tablette (`FieldScopeService.where()` : un agent ne voit
+   *    que les opérations où `fieldAgentId` vaut SON identifiant). Sans
+   *    écran pour le renseigner, aucun agent terrain ne pouvait jamais voir
+   *    aucune opération — le circuit « renseigner la checklist HSE sur le
+   *    terrain » était inatteignable de bout en bout.
+   */
+  fieldAgents() {
+    return this.prisma.fieldUser.findMany({
+      where: { role: FieldRole.FIELD_AGENT, isActive: true },
+      orderBy: { fullName: 'asc' },
+      select: { id: true, fullName: true },
+    });
+  }
+
+  async setFieldAgent(operationId: string, fieldAgentId: string | null, actorId: string) {
+    const operation = await this.prisma.operation.update({
+      where: { id: operationId },
+      data: { fieldAgentId },
+    });
+
+    await this.audit.record({
+      actorType: ActorType.INTERNAL_USER,
+      actorId,
+      action: AuditAction.UPDATE,
+      entityType: 'Operation',
+      entityId: operationId,
+      after: { fieldAgentId },
+    });
+
+    return operation;
+  }
+
+  /**
+   * Suppression d'un brouillon (calqué sur `DealsService.remove`).
+   *
+   * ⚠️ RÉSERVÉE AU BROUILLON, ET C'EST TOUT L'INTÉRÊT.
+   *
+   *    Une opération avancée a déjà pu engager une décision (chargement,
+   *    facturation) ; la supprimer effacerait cette décision sans laisser de
+   *    trace. Un brouillon, lui, n'a encore rien engagé.
+   *
+   *    Les enfants à cascade (types portés, checklists HSE, exigences
+   *    acquittées, coûts, affectations) disparaissent avec elle. Un bon de
+   *    commande ou un relevé déjà rattachés bloquent la suppression au lieu
+   *    d'être effacés en silence (`onDelete: Restrict`) — cas qui ne devrait
+   *    jamais se présenter sur un DRAFT, mais la base reste le dernier mot,
+   *    pas cette hypothèse.
+   */
+  async remove(id: string, actorId: string): Promise<void> {
+    const operation = await this.prisma.operation.findUniqueOrThrow({
+      where: { id },
+      select: { status: true, reference: true },
+    });
+    if (operation.status !== OperationStatus.DRAFT) {
+      throw new BadRequestException(
+        `Cette opération n'est plus au brouillon (statut : ${operation.status}) : elle ne se supprime plus.`,
+      );
+    }
+
+    await this.prisma.operation.delete({ where: { id } });
+
+    await this.audit.record({
+      actorType: ActorType.INTERNAL_USER,
+      actorId,
+      action: AuditAction.DELETE,
+      entityType: 'Operation',
+      entityId: id,
+      before: operation,
+    });
   }
 
   /**
@@ -968,6 +1069,14 @@ export class OperationsController {
     return this.service.list(query);
   }
 
+  // ⚠️ DÉCLARÉE AVANT `:id` — le routeur retient la première route qui
+  //    correspond, et `:id` avalerait « field-agents » comme un identifiant.
+  @Get('field-agents')
+  @Roles(UserRole.DG, UserRole.CCOO, UserRole.LOGISTICS_COORD)
+  fieldAgents() {
+    return this.service.fieldAgents();
+  }
+
   @Get(':id')
   @Roles(
     UserRole.DG,
@@ -987,6 +1096,12 @@ export class OperationsController {
     return this.service.create(dto, req.auth.sub);
   }
 
+  @Delete(':id')
+  @Roles(UserRole.LOGISTICS_COORD, UserRole.CCOO)
+  remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: { auth: { sub: string } }) {
+    return this.service.remove(id, req.auth.sub);
+  }
+
   /** Acquittement d'une exigence bloquante du site de livraison (§ 6.2). */
   @Post(':id/site-requirements/:requirementId/acknowledge')
   @Roles(UserRole.LOGISTICS_COORD, UserRole.CCOO, UserRole.DG)
@@ -1003,10 +1118,20 @@ export class OperationsController {
   @Roles(UserRole.LOGISTICS_COORD, UserRole.CCOO, UserRole.DG)
   assign(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: AssignMeansDto,
+    @Body() dto: { assignments: AssignMeansDto[] },
     @Req() req: { auth: { sub: string } },
   ) {
-    return this.service.assign(id, dto, req.auth.sub);
+    return this.service.setAssignments(id, dto.assignments ?? [], req.auth.sub);
+  }
+
+  @Patch(':id/field-agent')
+  @Roles(UserRole.LOGISTICS_COORD, UserRole.CCOO, UserRole.DG)
+  setFieldAgent(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetFieldAgentDto,
+    @Req() req: { auth: { sub: string } },
+  ) {
+    return this.service.setFieldAgent(id, dto.fieldAgentId ?? null, req.auth.sub);
   }
 
   @Patch(':id/status')

@@ -141,7 +141,8 @@ export interface FieldOperationDetail {
   clientLegalName: string;
   site: { id: string; name: string; city: string | null } | null;
   product: FieldProductView;
-  means: FieldMeansView | null;
+  /** Un véhicule par ligne — plusieurs quand la capacité d'un seul ne couvre pas le volume prévu. */
+  means: FieldMeansView[];
   hse: { riskLevel: string; validatedAt: string | null; checks: FieldChecklistView[] };
   measurements: FieldMeasurementView[];
   incidents: FieldIncidentView[];

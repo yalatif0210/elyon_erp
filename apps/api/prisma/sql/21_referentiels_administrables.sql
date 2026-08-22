@@ -149,41 +149,53 @@ CREATE TRIGGER trg_vehicle_allowed_products
 
 
 -- ---------------------------------------------------------------------------
---  5. LA CAPACITÉ D'UNE CITERNE DOIT ÊTRE OPPOSÉE AU VOLUME PLANIFIÉ.
+--  5. LA CAPACITÉ CUMULÉE DES CITERNES AFFECTÉES DOIT COUVRIR LE VOLUME PLANIFIÉ.
 --
 --  `capacity` et `compartment_count` étaient administrables, et jamais
 --  confrontés à quoi que ce soit. Une opération de 40 000 L s'affectait à une
 --  citerne de 25 000 L sans avertissement — et l'écart se découvrait au dépôt.
 --
---  La capacité est en UNITÉ DU VÉHICULE ; on ne compare que si l'opération est
---  dans la même unité. Comparer des litres à des tonnes serait pire que ne rien
---  comparer du tout.
+--  ⚠️ REVU LE 22/08/2026 — PLUSIEURS VÉHICULES, UNE SEULE VALIDATION AU COMMIT.
+--
+--     Une opération peut désormais mobiliser plusieurs véhicules
+--     (`operation_assignments.operation_id` n'est plus `@unique`, un chauffeur
+--     par véhicule). Le contrôle ne porte plus sur UNE citerne mais sur la
+--     SOMME des capacités de toutes les lignes de l'opération.
+--
+--     L'écran remplace TOUTES les lignes d'un coup (suppression puis
+--     recréation, dans UNE transaction) : un contrôle IMMÉDIAT refuserait la
+--     première ligne insérée, avant même que la seconde n'existe. D'où un
+--     déclencheur de CONTRAINTE, DIFFÉRÉ : il ne s'exécute qu'au COMMIT,
+--     quand toutes les lignes sont en place — l'outil PostgreSQL standard pour
+--     valider un agrégat entre lignes soeurs, pas une ligne seule.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION enforce_vehicle_capacity()
 RETURNS TRIGGER AS $$
 DECLARE
-  cap    numeric;
-  immat  text;
-  vol    numeric;
+  vol         numeric;
+  cap_cumulee numeric;
 BEGIN
-  IF NEW.vehicle_id IS NULL THEN RETURN NEW; END IF;
-
-  SELECT v.capacity, v.registration INTO cap, immat FROM vehicles v WHERE v.id = NEW.vehicle_id;
-  IF cap IS NULL OR cap = 0 THEN RETURN NEW; END IF;
-
   SELECT o.planned_volume INTO vol FROM operations o WHERE o.id = NEW.operation_id;
-  IF vol IS NULL OR vol <= cap THEN RETURN NEW; END IF;
+  IF vol IS NULL THEN RETURN NEW; END IF;
+
+  SELECT COALESCE(SUM(v.capacity), 0) INTO cap_cumulee
+    FROM operation_assignments a
+    JOIN vehicles v ON v.id = a.vehicle_id
+   WHERE a.operation_id = NEW.operation_id;
+
+  IF cap_cumulee = 0 OR cap_cumulee >= vol THEN RETURN NEW; END IF;
 
   RAISE EXCEPTION
-    'CAPACITÉ INSUFFISANTE : la citerne % contient % et l''opération en prévoit %. Affectez un véhicule adapté, ou fractionnez l''opération.',
-    immat, round(cap, 0), round(vol, 0)
+    'CAPACITÉ INSUFFISANTE : les véhicules affectés totalisent % contre % prévus. Affectez un ou plusieurs véhicules supplémentaires, ou fractionnez l''opération.',
+    round(cap_cumulee, 0), round(vol, 0)
     USING ERRCODE = 'check_violation';
 END;
 $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trg_vehicle_capacity ON operation_assignments;
-CREATE TRIGGER trg_vehicle_capacity
-  BEFORE INSERT OR UPDATE OF vehicle_id ON operation_assignments
+CREATE CONSTRAINT TRIGGER trg_vehicle_capacity
+  AFTER INSERT OR UPDATE OF vehicle_id ON operation_assignments
+  DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION enforce_vehicle_capacity();
 
 

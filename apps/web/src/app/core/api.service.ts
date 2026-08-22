@@ -303,12 +303,14 @@ export interface OperationRow {
     client: { code: string; legalName: string };
     product: { code: string; name: string };
   };
-  assignment: {
+  /** Un véhicule par ligne (§ 22/08/2026) — plusieurs quand la capacité d'un seul ne couvre pas le volume prévu. */
+  assignments: {
     vehicleIdentifier: string | null;
     vehicle: { registration: string } | null;
-    /** Retenu au chiffrage de l'affaire (§ 5.4) — lecture seule ici. */
+    /** Retenu au chiffrage de l'affaire (§ 5.4) — lecture seule ici, le même sur chaque ligne. */
     carrier: { id: string; legalName: string } | null;
-  } | null;
+  }[];
+  fieldAgentId: string | null;
   fieldAgent: { fullName: string } | null;
   _count: { hseChecks: number; measurements: number; costLines: number };
 }
@@ -394,6 +396,21 @@ export interface OperationDetail extends Omit<OperationRow, 'deal'> {
     id: string;
     costLines: { supplier: { id: string; legalName: string } | null }[];
   };
+  /**
+   * Un véhicule par ligne (§ 22/08/2026), avec son identifiant PROPRE — la
+   * liste ne porte que `vehicle`/`carrier` réduits, l'écran de conduite a
+   * besoin de `vehicleId`/`driverId` pour reconstituer le formulaire.
+   */
+  assignments: {
+    id: string;
+    vehicleId: string | null;
+    driverId: string | null;
+    vehicleIdentifier: string | null;
+    complianceDerogationId: string | null;
+    vehicle: { registration: string } | null;
+    driver: { fullName: string } | null;
+    carrier: { id: string; legalName: string } | null;
+  }[];
   hseGate: HseGate;
   measurements: MeasurementSummary[];
   operationTypes: CarriedOperationType[];
@@ -1639,6 +1656,24 @@ export class ApiService {
     return this.http.post<{ id: string; reference: string }>(`${this.base}/operations`, body);
   }
 
+  /** Réservée au brouillon — la base refuse au-delà (§ 22/08/2026). */
+  deleteOperation(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/operations/${id}`);
+  }
+
+  /** Agents terrain actifs — de quoi peupler un choix, pas un CRUD. */
+  fieldAgents(): Observable<{ id: string; fullName: string }[]> {
+    return this.http.get<{ id: string; fullName: string }[]>(`${this.base}/operations/field-agents`);
+  }
+
+  /**
+   * Qui voit l'opération sur sa tablette (§ 22/08/2026, `FieldScopeService`).
+   * `null` retire l'affectation sans en remettre une autre.
+   */
+  setFieldAgent(operationId: string, fieldAgentId: string | null): Observable<unknown> {
+    return this.http.patch(`${this.base}/operations/${operationId}/field-agent`, { fieldAgentId });
+  }
+
   // --- Actions sur une opération (§ 7, § 11.2) -----------------------------
 
   /** MA file de tâches — le rôle vient du jeton, jamais d'un paramètre. */
@@ -1672,17 +1707,21 @@ export class ApiService {
   /**
    * Le transporteur n'est plus transmis ici — il vient du chiffrage de
    * l'affaire (§ 5.4, revu le 22/08/2026) et s'affiche en lecture seule.
+   *
+   * REMPLACE intégralement les affectations existantes — un véhicule par
+   * ligne, plusieurs quand la capacité d'un seul ne couvre pas le volume
+   * prévu (même principe que `setDealCostLines`, une ligne par poste).
    */
-  assignMeans(
+  setAssignments(
     id: string,
-    body: {
+    lignes: {
       vehicleId?: string;
       driverId?: string;
       vehicleIdentifier?: string;
       complianceDerogationId?: string;
-    },
+    }[],
   ): Observable<unknown> {
-    return this.http.patch(`${this.base}/operations/${id}/assignment`, body);
+    return this.http.patch(`${this.base}/operations/${id}/assignment`, { assignments: lignes });
   }
 
   moveOperation(id: string, to: string, reason?: string): Observable<unknown> {

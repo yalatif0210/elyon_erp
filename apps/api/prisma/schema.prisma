@@ -795,8 +795,13 @@ enum FieldEventStatus {
 model FieldSyncEvent {
   id String @id @db.Uuid
 
+  /// PAS `Cascade` (corrigé le 22/08/2026) — ce journal est EN AJOUT SEUL
+  /// (voir plus haut) : `append_only_guard()` refuse un DELETE dessus quel
+  /// qu'en soit l'auteur, y compris une cascade partie d'`operations`. Une
+  /// opération qui en porte encore ne se supprime donc pas, ce journal
+  /// survivant à tout ce qu'il décrit — jamais l'inverse.
   operationId String    @map("operation_id") @db.Uuid
-  operation   Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  operation   Operation @relation(fields: [operationId], references: [id], onDelete: Restrict)
 
   fieldUserId String    @map("field_user_id") @db.Uuid
   fieldUser   FieldUser @relation("FieldEventAuthor", fields: [fieldUserId], references: [id], onDelete: Restrict)
@@ -2813,7 +2818,9 @@ model Operation {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   purchaseOrder      PurchaseOrder?
-  assignment         OperationAssignment?
+  /// Un véhicule par ligne — plusieurs quand la capacité d'un seul ne
+  /// couvre pas le volume prévu (§ 22/08/2026).
+  assignments        OperationAssignment[]
   hseChecks          OperationHseCheck[]
   hseEvents          HseEvent[]
   measurements       MeasurementRecord[]
@@ -2857,7 +2864,11 @@ model OperationStatusTransition {
 /// le statut de conformité, lui, est dérivé des pièces à échéance (lot 1).
 model OperationAssignment {
   id          String    @id @default(uuid()) @db.Uuid
-  operationId String    @unique @map("operation_id") @db.Uuid
+  /// PLUS `@unique` depuis le 22/08/2026 : une opération dont le volume
+  /// dépasse la capacité d'une seule citerne en mobilise PLUSIEURS, chacune
+  /// avec son propre chauffeur — une ligne par véhicule, comme
+  /// `OperationCostLine.operationId` (une ligne par poste de coût).
+  operationId String    @map("operation_id") @db.Uuid
   operation   Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
 
   /// Transporteur RETENU AU CHIFFRAGE (§ 5.4, déplacé le 22/08/2026) — copié
@@ -2886,6 +2897,7 @@ model OperationAssignment {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  @@index([operationId])
   @@index([carrierId])
   @@index([vehicleId])
   @@index([driverId])

@@ -211,7 +211,11 @@ export class DocumentsPdfProcessor extends WorkerHost {
           },
         },
         fieldAgent: { select: { fullName: true } },
-        assignment: {
+        // Un véhicule par ligne (§ 22/08/2026) — plusieurs quand la capacité
+        // d'un seul ne couvre pas le volume prévu. Le bon de livraison les
+        // liste tous ; le transporteur, lui, est le même sur chaque ligne
+        // (retenu une fois pour toutes au chiffrage).
+        assignments: {
           select: {
             carrier: { select: { legalName: true } },
             vehicle: { select: { registration: true } },
@@ -334,10 +338,16 @@ export class DocumentsPdfProcessor extends WorkerHost {
       actualLoadingDate: op.actualLoadingDate?.toISOString() ?? null,
       actualDischargeDate: op.actualDischargeDate?.toISOString() ?? null,
       fieldAgentName: op.fieldAgent?.fullName ?? null,
-      carrierName: op.assignment?.carrier?.legalName ?? null,
-      vehicleRegistration: op.assignment?.vehicle?.registration ?? null,
-      vehicleIdentifier: op.assignment?.vehicleIdentifier ?? null,
-      driverName: op.assignment?.driver?.fullName ?? null,
+      // Le transporteur est le MÊME sur chaque ligne (retenu une fois pour
+      // toutes au chiffrage) ; véhicules et chauffeurs, eux, sont listés.
+      carrierName: op.assignments[0]?.carrier?.legalName ?? null,
+      vehicleRegistration:
+        op.assignments.map((a) => a.vehicle?.registration).filter((v): v is string => !!v).join(', ') ||
+        null,
+      vehicleIdentifier:
+        op.assignments.map((a) => a.vehicleIdentifier).filter((v): v is string => !!v).join(', ') || null,
+      driverName:
+        op.assignments.map((a) => a.driver?.fullName).filter((v): v is string => !!v).join(', ') || null,
       verifyUrl: noteVerification.url,
       qrDataUri: noteVerification.qrDataUri,
     };

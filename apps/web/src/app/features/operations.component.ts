@@ -220,8 +220,10 @@ export class OperationsComponent implements OnInit {
     return TRANSPORT[code] ?? code;
   }
 
+  /** Un ou plusieurs véhicules (§ 22/08/2026) — joints, pas un compte : c'est l'immatriculation qui identifie le camion au dépôt. */
   protected means(o: OperationRow): string {
-    return o.assignment?.vehicle?.registration ?? o.assignment?.vehicleIdentifier ?? 'non affecté';
+    if (o.assignments.length === 0) return 'non affecté';
+    return o.assignments.map((a) => a.vehicle?.registration ?? a.vehicleIdentifier ?? '?').join(', ');
   }
 
   protected volume(o: OperationRow): string {
@@ -230,7 +232,7 @@ export class OperationsComponent implements OnInit {
 
   protected rowClass(o: OperationRow): string {
     if (o.status === 'HSE_BLOCKED' || o.status === 'INCIDENT') return 'row-crit';
-    if (!o.assignment) return 'row-warn';
+    if (o.assignments.length === 0) return 'row-warn';
     return '';
   }
 
@@ -386,9 +388,9 @@ export class OperationsComponent implements OnInit {
               <dd class="text-ink">{{ transport(o.transportMode) }}</dd>
             </div>
             <div class="flex justify-between gap-4 px-4 py-2">
-              <dt class="text-ink-muted">Moyen affecté</dt>
+              <dt class="text-ink-muted">Moyen(s) affecté(s)</dt>
               <dd class="text-right">
-                @if (o.assignment) {
+                @if (o.assignments.length > 0) {
                   <span class="font-mono text-ink">{{ means(o) }}</span>
                 } @else {
                   <erp-status-badge kind="wait" label="Non affecté" />
@@ -588,7 +590,8 @@ export class OperationDetailComponent implements OnInit {
   }
 
   protected means(o: OperationRow): string {
-    return o.assignment?.vehicle?.registration ?? o.assignment?.vehicleIdentifier ?? '-';
+    if (o.assignments.length === 0) return '-';
+    return o.assignments.map((a) => a.vehicle?.registration ?? a.vehicleIdentifier ?? '?').join(', ');
   }
 
   protected volume(o: OperationRow): string {

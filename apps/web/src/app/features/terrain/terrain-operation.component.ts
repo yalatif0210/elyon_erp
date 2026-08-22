@@ -167,23 +167,27 @@ import { jour, jourHeure } from './terrain-libelles';
         </div>
 
         <p class="t-section">Moyens affectés</p>
-        @if (op.means) {
-          <div class="rounded-[3px] border border-rule-strong bg-surface px-4">
-            <div class="t-row"><span class="t-key">Transporteur</span><span class="t-val">{{ op.means.carrierName ?? '-' }}</span></div>
-            <div class="t-row"><span class="t-key">Immatriculation</span><span class="t-val font-mono">{{ op.means.vehicleRegistration ?? '-' }}</span></div>
-            <div class="t-row"><span class="t-key">Identifiant véhicule</span><span class="t-val font-mono">{{ op.means.vehicleIdentifier ?? '-' }}</span></div>
-            <div class="t-row"><span class="t-key">Chauffeur</span><span class="t-val">{{ op.means.driverName ?? '-' }}</span></div>
-            <div class="t-row">
-              <span class="t-key">Téléphone</span>
-              <span class="t-val">
-                @if (op.means.driverPhone) {
-                  <a class="text-primary underline underline-offset-2" [href]="'tel:' + op.means.driverPhone">
-                    {{ op.means.driverPhone }}
-                  </a>
-                } @else { - }
-              </span>
+        @if (op.means.length > 0) {
+          <!-- Plusieurs véhicules quand la capacité d'un seul ne couvre pas
+               le volume prévu (§ 22/08/2026) — une carte par véhicule. -->
+          @for (m of op.means; track $index) {
+            <div class="mb-2 rounded-[3px] border border-rule-strong bg-surface px-4">
+              <div class="t-row"><span class="t-key">Transporteur</span><span class="t-val">{{ m.carrierName ?? '-' }}</span></div>
+              <div class="t-row"><span class="t-key">Immatriculation</span><span class="t-val font-mono">{{ m.vehicleRegistration ?? '-' }}</span></div>
+              <div class="t-row"><span class="t-key">Identifiant véhicule</span><span class="t-val font-mono">{{ m.vehicleIdentifier ?? '-' }}</span></div>
+              <div class="t-row"><span class="t-key">Chauffeur</span><span class="t-val">{{ m.driverName ?? '-' }}</span></div>
+              <div class="t-row">
+                <span class="t-key">Téléphone</span>
+                <span class="t-val">
+                  @if (m.driverPhone) {
+                    <a class="text-primary underline underline-offset-2" [href]="'tel:' + m.driverPhone">
+                      {{ m.driverPhone }}
+                    </a>
+                  } @else { - }
+                </span>
+              </div>
             </div>
-          </div>
+          }
           <p class="t-hint">
             Ces trois identités sont ce que vous confrontez physiquement au camion et au
             chauffeur qui se présentent.
