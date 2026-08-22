@@ -1,4 +1,4 @@
-import { Component, Input, OnChanges, computed, inject, signal } from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, Output, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
   ApiService,
@@ -272,6 +272,16 @@ export class DealCostingComponent implements OnChanges {
   /** Verrou d'édition (§ discussion 15/08) : seul le brouillon se chiffre. */
   @Input({ required: true }) status!: string;
 
+  /**
+   * ⚠️ MANQUAIT — la marge se recalcule bien en base à l'enregistrement
+   *    (`MarginService.recompute`), mais la fiche affaire ne le savait
+   *    jamais : `erp-deal-supplier-price` et `erp-deal-approval`, juste à
+   *    côté, rechargent l'affaire par ce même événement — celui-ci en était
+   *    dépourvu, et la marge affichée restait celle d'avant l'enregistrement
+   *    jusqu'au prochain rechargement manuel de l'écran.
+   */
+  @Output() readonly changed = new EventEmitter<void>();
+
   @Input({ required: true }) set volume(v: number) {
     this.volumeSignal.set(v);
   }
@@ -530,6 +540,9 @@ export class DealCostingComponent implements OnChanges {
         this.busy.set(false);
         this.dirty.set(false);
         this.saved.set(true);
+        // La marge vient d'être recalculée en base : l'affaire doit être
+        // rechargée pour que la fiche l'affiche, pas seulement ce tableau.
+        this.changed.emit();
       },
       error: (e: { error?: { message?: string | string[] } }) => {
         this.busy.set(false);

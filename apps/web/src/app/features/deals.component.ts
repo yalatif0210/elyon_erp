@@ -401,6 +401,7 @@ const INVOICE_TYPE_LABEL: Record<string, string> = {
             [volume]="volumeNumber(d)"
             [lines]="d.costLines ?? []"
             [status]="d.status"
+            (changed)="reload()"
           />
 
           <erp-deal-approval [deal]="d" (changed)="reload()" />
