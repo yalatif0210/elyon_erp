@@ -283,7 +283,11 @@ SELECT 'MODELE_HSE_MANQUANT', 'HSE_CONTROLLER', 'BLOQUANT',
        o.reference,
        'Aucun modèle de checklist ne couvre ' || d.segment::text ||
          ' en ' || o.transport_mode::text || ' : l''opération sera bloquée au chargement',
-       'referentiels',
+       -- ⚠️ POINTAIT VERS 'referentiels' — MÊME TROU QUE VALIDATION_PRIX (voir
+       --    plus haut) : les Modèles de checklist HSE se gèrent dans
+       --    Paramétrage (registry.ts, groupe « HSE »), jamais dans ce
+       --    référentiel-là, purement consultatif.
+       'parametrage',
        o.updated_at
   FROM operations o
   JOIN deals d ON d.id = o.deal_id
