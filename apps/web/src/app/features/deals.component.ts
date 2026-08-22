@@ -14,15 +14,23 @@ import { DealApprovalComponent } from './deal-approval.component';
 /** Statuts d'affaire — libellé métier, et non le jeton technique. */
 const DEAL_STATUS: Record<string, { label: string; kind: StatusKind }> = {
   DRAFT: { label: 'Brouillon', kind: 'neutral' },
+  FEASIBILITY_STUDY: { label: 'Étude de faisabilité', kind: 'wait' },
+  QUOTED: { label: 'Chiffrée', kind: 'neutral' },
   PENDING_RISK: { label: 'Contrôle du risque', kind: 'wait' },
+  CREDIT_BLOCKED: { label: 'Bloquée pour crédit', kind: 'blocked' },
   PENDING_DG_APPROVAL: { label: 'Accord DG attendu', kind: 'blocked' },
   APPROVED: { label: 'Approuvée', kind: 'ok' },
+  PROFORMA_SENT: { label: 'Proforma envoyée', kind: 'wait' },
+  CUSTOMER_ACCEPTED: { label: 'Acceptée par le client', kind: 'ok' },
+  REJECTED_BY_CLIENT: { label: 'Refusée par le client', kind: 'blocked' },
   IN_EXECUTION: { label: 'En exécution', kind: 'transit' },
   DELIVERED: { label: 'Livrée', kind: 'ok' },
+  PARTIALLY_DELIVERED: { label: 'Partiellement livrée', kind: 'transit' },
+  QUALITY_CLAIM: { label: 'Réclamation qualité', kind: 'blocked' },
   INVOICED: { label: 'Facturée', kind: 'ok' },
+  DISPUTED: { label: 'Litige', kind: 'blocked' },
   CLOSED: { label: 'Clôturée', kind: 'neutral' },
   CANCELLED: { label: 'Annulée', kind: 'neutral' },
-  LOST: { label: 'Perdue', kind: 'neutral' },
 };
 
 const FILTERS: { label: string; status?: string }[] = [
