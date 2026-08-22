@@ -263,6 +263,15 @@ export class OperationsService {
             currencyCode: true,
             client: { select: { code: true, legalName: true } },
             product: { select: { code: true, name: true } },
+            // Transporteur retenu AU CHIFFRAGE (§ 5.4) — connu dès l'affaire
+            // approuvée, bien avant qu'une affectation de moyens existe sur
+            // l'opération. `assignment.carrier` (plus bas) ne le reprend que
+            // lorsque le coordinateur affecte véhicule et chauffeur ; avant
+            // ce geste, c'est ICI qu'il faut le lire.
+            costLines: {
+              where: { costPost: { code: 'TRANSPORT' } },
+              select: { supplier: { select: { id: true, legalName: true } } },
+            },
           },
         },
         productOwner: { select: { code: true, legalName: true } },
@@ -394,12 +403,20 @@ export class OperationsService {
       where: { id: operationId },
       select: { hseValidatedById: true, hseValidatedByUserId: true, hseDerogationId: true },
     });
+    const totalChecks = await this.prisma.operationHseCheck.count({ where: { operationId } });
     const pending = await this.prisma.operationHseCheckItem.count({
       where: {
         check: { operationId },
         level: 'BLOCKING',
         outcome: { not: 'PASSED' },
       },
+    });
+    // Une checklist créée mais encore en cours de renseignement (un point
+    // PENDING) attend l'AGENT terrain, pas le contrôleur — même condition que
+    // celle qui fait entrer une checklist dans « en attente de validation »
+    // sur /hse (v_taches, tâche VALIDATION_HSE).
+    const enCoursSurLeTerrain = await this.prisma.operationHseCheckItem.count({
+      where: { check: { operationId, validatedAt: null }, outcome: 'PENDING' },
     });
     const validated =
       operation.hseValidatedById !== null || operation.hseValidatedByUserId !== null;
@@ -410,11 +427,22 @@ export class OperationsService {
       validated,
       pendingBlockingItems: pending,
       byDerogation: operation.hseDerogationId !== null,
+      // ⚠️ CORRIGÉ — « la checklist n'a pas été validée » se disait aussi
+      //    quand AUCUNE checklist n'existait encore, ou quand elle était
+      //    encore en cours de renseignement sur le terrain : le message
+      //    annonçait une action en attente du contrôleur là où /hse ne montre,
+      //    à raison, rien à valider. Les trois situations n'appellent pas le
+      //    même geste — deux attendent le terrain, la troisième attend le
+      //    contrôleur (ou sa suppléance par le DG).
       message: open
         ? 'Verrou HSE ouvert : le chargement est autorisé.'
-        : !validated
-          ? 'Verrou HSE fermé : la checklist n’a pas été validée par le contrôleur HSE.'
-          : `Verrou HSE fermé : ${pending} contrôle(s) bloquant(s) non satisfait(s).`,
+        : totalChecks === 0
+          ? 'Verrou HSE fermé : aucune checklist HSE n’a encore été renseignée sur le terrain.'
+          : enCoursSurLeTerrain > 0
+            ? 'Verrou HSE fermé : la checklist est en cours de renseignement sur le terrain.'
+            : !validated
+              ? 'Verrou HSE fermé : la checklist est renseignée, en attente de validation par le contrôleur HSE (ou sa suppléance par le DG, dans Contrôles HSE).'
+              : `Verrou HSE fermé : ${pending} contrôle(s) bloquant(s) non satisfait(s).`,
     };
   }
 

@@ -385,8 +385,15 @@ export interface OperationCostLineRow {
  * aucun type retenu n'en porte.
  */
 export interface OperationDetail extends Omit<OperationRow, 'deal'> {
-  /** `id` en plus de `OperationRow.deal` : la fiche affaire l'a, la liste ne l'a pas. */
-  deal: OperationRow['deal'] & { id: string };
+  /**
+   * `id` en plus de `OperationRow.deal` : la fiche affaire l'a, la liste ne
+   * l'a pas. `costLines` : le transporteur retenu au chiffrage (§ 5.4),
+   * connu avant même qu'une affectation de moyens existe sur l'opération.
+   */
+  deal: OperationRow['deal'] & {
+    id: string;
+    costLines: { supplier: { id: string; legalName: string } | null }[];
+  };
   hseGate: HseGate;
   measurements: MeasurementSummary[];
   operationTypes: CarriedOperationType[];

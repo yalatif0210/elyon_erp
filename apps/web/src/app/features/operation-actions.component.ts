@@ -83,11 +83,18 @@ const NEXT_STEPS: { to: string; label: string }[] = [
         <!-- ============ Transporteur : lecture seule ============
              Retenu au chiffrage de l'affaire, avec son coût comparé au tarif
              négocié (§ 5.4, revu le 22/08/2026) — plus choisi ni modifiable
-             ici. -->
+             ici.
+
+             ⚠️ CORRIGÉ — operation.assignment?.carrier reste NUL tant que
+                le coordinateur n'a pas affecté véhicule et chauffeur : ce
+                geste est ce qui COPIE le transporteur sur l'affectation. Le
+                lire uniquement là annonçait « aucun » pour une affaire dont
+                le chiffrage avait pourtant retenu un transporteur, simplement
+                parce que les moyens n'avaient pas encore été affectés. -->
         <p class="mb-3 text-[13px]">
           <span class="text-ink-muted">Transporteur retenu au chiffrage : </span>
           <span class="font-semibold text-ink">
-            {{ operation.assignment?.carrier?.legalName ?? 'aucun (voir le chiffrage de l’affaire)' }}
+            {{ carrierRetenu() ?? 'aucun (voir le chiffrage de l’affaire)' }}
           </span>
         </p>
 
@@ -518,16 +525,30 @@ export class OperationActionsComponent {
   }
 
   /**
+   * Le transporteur retenu au chiffrage de l'affaire (§ 5.4), qu'il ait déjà
+   * été copié sur une affectation de moyens ou non — l'affectation ne fait
+   * que le reprendre, elle ne le choisit jamais.
+   */
+  private carrierChiffrage(): { id: string; legalName: string } | null {
+    return this.operation.deal.costLines.find((l) => l.supplier)?.supplier ?? null;
+  }
+
+  protected carrierRetenu(): string | null {
+    return (this.operation.assignment?.carrier ?? this.carrierChiffrage())?.legalName ?? null;
+  }
+
+  /**
    * Le premier moyen non conforme, désigné par son libellé.
    *
    * Le transporteur n'est plus SÉLECTIONNÉ ici : il vient du chiffrage de
    * l'affaire (§ 5.4). Sa conformité se vérifie donc sur celui déjà retenu,
-   * pas sur un choix fait à cet écran.
+   * pas sur un choix fait à cet écran — et ce, dès le chiffrage, avant même
+   * qu'une affectation de moyens existe sur l'opération.
    */
   protected moyenNonConforme(): string | null {
     if (this.complianceDerogationId()) return null;
     const selection = [
-      { id: this.operation.assignment?.carrier?.id ?? null, kind: 'CARRIER' as const },
+      { id: (this.operation.assignment?.carrier ?? this.carrierChiffrage())?.id ?? null, kind: 'CARRIER' as const },
       { id: this.vehicleId, kind: 'VEHICLE' as const },
       { id: this.driverId, kind: 'DRIVER' as const },
     ];
