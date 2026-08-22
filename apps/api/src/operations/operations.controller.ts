@@ -376,6 +376,7 @@ export class OperationsService {
         },
         purchaseOrder: true,
         statusTransitions: { orderBy: { createdAt: 'desc' }, take: 20 },
+        _count: { select: { hseChecks: true, measurements: true, costLines: true } },
       },
     });
 
