@@ -384,7 +384,9 @@ async function main(): Promise<void> {
   });
 
   // Affectation : véhicule et chauffeur CONFORMES — sinon le verrou refuse.
-  const existingAssignment = await prisma.operationAssignment.findUnique({
+  // `findUnique` sur operationId n'est plus possible depuis que plusieurs
+  // véhicules peuvent être affectés à une même opération (§ 22/08/2026).
+  const existingAssignment = await prisma.operationAssignment.findFirst({
     where: { operationId: operation.id },
   });
   if (!existingAssignment) {
