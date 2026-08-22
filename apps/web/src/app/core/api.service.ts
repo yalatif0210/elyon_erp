@@ -1117,6 +1117,8 @@ export interface FieldSpec {
   refKey?: string;
   decimals?: number;
   help?: string;
+  /** Champs à vider quand ce champ prend l'une des valeurs listées ici. */
+  clearsOnValue?: Record<string, string[]>;
 }
 
 /** Décrit une table administrable — l'écran de paramétrage en découle. */

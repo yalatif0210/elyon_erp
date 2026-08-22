@@ -126,6 +126,22 @@ export interface FieldSpec {
   /** Précision de restitution pour les nombres. */
   decimals?: number;
   help?: string;
+  /**
+   * Champs à VIDER quand ce champ prend l'une des valeurs listées ici.
+   *
+   * ⚠️ SANS CELA, LE FORMULAIRE GÉNÉRIQUE LAISSE DES VALEURS INCOHÉRENTES
+   *    VISIBLEMENT INVISIBLES.
+   *
+   *    La saisie ne masque ni ne réinitialise jamais un champ selon la valeur
+   *    d'un autre — chaque référentiel resterait sinon à décrire une mise en
+   *    page, pas des données. Un poste de coût saisi INDIRECT (pool + assiette
+   *    renseignés) puis repassé en DIRECT sans y retoucher soumettait encore
+   *    ce pool et cette assiette : la nature affichée disait DIRECT, la ligne
+   *    heurtait `chk_cost_posts_allocation_coherence` sans que rien à l'écran
+   *    ne le laisse deviner. Ce champ ne pilote pas l'affichage, seulement la
+   *    valeur retenue à la prochaine écriture.
+   */
+  clearsOnValue?: Readonly<Record<string, readonly string[]>>;
 }
 
 export interface ReferentialSpec {
@@ -1730,7 +1746,18 @@ export const REFERENTIALS: ReferentialSpec[] = [
       { name: 'code', label: 'Code', type: 'string', required: true, help: 'Sans espace ni accent, ex. TRANSPORT, DOUANE, FRAIS_ROUTE' },
       { name: 'label', label: 'Libellé', type: 'string', required: true, help: 'Le nom lu à l’écran, ex. « Transport routier », « Droits de douane »' },
       { name: 'category', label: 'Catégorie', type: 'string', required: true, help: 'Regroupement libre pour la lecture, ex. « Logistique », « Douane », « Financier »' },
-      { name: 'nature', label: 'Nature', type: 'enum', required: true, values: values(CostNature), valueLabels: FR.CostNature },
+      {
+        name: 'nature',
+        label: 'Nature',
+        type: 'enum',
+        required: true,
+        values: values(CostNature), valueLabels: FR.CostNature,
+        // Un poste redevenu DIRECT ne doit plus porter le pool ni l'assiette
+        // saisis pendant qu'il était INDIRECT — sans quoi la ligne heurte
+        // `chk_cost_posts_allocation_coherence` alors que la nature affichée
+        // dit DIRECT, sans rien à l'écran pour l'expliquer.
+        clearsOnValue: { DIRECT: ['costPoolId', 'allocationBasis'] },
+      },
       { name: 'variability', label: 'Variabilité', type: 'enum', required: true, values: values(CostVariability), valueLabels: FR.CostVariability },
       {
         name: 'costPoolId',

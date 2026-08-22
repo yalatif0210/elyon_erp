@@ -271,6 +271,8 @@ const CHECK_MESSAGES: Record<string, string> = {
     'Une pièce « annule et remplace » doit dire pourquoi elle remplace la précédente.',
   chk_invoices_simple_decision:
     'Le recours à la facture simple est une décision interne : décideur, date et motif sont exigés.',
+  chk_cost_posts_allocation_coherence:
+    'Un poste DIRECT ne doit porter ni « Pool de charges indirectes » ni « Assiette d’absorption » : videz ces deux champs. Un poste INDIRECT exige les deux.',
 };
 
 /** Réexporté pour les tests d'invariants. */

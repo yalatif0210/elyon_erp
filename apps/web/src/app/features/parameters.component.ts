@@ -937,8 +937,22 @@ export class ParametersComponent implements OnInit {
    *    statique, et c'est tout le travail de ce champ.
    */
   protected onFieldChange(f: FieldSpec): void {
+    this.viderChampsDependants(f);
     if (!this.selected()?.identity.includes(f.name)) return;
     this.refreshVersions();
+  }
+
+  /**
+   * Vide les champs déclarés `clearsOnValue` pour la valeur qui vient d'être
+   * choisie — sans quoi un poste repassé DIRECT après un essai INDIRECT
+   * soumettait encore un pool et une assiette que rien à l'écran ne montrait
+   * comme incohérents avec la nature affichée.
+   */
+  private viderChampsDependants(f: FieldSpec): void {
+    const valeur = this.form[f.name];
+    const aViderCombs = f.clearsOnValue?.[String(valeur)];
+    if (!aViderCombs) return;
+    for (const nom of aViderCombs) this.form[nom] = null;
   }
 
   private refreshVersions(): void {
