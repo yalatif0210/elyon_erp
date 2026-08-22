@@ -7,6 +7,7 @@ import {
   Injectable,
   NotFoundException,
   Param,
+  ParseUUIDPipe,
   Post,
   Req,
 } from '@nestjs/common';
@@ -582,6 +583,53 @@ export class ParametersService {
   }
 
   /**
+   * Validation d'un prix fournisseur par le DG (§ 6.3).
+   *
+   * ⚠️ SANS CETTE MÉTHODE, AUCUN PRIX N'ÉTAIT JAMAIS VALIDABLE.
+   *
+   *    Le champ existe (`SupplierPrice.validatedById`), la file de tâches
+   *    réclame la validation à chaque prix saisi, et la mise en garde du
+   *    référentiel promettait un acte « réservé au DG et vérifié
+   *    automatiquement » — mais rien, nulle part dans l'application, n'écrivait
+   *    jamais cette colonne. Un prix saisi restait donc éternellement en
+   *    attente, avec une tâche bloquante qu'aucun geste ne pouvait fermer.
+   *
+   *    Réservée au DG SEUL, et non à qui écrit le référentiel : le CCOO et le
+   *    CFO peuvent saisir un prix, mais c'est le DG qui l'engage — c'est
+   *    exactement ce que la mise en garde annonçait sans que rien ne l'impose.
+   */
+  async validerPrixFournisseur(id: string, actorId: string) {
+    const prix = await this.prisma.supplierPrice.findUnique({
+      where: { id },
+      select: { id: true, validatedById: true, supplier: { select: { legalName: true } }, unitPrice: true },
+    });
+    if (!prix) {
+      throw new BadRequestException('Prix fournisseur introuvable.');
+    }
+    if (prix.validatedById) {
+      throw new BadRequestException(
+        `Ce prix est déjà validé : il est IMMUABLE depuis, précisément pour qu'une validation ne se répète ni ne se réécrive.`,
+      );
+    }
+
+    const validated = await this.prisma.supplierPrice.update({
+      where: { id },
+      data: { validatedById: actorId, validatedAt: new Date() },
+    });
+
+    await this.audit.record({
+      actorType: ActorType.INTERNAL_USER,
+      actorId,
+      action: AuditAction.APPROVE,
+      entityType: 'SupplierPrice',
+      entityId: id,
+      after: { validatedById: actorId, validatedAt: validated.validatedAt, supplier: prix.supplier.legalName, unitPrice: prix.unitPrice },
+    });
+
+    return validated;
+  }
+
+  /**
    * Import de fichier, avec RAPPORT DE REJET LIGNE À LIGNE.
    *
    * Une ligne fautive ne fait pas échouer le fichier : les lignes valides
@@ -799,6 +847,17 @@ export class ParametersController {
     @Req() req: { auth: { sub: string; role: UserRole } },
   ) {
     return this.service.upsert(key, dto, req.auth.sub, req.auth.role);
+  }
+
+  /**
+   * Validation d'un prix fournisseur — réservée au DG, jamais aux autres rôles
+   * qui peuvent pourtant écrire le référentiel (§ 6.3). Route à part, pas de
+   * clé générique : c'est aujourd'hui le seul référentiel qui porte cet acte.
+   */
+  @Post('supplier-prices/:id/valider')
+  @Roles(UserRole.DG)
+  valider(@Param('id', ParseUUIDPipe) id: string, @Req() req: { auth: { sub: string } }) {
+    return this.service.validerPrixFournisseur(id, req.auth.sub);
   }
 
   /** Import de fichier. `dryRun` rend le rapport sans rien écrire. */

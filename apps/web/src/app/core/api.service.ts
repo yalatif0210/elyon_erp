@@ -2243,6 +2243,11 @@ export class ApiService {
     });
   }
 
+  /** Validation d'un prix fournisseur par le DG (§ 6.3) — réservée à ce rôle. */
+  validerPrixFournisseur(id: string): Observable<unknown> {
+    return this.http.post(`${this.base}/parameters/supplier-prices/${id}/valider`, {});
+  }
+
   importParameters(
     key: string,
     rows: Record<string, unknown>[],

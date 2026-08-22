@@ -11,6 +11,7 @@ import { IconComponent } from '../shared/icon.component';
 import { grouper } from '../shared/format';
 import { MontantDirective } from '../shared/montant.directive';
 import { TableauControlesComponent, TableauPagine } from '../shared/tableau';
+import { AuthService } from '../core/auth.service';
 
 /**
  * Paramétrage des référentiels (SPECIFICATIONS.md § 1.1 bis).
@@ -219,9 +220,21 @@ import { TableauControlesComponent, TableauPagine } from '../shared/tableau';
                             </td>
                           }
                           <td class="num">
-                            <button type="button" class="link text-[12px]" (click)="reprendre(l)">
-                              {{ spec.nature === 'historised' ? 'Repartir de là' : 'Modifier' }}
-                            </button>
+                            <div class="flex justify-end gap-3">
+                              @if (peutValiderPrix(spec, l)) {
+                                <button
+                                  type="button"
+                                  class="link text-[12px] text-ok"
+                                  [disabled]="validationEnCours() === l['id']"
+                                  (click)="validerPrix(l)"
+                                >
+                                  {{ validationEnCours() === l['id'] ? 'Validation…' : 'Valider' }}
+                                </button>
+                              }
+                              <button type="button" class="link text-[12px]" (click)="reprendre(l)">
+                                {{ spec.nature === 'historised' ? 'Repartir de là' : 'Modifier' }}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       }
@@ -233,6 +246,16 @@ import { TableauControlesComponent, TableauPagine } from '../shared/tableau';
               @if (lecture()) {
                 <div class="card-body border-t border-rule">
                   <p class="text-[12px] leading-relaxed text-warn-ink">{{ lecture() }}</p>
+                </div>
+              }
+
+              @if (messageValidationPrix(); as msg) {
+                <div
+                  class="card-body border-t border-rule text-[13px]"
+                  [class]="msg.ok ? 'text-ok' : 'text-crit'"
+                  role="status"
+                >
+                  {{ msg.texte }}
                 </div>
               }
             </section>
@@ -582,6 +605,7 @@ import { TableauControlesComponent, TableauPagine } from '../shared/tableau';
 })
 export class ParametersComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly auth = inject(AuthService);
 
   protected readonly catalogue = signal<ReferentialSpec[]>([]);
   protected readonly selected = signal<ReferentialSpec | null>(null);
@@ -679,6 +703,7 @@ export class ParametersComponent implements OnInit {
     this.loadReferences(spec);
     this.refreshVersions();
     this.chargerLignes(spec);
+    this.messageValidationPrix.set(null);
   }
 
   /** Après une écriture, ce qui est enregistré a changé : on le relit. */
@@ -874,6 +899,43 @@ export class ParametersComponent implements OnInit {
     this.saved.set(null);
     this.tab.set('saisie');
     this.refreshVersions();
+  }
+
+  /** `id` de la ligne en cours de validation, ou `null` — un bouton à la fois. */
+  protected readonly validationEnCours = signal<unknown>(null);
+  /**
+   * Message de la validation d'un prix, séparé de `errors`/`saved` : ceux-ci
+   * ne s'affichent que dans l'onglet Saisie, alors que le bouton Valider vit
+   * dans l'onglet Ce qui est enregistré.
+   */
+  protected readonly messageValidationPrix = signal<{ ok: boolean; texte: string } | null>(null);
+
+  /**
+   * Bouton « Valider » visible uniquement sur les prix fournisseurs non encore
+   * validés, et seulement pour le DG : les autres rôles peuvent saisir un
+   * prix, seul le DG l'engage (§ 6.3). Le masquer pour les autres évite un 403
+   * qui ne leur apprendrait rien qu'ils ne sachent déjà.
+   */
+  protected peutValiderPrix(spec: ReferentialSpec, ligne: Record<string, unknown>): boolean {
+    return spec.key === 'supplier-prices' && this.auth.role() === 'DG' && !ligne['validatedById'];
+  }
+
+  protected validerPrix(ligne: Record<string, unknown>): void {
+    if (this.validationEnCours() !== null) return;
+    const id = ligne['id'];
+    this.validationEnCours.set(id);
+    this.messageValidationPrix.set(null);
+    this.api.validerPrixFournisseur(String(id)).subscribe({
+      next: () => {
+        this.validationEnCours.set(null);
+        this.messageValidationPrix.set({ ok: true, texte: 'Prix validé.' });
+        this.rafraichir();
+      },
+      error: (e: { error?: { message?: unknown } }) => {
+        this.validationEnCours.set(null);
+        this.messageValidationPrix.set({ ok: false, texte: extractErrors(e).join(' ') });
+      },
+    });
   }
 
   private chargerLignes(spec: ReferentialSpec): void {
