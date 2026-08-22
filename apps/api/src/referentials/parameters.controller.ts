@@ -17,7 +17,7 @@ import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { SettingsService } from '../common/config/settings.service';
 import { humaniseCheck, translatePostgresError } from '../common/filters/prisma-exception.filter';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { FieldSpec, REFERENTIALS, ReferentialSpec, findReferential } from './registry';
+import { FieldSpec, REFERENTIALS, ReferentialSpec, findReferential, groupLabel } from './registry';
 
 // ===========================================================================
 //  DTO
@@ -225,6 +225,10 @@ export class ParametersService {
     return REFERENTIALS.filter((r) => !role || r.writeRoles.includes(role)).map((r) => ({
       key: r.key,
       label: r.label,
+      // Nom du groupe affiché en sous-titre dans le menu (§ ordre logique du
+      // registre) : dérivé du même classement que l'ordre de la liste, jamais
+      // tenu séparément — voir `groupLabel` dans registry.ts.
+      group: groupLabel(r.key),
       nature: r.nature,
       identity: r.identity,
       caution: r.caution ?? null,

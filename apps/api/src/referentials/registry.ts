@@ -1350,222 +1350,20 @@ export const REFERENTIALS: ReferentialSpec[] = [
   },
 
   // ===========================================================================
-  //  GROUPE — COÛTS ET ABSORPTION
-  //
-  //  Un pool avant les postes qui s’y absorbent (§ le bug du 21 août : le
-  //  formulaire des postes ne pouvait pas viser un pool qui n’existait pas
-  //  encore dans l’ordre précédent) ; le barème et le budget d’absorption
-  //  ferment la chaîne.
-  // ===========================================================================
-
-  // =========================================================================
-  //  Pools de charges indirectes — mutable.
-  // =========================================================================
-  {
-    key: 'cost-pools',
-    label: 'Pools de charges indirectes',
-    model: 'costPool',
-    nature: 'mutable',
-    writeRoles: [UserRole.DG, UserRole.FINANCE_CFO],
-    identity: ['code'],
-    caution:
-      'L’assiette d’absorption est un VOLUME budgété : « au prorata du chiffre d’affaires » est REFUSÉ sur un pool actif, à la saisie comme au calcul. Le volume est ce que l’entreprise pilote ; le prix suit les publications DGH et le change : une assiette en valeur ferait bouger la charge fixe unitaire à chaque publication, sans qu’aucune charge n’ait changé. Seule l’imputation au volume reste ouverte : l’assiette vient de la prévision de vente, qui prévoit des volumes et non des rotations.',
-    fields: [
-      { name: 'code', label: 'Code', type: 'string', required: true, help: 'Sans espace ni accent, ex. ADM, FIN, HSE, INFO' },
-      { name: 'label', label: 'Libellé', type: 'string', required: true, help: 'Le nom lu à l’écran, ex. « Administration », « Structure HSE »' },
-      {
-        name: 'allocationBasis',
-        label: 'Base d’imputation',
-        type: 'enum',
-        required: true,
-        values: values(AllocationBasis), valueLabels: FR.AllocationBasis,
-      },
-      {
-        name: 'segments',
-        label: 'Segments concernés',
-        type: 'enumList',
-        values: SEGMENTS, valueLabels: FR.CommercialSegment,
-        help: 'Vide = tous les segments',
-      },
-      {
-        name: 'variability',
-        label: 'Nature des charges',
-        type: 'enum',
-        required: true,
-        values: values(CostVariability), valueLabels: FR.CostVariability,
-        help: 'FIXED : le budget de ce pool entre dans les charges fixes du point mort. VARIABLE : il s’absorbe au litre mais reste hors du point mort',
-      },
-      { name: 'currencyCode', label: 'Devise', type: 'reference', refTable: 'currencies', refKey: 'code', required: true },
-      { name: 'isActive', label: 'Actif', type: 'boolean' },
-    ],
-  },
-
-  // =========================================================================
-  //  Postes de coûts — mutable.
-  // =========================================================================
-  {
-    key: 'cost-posts',
-    label: 'Postes de coûts',
-    model: 'costPost',
-    nature: 'mutable',
-    writeRoles: [UserRole.DG, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT],
-    identity: ['code'],
-    caution:
-      'La nature détermine le traitement : un poste DIRECT s’impute à une opération, un poste INDIRECT s’absorbe par un taux et exige un regroupement.',
-    fields: [
-      { name: 'code', label: 'Code', type: 'string', required: true, help: 'Sans espace ni accent, ex. TRANSPORT, DOUANE, FRAIS_ROUTE' },
-      { name: 'label', label: 'Libellé', type: 'string', required: true, help: 'Le nom lu à l’écran, ex. « Transport routier », « Droits de douane »' },
-      { name: 'category', label: 'Catégorie', type: 'string', required: true, help: 'Regroupement libre pour la lecture, ex. « Logistique », « Douane », « Financier »' },
-      { name: 'nature', label: 'Nature', type: 'enum', required: true, values: values(CostNature), valueLabels: FR.CostNature },
-      { name: 'variability', label: 'Variabilité', type: 'enum', required: true, values: values(CostVariability), valueLabels: FR.CostVariability },
-      {
-        name: 'costPoolId',
-        label: 'Pool de charges indirectes',
-        type: 'reference',
-        refTable: 'cost-pools',
-        refKey: 'code',
-        help: 'Exigé pour un poste INDIRECT, exclu pour un poste DIRECT — voir la contrainte de cohérence en base',
-      },
-      { name: 'allocationBasis', label: 'Assiette d’absorption', type: 'enum', values: values(AllocationBasis), valueLabels: FR.AllocationBasis, help: 'Exigée pour un poste INDIRECT' },
-      { name: 'displayOrder', label: 'Ordre d’affichage', type: 'integer', help: 'Rang dans les listes et les écrans : 10 apparaît avant 20. Numérotez de dix en dix pour pouvoir intercaler plus tard sans tout renuméroter. N’a aucun effet sur les calculs.' },
-      { name: 'isActive', label: 'Actif', type: 'boolean' },
-    ],
-  },
-
-  // =========================================================================
-  //  Barème de coûts standards — HISTORISÉ.
-  //
-  //  La valeur pré-paramétrée d'un poste. C'est elle qui donne un sens à
-  //  l'écart : sans référence, un transport chiffré à 45 au lieu de 30 ne se
-  //  voit pas.
-  // =========================================================================
-  {
-    key: 'cost-standards',
-    label: 'Barème de coûts',
-    model: 'costStandard',
-    nature: 'historised',
-    writeRoles: [UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO],
-    identity: ['costPostId', 'segment', 'transportMode', 'productId', 'effectiveFrom'],
-    effectiveFrom: 'effectiveFrom',
-    effectiveTo: 'effectiveTo',
-    caution:
-      'La valeur peut être exprimée AU LITRE (proportionnelle au volume) ou en FORFAIT (montant fixe pour l’affaire) : le système ramène l’une et l’autre au litre. Le barème appliqué est figé au moment du chiffrage : une grille révisée ne requalifie jamais un écart déjà justifié.',
-    fields: [
-      {
-        name: 'costPostId',
-        label: 'Poste de coût',
-        type: 'reference',
-        refTable: 'cost-posts',
-        refKey: 'code',
-        required: true,
-      },
-      {
-        name: 'basis',
-        label: 'Base',
-        type: 'enum',
-        required: true,
-        values: values(CostBasis), valueLabels: FR.CostBasis,
-        help: 'PER_UNIT = au litre, proportionnel au volume · FIXED = forfait pour l’affaire',
-      },
-      { name: 'amount', label: 'Valeur', type: 'number', required: true, decimals: 4 },
-      {
-        name: 'uom',
-        label: 'Unité de référence',
-        type: 'enum',
-        values: UOMS, valueLabels: FR.UnitOfMeasure,
-        help: 'Obligatoire si la base est au litre : une valeur au litre sans unité n’est pas interprétable',
-      },
-      {
-        name: 'currencyCode',
-        label: 'Devise',
-        type: 'reference',
-        refTable: 'currencies',
-        refKey: 'code',
-        required: true,
-      },
-      { name: 'segment', label: 'Segment', type: 'enum', values: SEGMENTS, valueLabels: FR.CommercialSegment, help: 'Vide = tous' },
-      {
-        name: 'transportMode',
-        label: 'Mode de transport',
-        type: 'enum',
-        values: TRANSPORT, valueLabels: FR.TransportMode,
-        help: 'Vide = tous',
-      },
-      { name: 'productId', label: 'Produit', type: 'reference', refTable: 'products', refKey: 'code' },
-      {
-        name: 'tolerancePct',
-        label: 'Écart toléré (%)',
-        type: 'number',
-        decimals: 3,
-        help:
-          'RÈGLE STRICTE : laisser à 0. Toute valeur différente du barème doit être justifiée. ' +
-          'Un franc de trop sur dix millions de litres fait dix millions : un pourcentage de ' +
-          'tolérance ne protège de rien à cette échelle. Ne relever qu’après décision explicite.',
-      },
-      { name: 'effectiveFrom', label: 'En vigueur depuis', type: 'date', required: true },
-      { name: 'effectiveTo', label: 'Jusqu’au', type: 'date' },
-      { name: 'notes', label: 'Note', type: 'text' },
-    ],
-  },
-
-  // =========================================================================
-  //  Taux d'absorption — mutable, par exercice.
-  // =========================================================================
-  {
-    key: 'absorption-rates',
-    label: 'Budget des pools de charges',
-    model: 'absorptionRate',
-    nature: 'mutable',
-    writeRoles: [UserRole.DG, UserRole.FINANCE_CFO],
-    identity: ['costPoolId', 'fiscalYearId'],
-    caution:
-      'UNE SEULE VALEUR SE SAISIT ICI : le budget annuel du pool. Tout le reste en découle. L’assiette est la somme de vos PRÉVISIONS DE VENTE BUDGÉTÉES sur les segments que le pool couvre. La saisir une seconde fois garantissait qu’un jour les deux divergeraient. Le taux est la division des deux. Et si le pool est de nature FIXE, ce même budget forme les charges fixes du point mort : une saisie, deux usages, aucun écart possible. Conséquence : la prévision de vente se saisit AVANT le budget du pool, et l’ordre inverse est refusé.',
-    fields: [
-      {
-        name: 'costPoolId',
-        label: 'Pool de charges',
-        type: 'reference',
-        refTable: 'cost-pools',
-        refKey: 'code',
-        required: true,
-      },
-      {
-        name: 'fiscalYearId',
-        label: 'Exercice',
-        type: 'reference',
-        refTable: 'fiscal-years',
-        refKey: 'year',
-        required: true,
-      },
-      {
-        name: 'budgetedAmount',
-        label: 'Budget de l’exercice',
-        type: 'number',
-        required: true,
-        help: 'Ce que ce regroupement de charges coûtera sur l’exercice, dans la devise du pool',
-      },
-      // ⚠️ `budgetedBase` et `baseUom` NE FIGURENT PLUS ICI.
-      //    Elles sont calculées par la base à partir de la prévision de vente.
-      //    Les rouvrir à la saisie recréerait la double écriture qu’on vient de
-      //    supprimer — et le jour où les deux divergeraient, la charge au litre
-      //    resterait calée sur un volume que plus personne n’attend.
-      {
-        name: 'version',
-        label: 'Version',
-        type: 'version',
-        help: 'Une révision crée une nouvelle ligne, jamais un écrasement',
-      },
-      { name: 'isCurrent', label: 'Version courante', type: 'boolean' },
-      { name: 'notes', label: 'Notes', type: 'text' },
-    ],
-  },
-
-  // ===========================================================================
   //  GROUPE — MARCHÉ ET PILOTAGE
   //
   //  Ce qu’on révise en cours d’exercice, pas ce qu’on pose une fois à la
   //  mise en route : cours de change, seuils de marge, prix administrés,
   //  taux de financement, prévision de vente.
+  //
+  //  ⚠️ VIENT AVANT « Coûts et absorption », ET C'EST OBLIGÉ.
+  //
+  //     `sales-forecasts` (prévision de vente) doit être saisie avant
+  //     `absorption-rates` (budget des pools) : le déclencheur qui calcule
+  //     le taux d'absorption lit directement la prévision de vente courante
+  //     et REFUSE si elle manque. Ce n'est pas une référence de champ que ce
+  //     registre pourrait suivre tout seul — c'est une règle métier en base,
+  //     et le menu doit la respecter explicitement.
   // ===========================================================================
 
   // =========================================================================
@@ -1855,7 +1653,292 @@ export const REFERENTIALS: ReferentialSpec[] = [
     ],
   },
 
+  // ===========================================================================
+  //  GROUPE — COÛTS ET ABSORPTION
+  //
+  //  Un pool avant les postes qui s’y absorbent (§ le bug du 21 août : le
+  //  formulaire des postes ne pouvait pas viser un pool qui n’existait pas
+  //  encore dans l’ordre précédent) ; le barème et le budget d’absorption
+  //  ferment la chaîne.
+  //
+  //  ⚠️ VIENT APRÈS « Marché et pilotage », ET C'EST OBLIGÉ.
+  //
+  //     Le budget d'un pool (`absorption-rates`) DÉRIVE son assiette de la
+  //     prévision de vente courante sur les segments qu'il couvre — lue
+  //     directement en base par le déclencheur qui calcule le taux, pas par
+  //     un champ de référence que ce registre pourrait suivre tout seul.
+  //     Saisir un budget de pool avant la prévision de vente est REFUSÉ (voir
+  //     la mise en garde d'`absorption-rates` ci-dessous) : le menu doit donc
+  //     présenter `sales-forecasts` avant, jamais après.
+  // ===========================================================================
+
+  // =========================================================================
+  //  Pools de charges indirectes — mutable.
+  // =========================================================================
+  {
+    key: 'cost-pools',
+    label: 'Pools de charges indirectes',
+    model: 'costPool',
+    nature: 'mutable',
+    writeRoles: [UserRole.DG, UserRole.FINANCE_CFO],
+    identity: ['code'],
+    caution:
+      'L’assiette d’absorption est un VOLUME budgété : « au prorata du chiffre d’affaires » est REFUSÉ sur un pool actif, à la saisie comme au calcul. Le volume est ce que l’entreprise pilote ; le prix suit les publications DGH et le change : une assiette en valeur ferait bouger la charge fixe unitaire à chaque publication, sans qu’aucune charge n’ait changé. Seule l’imputation au volume reste ouverte : l’assiette vient de la prévision de vente, qui prévoit des volumes et non des rotations.',
+    fields: [
+      { name: 'code', label: 'Code', type: 'string', required: true, help: 'Sans espace ni accent, ex. ADM, FIN, HSE, INFO' },
+      { name: 'label', label: 'Libellé', type: 'string', required: true, help: 'Le nom lu à l’écran, ex. « Administration », « Structure HSE »' },
+      {
+        name: 'allocationBasis',
+        label: 'Base d’imputation',
+        type: 'enum',
+        required: true,
+        values: values(AllocationBasis), valueLabels: FR.AllocationBasis,
+      },
+      {
+        name: 'segments',
+        label: 'Segments concernés',
+        type: 'enumList',
+        values: SEGMENTS, valueLabels: FR.CommercialSegment,
+        help: 'Vide = tous les segments',
+      },
+      {
+        name: 'variability',
+        label: 'Nature des charges',
+        type: 'enum',
+        required: true,
+        values: values(CostVariability), valueLabels: FR.CostVariability,
+        help: 'FIXED : le budget de ce pool entre dans les charges fixes du point mort. VARIABLE : il s’absorbe au litre mais reste hors du point mort',
+      },
+      { name: 'currencyCode', label: 'Devise', type: 'reference', refTable: 'currencies', refKey: 'code', required: true },
+      { name: 'isActive', label: 'Actif', type: 'boolean' },
+    ],
+  },
+
+  // =========================================================================
+  //  Postes de coûts — mutable.
+  // =========================================================================
+  {
+    key: 'cost-posts',
+    label: 'Postes de coûts',
+    model: 'costPost',
+    nature: 'mutable',
+    writeRoles: [UserRole.DG, UserRole.FINANCE_CFO, UserRole.ACCOUNTANT],
+    identity: ['code'],
+    caution:
+      'La nature détermine le traitement : un poste DIRECT s’impute à une opération, un poste INDIRECT s’absorbe par un taux et exige un regroupement.',
+    fields: [
+      { name: 'code', label: 'Code', type: 'string', required: true, help: 'Sans espace ni accent, ex. TRANSPORT, DOUANE, FRAIS_ROUTE' },
+      { name: 'label', label: 'Libellé', type: 'string', required: true, help: 'Le nom lu à l’écran, ex. « Transport routier », « Droits de douane »' },
+      { name: 'category', label: 'Catégorie', type: 'string', required: true, help: 'Regroupement libre pour la lecture, ex. « Logistique », « Douane », « Financier »' },
+      { name: 'nature', label: 'Nature', type: 'enum', required: true, values: values(CostNature), valueLabels: FR.CostNature },
+      { name: 'variability', label: 'Variabilité', type: 'enum', required: true, values: values(CostVariability), valueLabels: FR.CostVariability },
+      {
+        name: 'costPoolId',
+        label: 'Pool de charges indirectes',
+        type: 'reference',
+        refTable: 'cost-pools',
+        refKey: 'code',
+        help: 'Exigé pour un poste INDIRECT, exclu pour un poste DIRECT — voir la contrainte de cohérence en base',
+      },
+      { name: 'allocationBasis', label: 'Assiette d’absorption', type: 'enum', values: values(AllocationBasis), valueLabels: FR.AllocationBasis, help: 'Exigée pour un poste INDIRECT' },
+      { name: 'displayOrder', label: 'Ordre d’affichage', type: 'integer', help: 'Rang dans les listes et les écrans : 10 apparaît avant 20. Numérotez de dix en dix pour pouvoir intercaler plus tard sans tout renuméroter. N’a aucun effet sur les calculs.' },
+      { name: 'isActive', label: 'Actif', type: 'boolean' },
+    ],
+  },
+
+  // =========================================================================
+  //  Barème de coûts standards — HISTORISÉ.
+  //
+  //  La valeur pré-paramétrée d'un poste. C'est elle qui donne un sens à
+  //  l'écart : sans référence, un transport chiffré à 45 au lieu de 30 ne se
+  //  voit pas.
+  // =========================================================================
+  {
+    key: 'cost-standards',
+    label: 'Barème de coûts',
+    model: 'costStandard',
+    nature: 'historised',
+    writeRoles: [UserRole.DG, UserRole.FINANCE_CFO, UserRole.CCOO],
+    identity: ['costPostId', 'segment', 'transportMode', 'productId', 'effectiveFrom'],
+    effectiveFrom: 'effectiveFrom',
+    effectiveTo: 'effectiveTo',
+    caution:
+      'La valeur peut être exprimée AU LITRE (proportionnelle au volume) ou en FORFAIT (montant fixe pour l’affaire) : le système ramène l’une et l’autre au litre. Le barème appliqué est figé au moment du chiffrage : une grille révisée ne requalifie jamais un écart déjà justifié.',
+    fields: [
+      {
+        name: 'costPostId',
+        label: 'Poste de coût',
+        type: 'reference',
+        refTable: 'cost-posts',
+        refKey: 'code',
+        required: true,
+      },
+      {
+        name: 'basis',
+        label: 'Base',
+        type: 'enum',
+        required: true,
+        values: values(CostBasis), valueLabels: FR.CostBasis,
+        help: 'PER_UNIT = au litre, proportionnel au volume · FIXED = forfait pour l’affaire',
+      },
+      { name: 'amount', label: 'Valeur', type: 'number', required: true, decimals: 4 },
+      {
+        name: 'uom',
+        label: 'Unité de référence',
+        type: 'enum',
+        values: UOMS, valueLabels: FR.UnitOfMeasure,
+        help: 'Obligatoire si la base est au litre : une valeur au litre sans unité n’est pas interprétable',
+      },
+      {
+        name: 'currencyCode',
+        label: 'Devise',
+        type: 'reference',
+        refTable: 'currencies',
+        refKey: 'code',
+        required: true,
+      },
+      { name: 'segment', label: 'Segment', type: 'enum', values: SEGMENTS, valueLabels: FR.CommercialSegment, help: 'Vide = tous' },
+      {
+        name: 'transportMode',
+        label: 'Mode de transport',
+        type: 'enum',
+        values: TRANSPORT, valueLabels: FR.TransportMode,
+        help: 'Vide = tous',
+      },
+      { name: 'productId', label: 'Produit', type: 'reference', refTable: 'products', refKey: 'code' },
+      {
+        name: 'tolerancePct',
+        label: 'Écart toléré (%)',
+        type: 'number',
+        decimals: 3,
+        help:
+          'RÈGLE STRICTE : laisser à 0. Toute valeur différente du barème doit être justifiée. ' +
+          'Un franc de trop sur dix millions de litres fait dix millions : un pourcentage de ' +
+          'tolérance ne protège de rien à cette échelle. Ne relever qu’après décision explicite.',
+      },
+      { name: 'effectiveFrom', label: 'En vigueur depuis', type: 'date', required: true },
+      { name: 'effectiveTo', label: 'Jusqu’au', type: 'date' },
+      { name: 'notes', label: 'Note', type: 'text' },
+    ],
+  },
+
+  // =========================================================================
+  //  Taux d'absorption — mutable, par exercice.
+  // =========================================================================
+  {
+    key: 'absorption-rates',
+    label: 'Budget des pools de charges',
+    model: 'absorptionRate',
+    nature: 'mutable',
+    writeRoles: [UserRole.DG, UserRole.FINANCE_CFO],
+    identity: ['costPoolId', 'fiscalYearId'],
+    caution:
+      'UNE SEULE VALEUR SE SAISIT ICI : le budget annuel du pool. Tout le reste en découle. L’assiette est la somme de vos PRÉVISIONS DE VENTE BUDGÉTÉES sur les segments que le pool couvre. La saisir une seconde fois garantissait qu’un jour les deux divergeraient. Le taux est la division des deux. Et si le pool est de nature FIXE, ce même budget forme les charges fixes du point mort : une saisie, deux usages, aucun écart possible. Conséquence : la prévision de vente se saisit AVANT le budget du pool, et l’ordre inverse est refusé.',
+    fields: [
+      {
+        name: 'costPoolId',
+        label: 'Pool de charges',
+        type: 'reference',
+        refTable: 'cost-pools',
+        refKey: 'code',
+        required: true,
+      },
+      {
+        name: 'fiscalYearId',
+        label: 'Exercice',
+        type: 'reference',
+        refTable: 'fiscal-years',
+        refKey: 'year',
+        required: true,
+      },
+      {
+        name: 'budgetedAmount',
+        label: 'Budget de l’exercice',
+        type: 'number',
+        required: true,
+        help: 'Ce que ce regroupement de charges coûtera sur l’exercice, dans la devise du pool',
+      },
+      // ⚠️ `budgetedBase` et `baseUom` NE FIGURENT PLUS ICI.
+      //    Elles sont calculées par la base à partir de la prévision de vente.
+      //    Les rouvrir à la saisie recréerait la double écriture qu’on vient de
+      //    supprimer — et le jour où les deux divergeraient, la charge au litre
+      //    resterait calée sur un volume que plus personne n’attend.
+      {
+        name: 'version',
+        label: 'Version',
+        type: 'version',
+        help: 'Une révision crée une nouvelle ligne, jamais un écrasement',
+      },
+      { name: 'isCurrent', label: 'Version courante', type: 'boolean' },
+      { name: 'notes', label: 'Notes', type: 'text' },
+    ],
+  },
+
 ];
+
+/**
+ * GROUPES DU MENU PARAMÉTRAGE — un seul endroit qui les nomme.
+ *
+ * ⚠️ L'ORDRE ICI DOIT SUIVRE CELUI DE `REFERENTIALS`, PAS L'INVENTER.
+ *
+ *    Les groupes eux-mêmes sont ordonnés en dépendance : un référentiel ne
+ *    vise jamais qu'un groupe déjà posé plus haut — sites avant tarifs de
+ *    transport, prévision de vente avant budget des pools (le déclencheur qui
+ *    calcule le taux d'absorption lit la prévision directement, sans champ de
+ *    référence que ce fichier pourrait suivre tout seul). Cette liste ne fait
+ *    que NOMMER les groupes déjà matérialisés par les bandeaux `GROUPE —` au
+ *    fil de `REFERENTIALS` ; elle ne les réordonne pas.
+ */
+const REFERENTIAL_GROUPS: { title: string; keys: readonly string[] }[] = [
+  {
+    title: 'Fondations transverses',
+    keys: ['settings', 'currencies', 'countries', 'fiscal-years', 'products'],
+  },
+  {
+    title: 'Tiers et engagements commerciaux',
+    keys: ['partners', 'contracts', 'supplier-prices', 'guarantees', 'crm-pipeline-stages'],
+  },
+  {
+    title: 'Référentiel logistique',
+    keys: [
+      'sites',
+      'site-requirement-types',
+      'site-requirements',
+      'vehicles',
+      'drivers',
+      'carrier-tariffs',
+      'operation-types',
+    ],
+  },
+  {
+    title: 'HSE',
+    keys: ['hse-checklists', 'hse-check-items'],
+  },
+  {
+    title: 'Marché et pilotage',
+    keys: [
+      'fx-rates',
+      'margin-thresholds',
+      'ullage-tolerances',
+      'administered-prices',
+      'financing-rates',
+      'sales-forecasts',
+    ],
+  },
+  {
+    title: 'Coûts et absorption',
+    keys: ['cost-pools', 'cost-posts', 'cost-standards', 'absorption-rates'],
+  },
+];
+
+const GROUP_BY_KEY: Map<string, string> = new Map(
+  REFERENTIAL_GROUPS.flatMap((g) => g.keys.map((k) => [k, g.title] as const)),
+);
+
+/** Nom du groupe d'un référentiel, pour l'écran de paramétrage. */
+export function groupLabel(key: string): string {
+  return GROUP_BY_KEY.get(key) ?? 'Autres';
+}
 
 export function findReferential(key: string): ReferentialSpec | undefined {
   return REFERENTIALS.find((r) => r.key === key);

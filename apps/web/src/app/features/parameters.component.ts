@@ -35,7 +35,8 @@ import { TableauControlesComponent, TableauPagine } from '../shared/tableau';
 
     <div class="grid grid-cols-1 gap-5 lg:grid-cols-[240px_1fr]">
       <!-- ============ Choix du référentiel ============ -->
-      <!-- La liste compte jusqu'à vingt-huit réglages : elle dépasse la
+      <!-- La liste compte une trentaine de réglages, groupés dans l'ordre où
+           on les configure (§ ordre logique du registre) : elle dépasse la
            hauteur de l'écran. Elle défile donc pour elle-même et reste en vue
            pendant qu'on lit le panneau de droite, sans quoi changer de réglage
            obligeait à remonter toute la page. Sur petit écran, la mise en page
@@ -44,7 +45,10 @@ import { TableauControlesComponent, TableauPagine } from '../shared/tableau';
         class="card h-fit overflow-hidden lg:sticky lg:top-[84px]
                lg:max-h-[calc(100vh-104px)] lg:overflow-y-auto"
       >
-        @for (r of catalogue(); track r.key) {
+        @for (r of catalogue(); track r.key; let i = $index) {
+          @if (debutDeGroupe(i)) {
+            <p class="nav-label px-[15px]" [class.pt-5]="i > 0">{{ r.group }}</p>
+          }
           <button
             type="button"
             class="flex w-full items-center justify-between gap-2 border-b border-rule px-[15px]
@@ -651,6 +655,17 @@ export class ParametersComponent implements OnInit {
       this.catalogue.set(c);
       if (c.length > 0) this.select(c[0]);
     });
+  }
+
+  /**
+   * Vrai pour la première entrée d'un nouveau groupe — c'est là qu'un sous-titre
+   * s'affiche. Le regroupement suit l'ordre déjà servi par l'API (§ ordre
+   * logique du registre) : rien n'est retrié ici, seule la rupture entre deux
+   * groupes consécutifs est détectée.
+   */
+  protected debutDeGroupe(index: number): boolean {
+    if (index === 0) return true;
+    return this.catalogue()[index].group !== this.catalogue()[index - 1].group;
   }
 
   protected select(spec: ReferentialSpec): void {

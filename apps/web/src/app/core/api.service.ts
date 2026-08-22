@@ -1123,6 +1123,8 @@ export interface FieldSpec {
 export interface ReferentialSpec {
   key: string;
   label: string;
+  /** Groupe du menu Paramétrage (§ ordre logique du registre), pour le sous-titre affiché. */
+  group: string;
   /** `historised` : rien n'est réécrit, chaque évolution crée une ligne datée. */
   nature: 'mutable' | 'historised';
   identity: string[];
