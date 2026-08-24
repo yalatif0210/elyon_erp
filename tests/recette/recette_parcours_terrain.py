@@ -158,12 +158,28 @@ fuites = [m for m in interdits if m in brut]
 check("Aucune donnée commerciale dans l'objet terrain", not fuites,
       f"fuites : {fuites}" if fuites else "ni prix, ni marge, ni coût, ni encours (§ 10.3)")
 
-print("\n=== B. CHECKLIST ===")
+print("\n=== A bis. PRÉPARATION SOLDÉE (préalable administratif au chargement) ===")
+# La checklist PREPARATION (ordre de mission, moyens confirmés) n'exige ni
+# photo ni signature — c'est celle du CHARGEMENT à venir qui les exige, et
+# c'est elle que la section B exerce. On la solde vite pour amener
+# l'opération là où le reste du parcours l'attend.
 st, m = sync(agent, op_id, "CHECK_OPENED", {"phase": "PREPARATION"})
+check("Checklist de préparation ouverte", st == "ACCEPTED", m or "étape administrative")
+s, checks = call("GET", f"/api/field/hse/operations/{op_id}/checks", agent)
+prep = next(x for x in checks if x["phase"] == "PREPARATION")
+for p in prep["items"]:
+    sync(agent, op_id, "CHECK_ITEM_RECORDED", {"checkItemId": p["id"], "outcome": "PASSED"})
+st, m = sync(controleur, op_id, "CHECK_VALIDATED", {"checkId": prep["id"], "remotely": True})
+check("Checklist de préparation validée", st == "ACCEPTED", m[:150])
+st, m = sync(agent, op_id, "STATUS_ADVANCED", {"to": "PRE_CHARGEMENT", "reason": "Préparation soldée"})
+check("L'opération passe en préparation du chargement", st == "ACCEPTED", m[:150] or "vers PRE_CHARGEMENT")
+
+print("\n=== B. CHECKLIST ===")
+st, m = sync(agent, op_id, "CHECK_OPENED", {"phase": "PRE_CHARGEMENT"})
 check("Checklist ouverte", st == "ACCEPTED", m or "phase avant départ")
 
 s, checks = call("GET", f"/api/field/hse/operations/{op_id}/checks", agent)
-c = next((x for x in checks if x["phase"] == "PREPARATION"), None)
+c = next((x for x in checks if x["phase"] == "PRE_CHARGEMENT"), None)
 check("Elle est lisible avec ses points", c is not None and len(c["items"]) > 0,
       f"{len(c['items']) if c else 0} point(s)")
 
@@ -218,7 +234,7 @@ for p in c["items"][1:]:
         charge["recordedValue"] = "Relevé conforme"
     sync(agent, op_id, "CHECK_ITEM_RECORDED", charge)
 s, checks = call("GET", f"/api/field/hse/operations/{op_id}/checks", agent)
-c = next(x for x in checks if x["phase"] == "PREPARATION")
+c = next(x for x in checks if x["phase"] == "PRE_CHARGEMENT")
 restants = [p for p in c["items"] if p["outcome"] == "PENDING"]
 check("Tous les points sont renseignés", len(restants) == 0,
       f"{len(restants)} en attente sur {len(c['items'])}")
@@ -236,7 +252,7 @@ check("Le contrôleur HSE valide, à distance", st == "ACCEPTED",
 # périmètre du contrôleur — elle ne lui est pas affectée, et il n'a plus rien
 # à y valider. C'est le cloisonnement qui se referme, pas une anomalie.
 s, checks = call("GET", f"/api/field/hse/operations/{op_id}/checks", agent)
-c = next(x for x in checks if x["phase"] == "PREPARATION")
+c = next(x for x in checks if x["phase"] == "PRE_CHARGEMENT")
 check("La validation est inscrite", c.get("validatedAt") is not None,
       f"validée le {str(c.get('validatedAt'))[:19]}")
 
@@ -258,8 +274,8 @@ check("Il est attribué au réalm TERRAIN", auteur == "terrain",
       f"auteur : {auteur} — les deux réalms sont deux tables, jamais l'une pour l'autre")
 
 print("\n=== F. AVANCEMENT ===")
-st, m = sync(agent, op_id, "STATUS_ADVANCED", {"to": "PRE_CHARGEMENT", "reason": "Avant chargement"})
-check("L'opération avance", st == "ACCEPTED", m[:150] or "vers PRE_CHARGEMENT")
+st, m = sync(agent, op_id, "STATUS_ADVANCED", {"to": "CHARGEMENT", "reason": "Chargement engagé"})
+check("L'opération avance", st == "ACCEPTED", m[:150] or "vers CHARGEMENT")
 
 acteur = psql(f"select actor_type from operation_phase_transitions "
               f"where operation_id='{op_id}' order by created_at desc limit 1;").strip()
