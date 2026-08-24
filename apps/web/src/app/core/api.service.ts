@@ -799,7 +799,7 @@ export interface OutstandingAdvanceRow {
   days_outstanding: number;
   settlement_trigger: string;
   operation: string | null;
-  operation_status: string | null;
+  operation_phase: string | null;
 }
 
 /** Écart d'invariant (§ 11). Cette liste doit rester vide. */

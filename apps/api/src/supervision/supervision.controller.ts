@@ -228,7 +228,7 @@ export class SupervisionService {
       `SELECT reference, supplier, deal, currency_code,
               prepaid_amount, settled_amount, outstanding_amount, outstanding_pivot,
               prepaid_at, days_outstanding, settlement_trigger,
-              operation, operation_status
+              operation, operation_phase
          FROM v_outstanding_advances`,
     );
     return this.versXof(lignes, ['outstanding_pivot']);

@@ -436,7 +436,7 @@ export class OperationsService {
 
     const resolved = await this.prisma.$queryRaw<{ item_id: string }[]>`
       SELECT item_id FROM resolve_hse_checklist(${operationId}::uuid)
-       WHERE phase = ${operation.phase}::"operation_phase"`;
+       WHERE phase = ${operation.phase}::text`;
 
     if (resolved.length === 0) {
       return {
