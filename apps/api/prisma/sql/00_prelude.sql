@@ -75,6 +75,7 @@ DROP VIEW IF EXISTS v_ullage_statistiques CASCADE;
 DROP VIEW IF EXISTS v_credit_depasse CASCADE;
 DROP VIEW IF EXISTS v_partner_credit_exposure CASCADE;
 DROP VIEW IF EXISTS v_fret_hors_tarif CASCADE;
+DROP VIEW IF EXISTS v_outstanding_advances CASCADE;
 
 -- ⚠️ MÊME PROBLÈME, AVEC UN DÉCLENCHEUR PLUTÔT QU'UNE VUE (22/08/2026).
 --
@@ -88,3 +89,24 @@ DROP TRIGGER IF EXISTS trg_freight_tariff ON operation_assignments;
 DROP FUNCTION IF EXISTS enforce_freight_tariff();
 DROP TRIGGER IF EXISTS trg_carrier_is_carrier ON operation_assignments;
 DROP FUNCTION IF EXISTS enforce_carrier_is_carrier();
+
+-- ⚠️ MÊME PROBLÈME ENCORE, POUR LA FUSION status/phase (22/08/2026).
+--
+--    `operations.status` disparaît, remplacé par `operations.phase` — seul
+--    champ d'état désormais, étendu de 6 à 9 valeurs et partagé avec les
+--    checklists HSE (§ SPECIFICATIONS.md, discussion du 22/08). Cinq
+--    déclencheurs référencent `NEW.status`/`OLD.status` dans leur corps ;
+--    Prisma refusera le `DROP COLUMN status` tant qu'ils existent, pour la
+--    même raison qu'une vue dépendant d'une fonction recréée.
+DROP TRIGGER IF EXISTS trg_hse_gate_before_loading ON operations;
+DROP FUNCTION IF EXISTS enforce_hse_gate_before_loading();
+DROP TRIGGER IF EXISTS trg_operation_has_type ON operations;
+DROP FUNCTION IF EXISTS enforce_operation_has_type();
+DROP TRIGGER IF EXISTS trg_site_requirements ON operations;
+DROP FUNCTION IF EXISTS enforce_site_requirements();
+DROP TRIGGER IF EXISTS trg_closure_documents_sealed ON operations;
+DROP FUNCTION IF EXISTS enforce_closure_documents_sealed();
+DROP TRIGGER IF EXISTS trg_settle_advances_on_operation ON operations;
+DROP FUNCTION IF EXISTS settle_advances_on_operation();
+DROP TRIGGER IF EXISTS trg_revise_advances_on_measurement ON measurement_records;
+DROP FUNCTION IF EXISTS revise_advances_on_measurement();

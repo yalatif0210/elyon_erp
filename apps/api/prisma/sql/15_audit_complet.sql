@@ -223,9 +223,9 @@ SELECT
   'Opération sans type d''opération',
   'operations',
   o.reference,
-  'statut ' || o.status::text || ' : aucune checklist ne peut s''y attacher'
+  'étape ' || o.phase::text || ' : aucune checklist ne peut s''y attacher'
 FROM operations o
-WHERE o.status::text <> 'DRAFT'
+WHERE o.phase::text <> 'PREPARATION'
   AND NOT EXISTS (
     SELECT 1 FROM operation_type_assignments a WHERE a.operation_id = o.id
   )
@@ -245,7 +245,8 @@ JOIN operations o ON o.id = a.operation_id
 JOIN v_transport_compliance c
   ON c.subject_id IN (a.carrier_id, a.vehicle_id, a.driver_id)
 WHERE NOT c.is_compliant
-  AND o.status::text NOT IN ('CLOSED', 'CANCELLED')
+  AND o.phase::text <> 'CLOTURE'
+  AND o.halted_at IS NULL
   AND a.compliance_derogation_id IS NULL
 GROUP BY o.reference
 
@@ -285,15 +286,15 @@ SELECT
   'Opération engagée sans aucun point de contrôle HSE',
   'operations',
   o.reference,
-  'statut ' || o.status::text || ', validée sans checklist'
+  'étape ' || o.phase::text || ', aucune checklist trouvée'
 FROM operations o
-WHERE o.status::text IN ('LOADING', 'IN_TRANSIT', 'DELIVERING', 'FINAL_CHECK', 'CLOSED')
-  AND o.hse_derogation_id IS NULL
+WHERE o.phase::text IN
+      ('CHARGEMENT', 'POST_CHARGEMENT', 'TRANSPORT', 'PRE_DECHARGEMENT',
+       'DECHARGEMENT', 'POST_DECHARGEMENT', 'CLOTURE')
+  -- Aucune checklist du tout ⇒ aucune dérogation par-checklist non plus :
+  -- la vérifier séparément ferait une seconde lecture du même fait.
   AND NOT EXISTS (
-    SELECT 1
-      FROM operation_hse_check_items i
-      JOIN operation_hse_checks c ON c.id = i.check_id
-     WHERE c.operation_id = o.id
+    SELECT 1 FROM operation_hse_checks c WHERE c.operation_id = o.id
   )
 
 UNION ALL

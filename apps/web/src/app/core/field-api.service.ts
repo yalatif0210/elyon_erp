@@ -23,7 +23,7 @@ export type FieldListingReason = 'ASSIGNED' | 'AWAITING_HSE_VALIDATION';
 export interface FieldOperationSummary {
   id: string;
   reference: string;
-  status: string;
+  phase: string;
   transportMode: string;
   plannedVolume: number;
   uom: string;
@@ -129,7 +129,11 @@ export interface FieldReferenceDocumentView {
 export interface FieldOperationDetail {
   id: string;
   reference: string;
-  status: string;
+  phase: string;
+  /** Arrêt d'urgence (§ 22/08/2026), PARALLÈLE à `phase` — jamais une de ses valeurs. */
+  haltedAt: string | null;
+  haltType: string | null;
+  haltReason: string | null;
   transportMode: string;
   plannedVolume: number;
   uom: string;
@@ -159,7 +163,7 @@ export interface FieldSiteContactView {
 
 export interface FieldSiteHistoryEntry {
   reference: string;
-  status: string;
+  phase: string;
   date: string | null;
   plannedVolume: number;
   deliveredVolume: number | null;
@@ -379,15 +383,15 @@ export class FieldApiService {
   //  sans les inscrire en dur — voir `FieldVocabularyService`.
 
   private retenirResume(l: FieldOperationSummary): void {
-    // `to` et non `status` : c'est le nom du champ dans `TransitionDto`, donc
+    // `to` et non `phase` : c'est le nom du champ dans `TransitionDto`, donc
     // celui que porteront les messages de refus.
-    this.vocabulaire.noter('to', l.status);
+    this.vocabulaire.noter('to', l.phase);
     this.vocabulaire.noter('uom', l.uom);
     this.vocabulaire.noterListe('phase', l.checksAwaitingValidation);
   }
 
   private retenirDetail(d: FieldOperationDetail): void {
-    this.vocabulaire.noter('to', d.status);
+    this.vocabulaire.noter('to', d.phase);
     this.vocabulaire.noter('uom', d.uom);
     this.vocabulaire.noterListe(
       'phase',
@@ -402,7 +406,7 @@ export class FieldApiService {
 
   private retenirFiche(f: FieldSiteSheet): void {
     for (const ligne of f.history) {
-      this.vocabulaire.noter('to', ligne.status);
+      this.vocabulaire.noter('to', ligne.phase);
       this.vocabulaire.noter('uom', ligne.uom);
       for (const i of ligne.incidents) {
         this.vocabulaire.noter('type', i.type);

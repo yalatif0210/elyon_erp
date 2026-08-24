@@ -286,8 +286,6 @@ export class HseService {
       select: { id: true, operationId: true, phase: true, validatedAt: true },
     });
 
-    await this.propagateToOperation(check.operationId, { fieldUserId });
-
     await this.audit.record({
       actorType: ActorType.FIELD_USER,
       actorId: fieldUserId,
@@ -307,8 +305,6 @@ export class HseService {
       data: { validatedByUserId: userId, validatedAt: new Date(), validatedRemotely: true },
       select: { id: true, operationId: true, phase: true, validatedAt: true },
     });
-
-    await this.propagateToOperation(check.operationId, { userId });
 
     await this.audit.record({
       actorType: ActorType.INTERNAL_USER,
@@ -371,34 +367,6 @@ export class HseService {
     });
 
     return check;
-  }
-
-  /**
-   * Ouvre le verrou de l'opération dès qu'aucun point bloquant ne reste en
-   * souffrance. Le trigger le revérifiera au changement d'état : marquer
-   * l'opération ici ne suffit pas à la faire passer au chargement.
-   */
-  private async propagateToOperation(
-    operationId: string,
-    by: { fieldUserId?: string; userId?: string },
-  ) {
-    const pending = await this.prisma.operationHseCheckItem.count({
-      where: {
-        check: { operationId },
-        level: HseControlLevel.BLOCKING,
-        outcome: { not: HseCheckOutcome.PASSED },
-      },
-    });
-    if (pending > 0) return;
-
-    await this.prisma.operation.update({
-      where: { id: operationId },
-      data: {
-        hseValidatedById: by.fieldUserId ?? null,
-        hseValidatedByUserId: by.userId ?? null,
-        hseValidatedAt: new Date(),
-      },
-    });
   }
 
   /**

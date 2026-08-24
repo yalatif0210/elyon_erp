@@ -198,9 +198,13 @@ BEGIN
   END IF;
 
   -- Une opération déjà engagée interdit la modification : le coût est réel.
+  -- « Engagée » = sortie de PREPARATION et pas annulée (§ 22/08/2026,
+  -- fusion status/phase) — une opération arrêtée en INCIDENT reste engagée,
+  -- le coût y est réel ; seule CANCELLED annule l'engagement économique.
   IF EXISTS (SELECT 1 FROM operations
               WHERE deal_id = NEW.id
-                AND status::text NOT IN ('DRAFT', 'CANCELLED')) THEN
+                AND phase::text <> 'PREPARATION'
+                AND NOT (halted_at IS NOT NULL AND halt_type::text = 'CANCELLED')) THEN
     RAISE EXCEPTION
       'Le deal % a des opérations engagées : ses prix ne peuvent plus changer. Corriger par avoir.',
       NEW.reference
@@ -365,82 +369,117 @@ CREATE TRIGGER trg_hse_separation_of_duties
   BEFORE INSERT OR UPDATE OF validated_by_field_user_id, validated_by_user_id ON operation_hse_checks
   FOR EACH ROW EXECUTE FUNCTION enforce_hse_separation_of_duties();
 
--- Pas de chargement tant qu'un contrôle bloquant n'est pas satisfait.
-CREATE OR REPLACE FUNCTION enforce_hse_gate_before_loading()
+-- ---------------------------------------------------------------------------
+--  UNE SEULE SÉQUENCE D'ÉTAPES, PLUS DE STATUT À PART (22/08/2026)
+--
+--  `operations.status` (12 valeurs) et `operations.phase`/`OperationPhase`
+--  (6 valeurs, réservées aux checklists HSE) étaient deux vocabulaires
+--  distincts, sans lien vérifié entre eux : un point de contrôle pouvait
+--  s'ouvrir sur une phase sans jamais être confronté au statut réel de
+--  l'opération. `phase` devient l'unique champ d'état, étendu à 9 valeurs :
+--  PREPARATION, PRE_CHARGEMENT, CHARGEMENT, POST_CHARGEMENT, TRANSPORT,
+--  PRE_DECHARGEMENT, DECHARGEMENT, POST_DECHARGEMENT, CLOTURE.
+--
+--  Deux conséquences, actées par la direction :
+--    1. L'ORDRE EST STRICT — une transition ne peut viser que l'étape
+--       suivante immédiate. Avant cette date, RIEN ne l'imposait (démontré
+--       par `tests/lot2_negative.sql`, qui saute directement de DRAFT à
+--       LOADING sans qu'aucun trigger ne s'y oppose).
+--    2. CHAQUE ÉTAPE VERROUILLE LA SUIVANTE — pas seulement l'entrée en
+--       chargement comme avant. Le verrou HSE se généralise : il porte sur
+--       la checklist de l'étape QUITTÉE (`operation_hse_checks` où
+--       `phase = OLD.phase`), pas sur un indicateur global de l'opération.
+--
+--  INCIDENT et CANCELLED ne sont PLUS des valeurs de la séquence : ce sont
+--  deux arrêts d'urgence, parallèles (`halted_at`/`halt_type`/`halt_reason`/
+--  `halted_by_id`), réservés au DG et au CCOO — `phase` n'est jamais
+--  écrasée par un arrêt, l'étape en cours reste visible.
+-- ---------------------------------------------------------------------------
+
+-- Un seul trigger porte les deux règles (l'ordre, puis le verrou de l'étape
+-- quittée) : les fondre évite toute dépendance à l'ordre d'exécution entre
+-- deux triggers BEFORE distincts (PostgreSQL les enchaînerait par ordre
+-- alphabétique de nom — fragile, et sans rapport avec l'ordre logique voulu).
+CREATE OR REPLACE FUNCTION enforce_phase_sequence()
 RETURNS TRIGGER AS $$
 DECLARE
-  pending int;
+  rang_actuel int;
+  rang_cible  int;
+  a_verifier  int;
+  chk         RECORD;
+  pending     int;
 BEGIN
-  IF NEW.status::text NOT IN ('LOADING', 'IN_TRANSIT', 'DELIVERING', 'FINAL_CHECK', 'CLOSED') THEN
-    RETURN NEW;
-  END IF;
-  IF OLD.status::text = NEW.status::text THEN
-    RETURN NEW;
+  IF OLD.phase = NEW.phase THEN RETURN NEW; END IF;
+
+  IF NEW.halted_at IS NOT NULL OR OLD.halted_at IS NOT NULL THEN
+    RAISE EXCEPTION
+      'ÉTAPE : l''opération % est à l''arrêt (%) : elle ne progresse plus.',
+      NEW.reference, COALESCE(NEW.halt_type::text, OLD.halt_type::text)
+      USING ERRCODE = 'check_violation';
   END IF;
 
-  -- Une dérogation HSE du DG lève le verrou (§ 11.2) — SI ELLE EST OPPOSABLE.
+  -- 1. L'ORDRE EST STRICT — une transition ne peut viser que l'étape
+  --    suivante immédiate. Avant cette date, rien ne l'imposait (démontré
+  --    par `tests/lot2_negative.sql`, qui sautait directement de DRAFT à
+  --    LOADING sans qu'aucun trigger ne s'y oppose).
+  rang_actuel := array_position(enum_range(NULL::operation_phase), OLD.phase);
+  rang_cible  := array_position(enum_range(NULL::operation_phase), NEW.phase);
+
+  IF rang_cible IS DISTINCT FROM rang_actuel + 1 THEN
+    RAISE EXCEPTION
+      'ÉTAPE : l''opération % ne peut pas passer de % à % — l''étape suivante attendue est %.',
+      NEW.reference, OLD.phase, NEW.phase,
+      (enum_range(NULL::operation_phase))[rang_actuel + 1]
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- 2. CHAQUE ÉTAPE VERROUILLE LA SUIVANTE — le verrou HSE porte sur la
+  --    checklist de l'étape QUITTÉE (`operation_hse_checks` où
+  --    `phase = OLD.phase`), généralisation par étape de l'ancien verrou
+  --    « avant chargement » qui ne portait que sur LOADING.
   --
-  -- ⚠️ La seule présence d'un identifiant suffisait. Une dérogation révoquée,
-  --    expirée, ou accordée pour une AUTRE opération ouvrait donc le verrou
-  --    HSE avant chargement, indéfiniment. C'est la pièce qu'un assureur
-  --    demande après un incident : elle doit avoir été valide au moment des
-  --    faits, pas avoir simplement existé un jour.
-  IF NEW.hse_derogation_id IS NOT NULL THEN
-    IF derogation_opposable(NEW.hse_derogation_id, 'HSE_BLOCKING_OVERRIDE', NEW.reference) THEN
+  --    Rien à vérifier si l'étape quittée ne porte aucun point de contrôle
+  --    pour cette opération (son type, son segment) — même résolution que
+  --    celle déjà utilisée par `hse.controller.ts` pour ouvrir une checklist.
+  SELECT count(*) INTO a_verifier
+    FROM resolve_hse_checklist(NEW.id) WHERE phase = OLD.phase::text;
+  IF a_verifier = 0 THEN RETURN NEW; END IF;
+
+  SELECT id, validated_at, derogation_id INTO chk
+    FROM operation_hse_checks WHERE operation_id = NEW.id AND phase = OLD.phase;
+
+  -- Une dérogation HSE du DG lève le verrou de CETTE étape (§ 11.2) — SI ELLE
+  -- EST OPPOSABLE. La seule présence d'un identifiant ne suffit pas : une
+  -- dérogation révoquée, expirée, ou accordée pour une autre opération, ne
+  -- doit pas ouvrir le verrou.
+  IF chk.derogation_id IS NOT NULL THEN
+    IF derogation_opposable(chk.derogation_id, 'HSE_BLOCKING_OVERRIDE', NEW.reference) THEN
       RETURN NEW;
     END IF;
     RAISE EXCEPTION
-      'VERROU HSE : l''opération % invoque une dérogation qui ne l''ouvre pas : %. Le verrou reste fermé.',
-      NEW.reference,
-      derogation_motif_refus(NEW.hse_derogation_id, 'HSE_BLOCKING_OVERRIDE', NEW.reference)
+      'VERROU HSE : l''opération % invoque, à l''étape %, une dérogation qui ne l''ouvre pas : %.',
+      NEW.reference, OLD.phase,
+      derogation_motif_refus(chk.derogation_id, 'HSE_BLOCKING_OVERRIDE', NEW.reference)
       USING ERRCODE = 'check_violation';
   END IF;
 
-  IF NEW.hse_validated_by_id IS NULL AND NEW.hse_validated_by_user_id IS NULL THEN
+  IF chk.id IS NULL OR chk.validated_at IS NULL THEN
     RAISE EXCEPTION
-      'VERROU HSE : l''opération % ne peut pas passer au chargement : contrôles non validés.',
-      NEW.reference
-      USING ERRCODE = 'check_violation';
-  END IF;
-
-  -- ⚠️ UNE VALIDATION SANS AUCUN POINT DE CONTRÔLE EST UNE SIGNATURE À VIDE.
-  --
-  --    Le comptage ci-dessous ne peut refuser que ce qu'il trouve : sur une
-  --    opération DÉPOURVUE de points, il rend 0 et le verrou s'ouvre. Le
-  --    contrôle HSE se réduit alors à une case cochée par le contrôleur, sur
-  --    rien.
-  --
-  --    Le cas n'est pas théorique : les points naissent d'un modèle de
-  --    checklist, et un modèle ne s'applique qu'aux segments et modes de
-  --    transport qu'il déclare. Aujourd'hui, un seul modèle existe — B2B et
-  --    RETAIL, par camion. Une opération MARITIME n'en trouve aucun, donc
-  --    n'obtient aucun point, donc franchit le verrou dès qu'on la valide.
-  --
-  --    C'est exactement la pièce qu'un assureur réclame après un incident.
-  --    Mieux vaut refuser le départ que produire une attestation vide.
-  SELECT count(*) INTO pending
-    FROM operation_hse_check_items i
-    JOIN operation_hse_checks c ON c.id = i.check_id
-   WHERE c.operation_id = NEW.id;
-
-  IF pending = 0 THEN
-    RAISE EXCEPTION
-      'VERROU HSE : l''opération % ne porte AUCUN point de contrôle : la validation ne s''appuierait sur rien. Vérifier qu''un modèle de checklist couvre son segment et son mode de transport.',
-      NEW.reference
+      'VERROU HSE : l''opération % ne peut pas quitter l''étape % : contrôles non validés.',
+      NEW.reference, OLD.phase
       USING ERRCODE = 'check_violation';
   END IF;
 
   SELECT count(*) INTO pending
     FROM operation_hse_check_items i
-    JOIN operation_hse_checks c ON c.id = i.check_id
-   WHERE c.operation_id = NEW.id
+   WHERE i.check_id = chk.id
      AND i.level::text = 'BLOCKING'
      AND i.outcome::text <> 'PASSED';
 
   IF pending > 0 THEN
     RAISE EXCEPTION
-      'VERROU HSE : % contrôle(s) bloquant(s) non satisfait(s) sur l''opération %.',
-      pending, NEW.reference
+      'VERROU HSE : % contrôle(s) bloquant(s) non satisfait(s) à l''étape % de l''opération %.',
+      pending, OLD.phase, NEW.reference
       USING ERRCODE = 'check_violation';
   END IF;
 
@@ -448,10 +487,48 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS trg_hse_gate_before_loading ON operations;
-CREATE TRIGGER trg_hse_gate_before_loading
-  BEFORE UPDATE OF status ON operations
-  FOR EACH ROW EXECUTE FUNCTION enforce_hse_gate_before_loading();
+DROP TRIGGER IF EXISTS trg_phase_sequence ON operations;
+CREATE TRIGGER trg_phase_sequence
+  BEFORE UPDATE OF phase ON operations
+  FOR EACH ROW EXECUTE FUNCTION enforce_phase_sequence();
+
+-- Vrai si l'opération est bloquée à SA PHASE COURANTE par le verrou HSE —
+-- même condition que celle qui refuserait sa prochaine transition, mais en
+-- LECTURE : sert à l'AFFICHER (tableau de bord, fiche) sans rien tenter.
+-- Toute divergence avec `enforce_phase_sequence` serait deux vérités pour un
+-- même verrou : les deux DOIVENT rester synchronisées si l'une évolue.
+CREATE OR REPLACE FUNCTION operation_hse_bloquee(p_operation_id uuid)
+RETURNS boolean AS $$
+DECLARE
+  o          RECORD;
+  a_verifier int;
+  chk        RECORD;
+  pending    int;
+BEGIN
+  SELECT phase, halted_at, reference INTO o FROM operations WHERE id = p_operation_id;
+  IF o.halted_at IS NOT NULL THEN RETURN false; END IF;
+
+  SELECT count(*) INTO a_verifier
+    FROM resolve_hse_checklist(p_operation_id) WHERE phase = o.phase::text;
+  IF a_verifier = 0 THEN RETURN false; END IF;
+
+  SELECT id, validated_at, derogation_id INTO chk
+    FROM operation_hse_checks WHERE operation_id = p_operation_id AND phase = o.phase;
+
+  IF chk.derogation_id IS NOT NULL
+     AND derogation_opposable(chk.derogation_id, 'HSE_BLOCKING_OVERRIDE', o.reference) THEN
+    RETURN false;
+  END IF;
+
+  IF chk.id IS NULL OR chk.validated_at IS NULL THEN RETURN true; END IF;
+
+  SELECT count(*) INTO pending
+    FROM operation_hse_check_items i
+   WHERE i.check_id = chk.id AND i.level::text = 'BLOCKING' AND i.outcome::text <> 'PASSED';
+
+  RETURN pending > 0;
+END;
+$$ LANGUAGE plpgsql STABLE;
 
 
 -- ---------------------------------------------------------------------------

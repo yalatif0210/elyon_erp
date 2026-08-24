@@ -358,11 +358,18 @@ const FR = {
   },
   OperationPhase: {
     PREPARATION: 'Préparation',
-    PRE_DEPARTURE: 'Avant départ',
-    LOADING: 'Chargement',
+    PRE_CHARGEMENT: 'Avant chargement',
+    CHARGEMENT: 'Chargement',
+    POST_CHARGEMENT: 'Après chargement',
     TRANSPORT: 'Transport',
-    DELIVERY: 'Livraison',
-    CLOSING: 'Clôture',
+    PRE_DECHARGEMENT: 'Avant déchargement',
+    DECHARGEMENT: 'Déchargement',
+    POST_DECHARGEMENT: 'Après déchargement',
+    CLOTURE: 'Clôture',
+  },
+  OperationHaltType: {
+    INCIDENT: 'Incident',
+    CANCELLED: 'Annulée',
   },
   PartnerType: {
     CLIENT: 'Client',

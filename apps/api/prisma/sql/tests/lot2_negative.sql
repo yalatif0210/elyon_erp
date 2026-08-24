@@ -110,9 +110,9 @@ SELECT CASE WHEN credit_approved_by_id IS NULL AND status::text='PENDING_RISK'
 \echo ''
 \echo '=== D. VERROU FINANCIER ==='
 SELECT _t('Operation sur un deal non approuve',
-  $s$INSERT INTO operations (id,reference,deal_id,status,sourcing_mode,planned_volume,uom,
+  $s$INSERT INTO operations (id,reference,deal_id,phase,sourcing_mode,planned_volume,uom,
      transport_mode,origin_location,destination_location,updated_at)
-     VALUES (gen_random_uuid(),'OP-KO-1','22222222-2222-2222-2222-222222222222','DRAFT',
+     VALUES (gen_random_uuid(),'OP-KO-1','22222222-2222-2222-2222-222222222222','PREPARATION',
      'BACK_TO_BACK',3000,'L','TRUCK','Abidjan','Bouake',now())$s$);
 
 -- On rapprouve pour la suite des tests.
@@ -120,16 +120,18 @@ UPDATE deals SET credit_approved_by_id=(SELECT id FROM users WHERE role='FINANCE
        credit_approved_at=now(), status='APPROVED'
  WHERE id='22222222-2222-2222-2222-222222222222';
 
-INSERT INTO operations (id,reference,deal_id,status,sourcing_mode,planned_volume,uom,
+INSERT INTO operations (id,reference,deal_id,phase,sourcing_mode,planned_volume,uom,
   transport_mode,origin_location,destination_location,hse_risk_level,updated_at)
 VALUES ('33333333-3333-3333-3333-333333333333','OP-TEST-001',
-  '22222222-2222-2222-2222-222222222222','DRAFT','BACK_TO_BACK',3000,'L','TRUCK',
+  '22222222-2222-2222-2222-222222222222','PREPARATION','BACK_TO_BACK',3000,'L','TRUCK',
   'Abidjan','Bouake','STANDARD',now());
 
 \echo ''
 \echo '=== E. VERROU HSE ==='
+-- L'étape suivante IMMÉDIATE (PRE_CHARGEMENT) : l'ordre strict refuserait
+-- aussi un saut plus loin, ce qui ne testerait plus le verrou HSE lui-même.
 SELECT _t('Chargement sans validation HSE',
-  $s$UPDATE operations SET status='LOADING' WHERE id='33333333-3333-3333-3333-333333333333'$s$)
+  $s$UPDATE operations SET phase='PRE_CHARGEMENT' WHERE id='33333333-3333-3333-3333-333333333333'$s$)
 UNION ALL SELECT _t('Validation HSE par un AGENT (controleur seul)',
   $s$INSERT INTO operation_hse_checks (id,operation_id,template_id,template_version,phase,
      validated_by_field_user_id,validated_at,updated_at)
@@ -140,7 +142,7 @@ UNION ALL SELECT _t('Suppleance HSE par le CFO (DG seul)',
   $s$INSERT INTO operation_hse_checks (id,operation_id,template_id,template_version,phase,
      validated_by_user_id,validated_at,updated_at)
      VALUES (gen_random_uuid(),'33333333-3333-3333-3333-333333333333',
-     (SELECT id FROM hse_checklist_templates LIMIT 1),1,'LOADING',
+     (SELECT id FROM hse_checklist_templates LIMIT 1),1,'CHARGEMENT',
      (SELECT id FROM users WHERE role='FINANCE_CFO'),now(),now())$s$);
 
 \echo ''

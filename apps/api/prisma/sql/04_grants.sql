@@ -49,7 +49,7 @@ BEGIN
   EXECUTE 'REVOKE DELETE, TRUNCATE ON fx_rates FROM erp_app';
   EXECUTE 'REVOKE DELETE, TRUNCATE ON supplier_prices FROM erp_app';
   EXECUTE 'REVOKE DELETE, TRUNCATE ON deal_status_transitions FROM erp_app';
-  EXECUTE 'REVOKE DELETE, TRUNCATE ON operation_status_transitions FROM erp_app';
+  EXECUTE 'REVOKE DELETE, TRUNCATE ON operation_phase_transitions FROM erp_app';
   EXECUTE 'REVOKE DELETE, TRUNCATE ON generated_documents FROM erp_app';
   EXECUTE 'REVOKE DELETE, TRUNCATE ON signatures FROM erp_app';
   EXECUTE 'REVOKE DELETE, TRUNCATE ON administered_prices FROM erp_app';

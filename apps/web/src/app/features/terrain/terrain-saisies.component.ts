@@ -413,7 +413,7 @@ export class TerrainIncidentComponent extends EcranDeSaisie {
       <h1 class="t-title mt-2">Faire avancer l’opération</h1>
       @if (operation(); as op) {
         <p class="t-sub">
-          État actuel : <span class="t-code text-[15px]">{{ op.status }}</span>
+          État actuel : <span class="t-code text-[15px]">{{ op.phase }}</span>
         </p>
         @if (bloquants(op) > 0) {
           <p
@@ -454,8 +454,8 @@ export class TerrainStatusComponent extends EcranDeSaisie {
   protected reason = '';
 
   protected etatCourant(): string[] {
-    const statut = this.operation()?.status;
-    return statut ? [statut] : [];
+    const etape = this.operation()?.phase;
+    return etape ? [etape] : [];
   }
 
   protected bloquants(d: FieldOperationDetail): number {

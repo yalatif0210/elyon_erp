@@ -167,7 +167,7 @@ export class BargeService {
                 dealId: true,
                 plannedVolume: true,
                 uom: true,
-                status: true,
+                phase: true,
                 costLines: {
                   select: { actualAmount: true, estimatedAmount: true, currencyCode: true },
                 },

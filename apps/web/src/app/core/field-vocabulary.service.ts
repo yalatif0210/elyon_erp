@@ -27,7 +27,7 @@ import { Injectable, computed, signal } from '@angular/core';
  *
  *   2. Par APPRENTISSAGE DU REFUS — quand une valeur ne convient pas, la
  *      validation du serveur répond « phase must be one of the following
- *      values: PREPARATION, PRE_DEPARTURE, … ». Ce message, que l'interface a
+ *      values: PREPARATION, PRE_CHARGEMENT, … ». Ce message, que l'interface a
  *      de toute façon l'obligation d'afficher intégralement, ÉNUMÈRE la liste
  *      autorisée. On la retient plutôt que de la laisser défiler.
  *

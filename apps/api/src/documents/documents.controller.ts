@@ -22,7 +22,7 @@ import {
   AuditAction,
   FieldRole,
   GeneratedDocumentKind,
-  OperationStatus,
+  OperationPhase,
   Prisma,
   SignatoryKind,
   UserRole,
@@ -754,16 +754,16 @@ const NATURES_VISIBLES_DU_TERRAIN: GeneratedDocumentKind[] = [
  *    par un masquage a posteriori.
  */
 /**
- * Statuts à partir desquels la clôture terrain peut être déclenchée.
+ * Étapes à partir desquelles la clôture terrain peut être déclenchée.
  *
- * Avant `DELIVERING`, la livraison n'a pas eu lieu : un bon de livraison
- * n'aurait rien à décrire. À partir de `CLOSED`, les deux pièces sont censées
- * déjà exister — le trigger `enforce_closure_documents_sealed` (§ SQL) le
- * garantit — et une seconde génération ferait doublon.
+ * Avant `DECHARGEMENT`, la livraison n'a pas eu lieu : un bon de livraison
+ * n'aurait rien à décrire. À partir de `CLOTURE`, les deux pièces sont
+ * censées déjà exister — le trigger `enforce_closure_documents_sealed`
+ * (§ SQL) le garantit — et une seconde génération ferait doublon.
  */
-const STATUTS_CLOTURABLES: OperationStatus[] = [
-  OperationStatus.DELIVERING,
-  OperationStatus.FINAL_CHECK,
+const ETAPES_CLOTURABLES: OperationPhase[] = [
+  OperationPhase.DECHARGEMENT,
+  OperationPhase.POST_DECHARGEMENT,
 ];
 
 @Injectable()
@@ -792,11 +792,11 @@ export class FieldDocumentsService {
 
     const operation = await this.prisma.operation.findUniqueOrThrow({
       where: { id: operationId },
-      select: { status: true, reference: true },
+      select: { phase: true, reference: true },
     });
-    if (!STATUTS_CLOTURABLES.includes(operation.status)) {
+    if (!ETAPES_CLOTURABLES.includes(operation.phase)) {
       throw new BadRequestException(
-        `L'opération ${operation.reference} n'est pas au stade de la clôture (statut actuel : ${operation.status}). La livraison doit avoir eu lieu, et les deux pièces ne se génèrent qu'une fois.`,
+        `L'opération ${operation.reference} n'est pas au stade de la clôture (étape actuelle : ${operation.phase}). La livraison doit avoir eu lieu, et les deux pièces ne se génèrent qu'une fois.`,
       );
     }
 

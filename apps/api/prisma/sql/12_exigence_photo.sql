@@ -187,7 +187,7 @@ COMMENT ON COLUMN hse_checklist_items.photo_policy IS
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE VIEW v_controles_sans_preuve AS
 SELECT o.reference        AS operation,
-       o.status::text     AS operation_status,
+       o.phase::text      AS operation_phase,
        c.phase::text      AS phase,
        i.code             AS point_code,
        i.label            AS point_label,

@@ -18,7 +18,6 @@ import {
   HseRiskLevel,
   HseSeverity,
   OperationPhase,
-  OperationStatus,
   Prisma,
   SignatoryKind,
   TransportMode,
@@ -77,7 +76,7 @@ export type FieldListingReason = 'ASSIGNED' | 'AWAITING_HSE_VALIDATION';
 export interface FieldOperationSummary {
   id: string;
   reference: string;
-  status: OperationStatus;
+  phase: OperationPhase;
   transportMode: TransportMode;
   plannedVolume: number;
   uom: UnitOfMeasure;
@@ -201,7 +200,10 @@ export interface FieldReferenceDocumentView {
 export interface FieldOperationDetail {
   id: string;
   reference: string;
-  status: OperationStatus;
+  phase: OperationPhase;
+  haltedAt: Date | null;
+  haltType: string | null;
+  haltReason: string | null;
   transportMode: TransportMode;
   plannedVolume: number;
   uom: UnitOfMeasure;
@@ -241,7 +243,7 @@ export interface FieldSiteContactView {
  */
 export interface FieldSiteHistoryEntry {
   reference: string;
-  status: OperationStatus;
+  phase: OperationPhase;
   /** Livraison, à défaut chargement, à défaut date prévue. */
   date: Date | null;
   plannedVolume: number;
@@ -294,37 +296,30 @@ export interface FieldSiteSheet {
 // ---------------------------------------------------------------------------
 
 /**
- * Statuts portés à la liste de travail. LISTE BLANCHE délibérée : un statut
- * ajouté demain à l'énumération n'apparaîtra pas tant qu'on ne l'aura pas
- * classé ici. Une exclusion (`notIn`) ferait l'inverse et le laisserait entrer
- * de lui-même.
+ * Portées à la liste de travail : pas encore clôturées, ni arrêtées
+ * (§ 22/08/2026 — un seul champ d'état, plus de liste blanche de 10 valeurs
+ * à tenir à jour : tout ce qui n'est ni CLOTURE ni à l'arrêt est actif).
  */
-const FIELD_ACTIVE_STATUSES: OperationStatus[] = [
-  OperationStatus.DRAFT,
-  OperationStatus.SOURCING,
-  OperationStatus.HSE_PREPARATION,
-  OperationStatus.HSE_BLOCKED,
-  OperationStatus.PLANNED,
-  OperationStatus.LOADING,
-  OperationStatus.IN_TRANSIT,
-  OperationStatus.DELIVERING,
-  OperationStatus.FINAL_CHECK,
-  OperationStatus.INCIDENT,
-];
+const FIELD_ACTIVE_WHERE = {
+  haltedAt: null,
+  phase: { not: OperationPhase.CLOTURE },
+} as const;
 
 /**
- * Statuts retenus dans l'historique du site — l'inverse du précédent : ici on
- * veut ce qui a EU LIEU, donc les clôturées. Une opération annulée ou encore
- * en brouillon n'est jamais venue sur le site : l'inscrire à son historique
- * décrirait un passage qui n'a pas eu lieu.
+ * Étapes retenues dans l'historique du site — l'inverse du précédent : ici on
+ * veut ce qui a EU LIEU, donc au moins le chargement. Une opération encore en
+ * préparation, ou annulée avant, n'est jamais venue sur le site : l'inscrire
+ * à son historique décrirait un passage qui n'a pas eu lieu. Un INCIDENT
+ * compte : l'opération était bien là quand il est survenu.
  */
-const SITE_HISTORY_STATUSES: OperationStatus[] = [
-  OperationStatus.LOADING,
-  OperationStatus.IN_TRANSIT,
-  OperationStatus.DELIVERING,
-  OperationStatus.FINAL_CHECK,
-  OperationStatus.INCIDENT,
-  OperationStatus.CLOSED,
+const SITE_HISTORY_PHASES: OperationPhase[] = [
+  OperationPhase.CHARGEMENT,
+  OperationPhase.POST_CHARGEMENT,
+  OperationPhase.TRANSPORT,
+  OperationPhase.PRE_DECHARGEMENT,
+  OperationPhase.DECHARGEMENT,
+  OperationPhase.POST_DECHARGEMENT,
+  OperationPhase.CLOTURE,
 ];
 
 /**
@@ -428,13 +423,13 @@ export class FieldOperationsService {
     // Suppléance HSE comprise (§ 3.4) : voir `FieldScopeService.effectiveActor`.
     const effectif = await this.perimetre.effectiveActor(actor);
     const rows = await this.prisma.operation.findMany({
-      where: { ...this.scope(effectif), status: { in: FIELD_ACTIVE_STATUSES } },
+      where: { ...this.scope(effectif), ...FIELD_ACTIVE_WHERE },
       orderBy: [{ plannedLoadingDate: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }],
       take: FIELD_LIST_CAP,
       select: {
         id: true,
         reference: true,
-        status: true,
+        phase: true,
         transportMode: true,
         plannedVolume: true,
         uom: true,
@@ -460,7 +455,7 @@ export class FieldOperationsService {
     return rows.map((row) => ({
       id: row.id,
       reference: row.reference,
-      status: row.status,
+      phase: row.phase,
       transportMode: row.transportMode,
       plannedVolume: toNumber(row.plannedVolume),
       uom: row.uom,
@@ -488,7 +483,7 @@ export class FieldOperationsService {
   async history(actor: FieldActor, page: number): Promise<FieldOperationHistoryPage> {
     const effectif = await this.perimetre.effectiveActor(actor);
     const rows = await this.prisma.operation.findMany({
-      where: { fieldAgentId: effectif.id, status: OperationStatus.CLOSED },
+      where: { fieldAgentId: effectif.id, phase: OperationPhase.CLOTURE },
       orderBy: [
         { actualDischargeDate: { sort: 'desc', nulls: 'last' } },
         { createdAt: 'desc' },
@@ -544,7 +539,10 @@ export class FieldOperationsService {
       select: {
         id: true,
         reference: true,
-        status: true,
+        phase: true,
+        haltedAt: true,
+        haltType: true,
+        haltReason: true,
         transportMode: true,
         plannedVolume: true,
         uom: true,
@@ -554,7 +552,6 @@ export class FieldOperationsService {
         originLocation: true,
         destinationLocation: true,
         hseRiskLevel: true,
-        hseValidatedAt: true,
         deal: {
           select: {
             // Du deal on ne prend QUE l'identité du client et le produit. Ni
@@ -657,7 +654,10 @@ export class FieldOperationsService {
     return {
       id: operation.id,
       reference: operation.reference,
-      status: operation.status,
+      phase: operation.phase,
+      haltedAt: operation.haltedAt,
+      haltType: operation.haltType,
+      haltReason: operation.haltReason,
       transportMode: operation.transportMode,
       plannedVolume: toNumber(operation.plannedVolume),
       uom: operation.uom,
@@ -692,7 +692,11 @@ export class FieldOperationsService {
       })),
       hse: {
         riskLevel: operation.hseRiskLevel,
-        validatedAt: operation.hseValidatedAt,
+        // Validation de l'ÉTAPE COURANTE — plus un seul indicateur global
+        // (§ 22/08/2026) : chaque étape porte sa propre validation.
+        validatedAt:
+          operation.hseChecks.find((check) => check.phase === operation.phase)?.validatedAt ??
+          null,
         checks: operation.hseChecks.map((check) => ({
           id: check.id,
           phase: check.phase,
@@ -811,7 +815,7 @@ export class FieldOperationsService {
     const previous = await this.prisma.operation.findMany({
       where: {
         destinationSiteId: site.id,
-        status: { in: SITE_HISTORY_STATUSES },
+        phase: { in: SITE_HISTORY_PHASES },
         // L'opération en cours n'est pas son propre historique.
         id: { not: operation.id },
       },
@@ -822,7 +826,7 @@ export class FieldOperationsService {
       take: SITE_HISTORY_DEPTH,
       select: {
         reference: true,
-        status: true,
+        phase: true,
         plannedVolume: true,
         uom: true,
         plannedLoadingDate: true,
@@ -879,7 +883,7 @@ export class FieldOperationsService {
       })),
       history: previous.map((row) => ({
         reference: row.reference,
-        status: row.status,
+        phase: row.phase,
         // Ce qui s'est réellement passé prime sur ce qui était prévu.
         date: row.actualDischargeDate ?? row.actualLoadingDate ?? row.plannedLoadingDate,
         plannedVolume: toNumber(row.plannedVolume),

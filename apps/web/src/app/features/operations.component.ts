@@ -14,19 +14,26 @@ import { grouper } from '../shared/format';
 import { StatusBadgeComponent, StatusKind } from '../shared/status-badge.component';
 import { OperationActionsComponent } from './operation-actions.component';
 
-const OP_STATUS: Record<string, { label: string; kind: StatusKind }> = {
-  DRAFT: { label: 'Brouillon', kind: 'neutral' },
-  SOURCING: { label: 'Sourcing', kind: 'wait' },
-  HSE_PREPARATION: { label: 'Préparation HSE', kind: 'wait' },
-  HSE_BLOCKED: { label: 'Bloquée HSE', kind: 'blocked' },
-  PLANNED: { label: 'Planifiée', kind: 'wait' },
-  LOADING: { label: 'Chargement', kind: 'transit' },
-  IN_TRANSIT: { label: 'En transit', kind: 'transit' },
-  DELIVERING: { label: 'Livraison', kind: 'transit' },
-  FINAL_CHECK: { label: 'Contrôle final', kind: 'wait' },
-  CLOSED: { label: 'Clôturée', kind: 'ok' },
-  INCIDENT: { label: 'Incident', kind: 'blocked' },
-  CANCELLED: { label: 'Annulée', kind: 'neutral' },
+/**
+ * Les 9 étapes de la séquence physique (§ 22/08/2026) — un seul champ
+ * d'état désormais, `phase`. INCIDENT et CANCELLED n'y figurent plus : ce
+ * sont des arrêts PARALLÈLES (`haltType`), affichés à part, cf. `haltLabel`.
+ */
+const OP_PHASE: Record<string, { label: string; kind: StatusKind }> = {
+  PREPARATION: { label: 'Préparation', kind: 'wait' },
+  PRE_CHARGEMENT: { label: 'Avant chargement', kind: 'wait' },
+  CHARGEMENT: { label: 'Chargement', kind: 'transit' },
+  POST_CHARGEMENT: { label: 'Après chargement', kind: 'transit' },
+  TRANSPORT: { label: 'Transport', kind: 'transit' },
+  PRE_DECHARGEMENT: { label: 'Avant déchargement', kind: 'transit' },
+  DECHARGEMENT: { label: 'Déchargement', kind: 'transit' },
+  POST_DECHARGEMENT: { label: 'Contrôle final', kind: 'wait' },
+  CLOTURE: { label: 'Clôturée', kind: 'ok' },
+};
+
+const HALT_LABEL: Record<string, string> = {
+  INCIDENT: 'Incident',
+  CANCELLED: 'Annulée',
 };
 
 const TRANSPORT: Record<string, string> = {
@@ -37,15 +44,19 @@ const TRANSPORT: Record<string, string> = {
   RAIL: 'Rail',
 };
 
-export function opStatus(code: string): { label: string; kind: StatusKind } {
-  return OP_STATUS[code] ?? { label: code, kind: 'neutral' };
+export function opPhase(code: string): { label: string; kind: StatusKind } {
+  return OP_PHASE[code] ?? { label: code, kind: 'neutral' };
 }
 
-const FILTERS: { label: string; status?: string }[] = [
+export function haltLabel(haltType: string | null): string | null {
+  return haltType ? (HALT_LABEL[haltType] ?? haltType) : null;
+}
+
+const FILTERS: { label: string; phase?: string }[] = [
   { label: 'Toutes' },
-  { label: 'À préparer', status: 'DRAFT' },
-  { label: 'En transit', status: 'IN_TRANSIT' },
-  { label: 'Clôturées', status: 'CLOSED' },
+  { label: 'À préparer', phase: 'PREPARATION' },
+  { label: 'En transport', phase: 'TRANSPORT' },
+  { label: 'Clôturées', phase: 'CLOTURE' },
 ];
 
 /**
@@ -82,11 +93,11 @@ const FILTERS: { label: string; status?: string }[] = [
           type="button"
           class="rounded-[3px] px-2.5 py-1 text-[12px] font-medium transition-colors"
           [class]="
-            active() === (f.status ?? '')
+            active() === (f.phase ?? '')
               ? 'bg-primary text-white'
               : 'border border-rule-strong bg-surface text-ink-soft hover:bg-gray-100 hover:text-ink'
           "
-          (click)="setFilter(f.status)"
+          (click)="setFilter(f.phase)"
         >
           {{ f.label }}
         </button>
@@ -142,7 +153,12 @@ const FILTERS: { label: string; status?: string }[] = [
               <td class="num font-mono text-ink-soft">{{ volume(o) }}</td>
               <td class="num font-mono text-ink-soft">{{ o.plannedLoadingDate?.slice(0, 10) ?? '-' }}</td>
               <td>
-                <erp-status-badge [kind]="status(o.status).kind" [label]="status(o.status).label" />
+                <div class="flex items-center gap-1.5">
+                  <erp-status-badge [kind]="phase(o.phase).kind" [label]="phase(o.phase).label" />
+                  @if (o.haltType) {
+                    <erp-status-badge kind="blocked" [label]="halt(o.haltType)!" />
+                  }
+                </div>
               </td>
             </tr>
           } @empty {
@@ -202,8 +218,8 @@ export class OperationsComponent implements OnInit {
     return this.auth.hasRole('LOGISTICS_COORD', 'CCOO');
   }
 
-  protected setFilter(status?: string): void {
-    this.active.set(status ?? '');
+  protected setFilter(phase?: string): void {
+    this.active.set(phase ?? '');
     this.load();
   }
 
@@ -212,8 +228,12 @@ export class OperationsComponent implements OnInit {
     this.debounce = setTimeout(() => this.load(), 300);
   }
 
-  protected status(code: string) {
-    return opStatus(code);
+  protected phase(code: string) {
+    return opPhase(code);
+  }
+
+  protected halt(haltType: string | null) {
+    return haltLabel(haltType);
   }
 
   protected transport(code: string): string {
@@ -231,7 +251,7 @@ export class OperationsComponent implements OnInit {
   }
 
   protected rowClass(o: OperationRow): string {
-    if (o.status === 'HSE_BLOCKED' || o.status === 'INCIDENT') return 'row-crit';
+    if (o.haltType === 'INCIDENT') return 'row-crit';
     if (o.assignments.length === 0) return 'row-warn';
     return '';
   }
@@ -239,7 +259,7 @@ export class OperationsComponent implements OnInit {
   private load(): void {
     this.api
       .operations(this.page(), {
-        status: this.active() || undefined,
+        phase: this.active() || undefined,
         search: this.search.trim() || undefined,
       })
       .subscribe((page) => {
@@ -283,7 +303,12 @@ export class OperationsComponent implements OnInit {
             {{ o.deal.product.name }} · {{ volume(o) }} · vers {{ o.destinationLocation }}
           </p>
         </div>
-        <erp-status-badge [kind]="status(o.status).kind" [label]="status(o.status).label" />
+        <div class="flex items-center gap-1.5">
+          <erp-status-badge [kind]="phase(o.phase).kind" [label]="phase(o.phase).label" />
+          @if (o.haltType) {
+            <erp-status-badge kind="blocked" [label]="halt(o.haltType)!" />
+          }
+        </div>
       </header>
 
       <!-- ============ Verrou HSE ============ -->
@@ -581,8 +606,12 @@ export class OperationDetailComponent implements OnInit {
     });
   }
 
-  protected status(code: string) {
-    return opStatus(code);
+  protected phase(code: string) {
+    return opPhase(code);
+  }
+
+  protected halt(haltType: string | null) {
+    return haltLabel(haltType);
   }
 
   protected transport(code: string): string {

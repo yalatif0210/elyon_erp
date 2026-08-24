@@ -733,7 +733,7 @@ export class DealsService {
           },
           orderBy: { costPost: { displayOrder: 'asc' } },
         },
-        operations: { select: { id: true, reference: true, status: true, plannedVolume: true } },
+        operations: { select: { id: true, reference: true, phase: true, plannedVolume: true } },
         invoices: {
           select: {
             id: true,

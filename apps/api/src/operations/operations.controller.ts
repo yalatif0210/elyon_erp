@@ -18,7 +18,8 @@ import {
   CommercialSegment,
   FieldRole,
   MeasurementSource,
-  OperationStatus,
+  OperationHaltType,
+  OperationPhase,
   SourcingMode,
   TransportMode,
   UnitOfMeasure,
@@ -133,8 +134,14 @@ class AssignMeansDto {
 }
 
 export class TransitionDto {
-  @IsEnum(OperationStatus) to!: OperationStatus;
+  @IsEnum(OperationPhase) to!: OperationPhase;
   @IsOptional() @IsString() @MaxLength(1000) reason?: string;
+}
+
+/** DG/CCOO seuls — arrêt d'urgence, jamais une étape de la séquence. */
+export class HaltDto {
+  @IsEnum(OperationHaltType) haltType!: OperationHaltType;
+  @IsString() @MinLength(10) @MaxLength(1000) reason!: string;
 }
 
 /** Nul = retire l'affectation, sans en remettre une autre. */
@@ -201,7 +208,7 @@ class AcknowledgeUllageDto {
 }
 
 class OperationQuery extends PaginationQuery {
-  @IsOptional() @IsEnum(OperationStatus) status?: OperationStatus;
+  @IsOptional() @IsEnum(OperationPhase) phase?: OperationPhase;
   @IsOptional() @IsUUID() dealId?: string;
 }
 
@@ -221,7 +228,7 @@ export class OperationsService {
 
   async list(query: OperationQuery): Promise<Page<unknown>> {
     const where = {
-      ...(query.status ? { status: query.status } : {}),
+      ...(query.phase ? { phase: query.phase } : {}),
       ...(query.dealId ? { dealId: query.dealId } : {}),
       ...(query.search
         ? { reference: { contains: query.search, mode: 'insensitive' as const } }
@@ -373,12 +380,11 @@ export class OperationsService {
           },
         },
         fieldAgent: { select: { fullName: true, role: true } },
-        hseValidatedBy: { select: { fullName: true, role: true } },
-        hseValidatedByUser: { select: { fullName: true, role: true } },
-        hseDerogation: true,
+        haltedBy: { select: { fullName: true } },
         hseChecks: {
           include: {
             template: { select: { code: true, label: true, version: true } },
+            derogation: true,
             items: {
               include: { item: { select: { code: true, label: true } } },
               orderBy: { createdAt: 'asc' },
@@ -393,7 +399,7 @@ export class OperationsService {
           },
         },
         purchaseOrder: true,
-        statusTransitions: { orderBy: { createdAt: 'desc' }, take: 20 },
+        phaseTransitions: { orderBy: { createdAt: 'desc' }, take: 20 },
         _count: { select: { hseChecks: true, measurements: true, costLines: true } },
       },
     });
@@ -402,56 +408,82 @@ export class OperationsService {
   }
 
   /**
-   * État du verrou HSE, tel que la base l'appliquera.
+   * État du verrou HSE POUR L'ÉTAPE COURANTE, tel que la base l'appliquera.
    *
-   * Le calcul est le MÊME que celui du trigger — il sert à afficher la
-   * situation avant la tentative, pas à décider. La décision reste en base.
+   * ⚠️ REVU LE 22/08/2026 — un seul verrou global n'a plus de sens : CHAQUE
+   *    étape porte sa propre checklist (`OperationHseCheck`, unique par
+   *    `(operationId, phase)`) et sa propre dérogation. Le calcul reprend
+   *    donc celui du trigger `enforce_phase_sequence`, mais
+   *    borné à `operation.phase` — il sert à afficher la situation avant la
+   *    tentative de passer à l'étape suivante, pas à décider : la décision
+   *    reste en base.
    */
   async hseGate(operationId: string) {
     const operation = await this.prisma.operation.findUniqueOrThrow({
       where: { id: operationId },
-      select: { hseValidatedById: true, hseValidatedByUserId: true, hseDerogationId: true },
+      select: { phase: true, haltedAt: true, haltType: true },
     });
-    const totalChecks = await this.prisma.operationHseCheck.count({ where: { operationId } });
-    const pending = await this.prisma.operationHseCheckItem.count({
-      where: {
-        check: { operationId },
-        level: 'BLOCKING',
-        outcome: { not: 'PASSED' },
-      },
+
+    if (operation.haltedAt) {
+      return {
+        open: false,
+        validated: false,
+        pendingBlockingItems: 0,
+        byDerogation: false,
+        message: `Opération à l’arrêt (${operation.haltType}) : elle ne progresse plus.`,
+      };
+    }
+
+    const resolved = await this.prisma.$queryRaw<{ item_id: string }[]>`
+      SELECT item_id FROM resolve_hse_checklist(${operationId}::uuid)
+       WHERE phase = ${operation.phase}::"operation_phase"`;
+
+    if (resolved.length === 0) {
+      return {
+        open: true,
+        validated: true,
+        pendingBlockingItems: 0,
+        byDerogation: false,
+        message: `Verrou HSE ouvert : l’étape ${operation.phase} ne porte aucun point de contrôle pour cette opération.`,
+      };
+    }
+
+    const check = await this.prisma.operationHseCheck.findUnique({
+      where: { operationId_phase: { operationId, phase: operation.phase } },
+      select: { id: true, validatedAt: true, derogationId: true },
     });
+
+    const totalChecks = check ? 1 : 0;
+    const pending = check
+      ? await this.prisma.operationHseCheckItem.count({
+          where: { checkId: check.id, level: 'BLOCKING', outcome: { not: 'PASSED' } },
+        })
+      : 0;
     // Une checklist créée mais encore en cours de renseignement (un point
-    // PENDING) attend l'AGENT terrain, pas le contrôleur — même condition que
-    // celle qui fait entrer une checklist dans « en attente de validation »
-    // sur /hse (v_taches, tâche VALIDATION_HSE).
-    const enCoursSurLeTerrain = await this.prisma.operationHseCheckItem.count({
-      where: { check: { operationId, validatedAt: null }, outcome: 'PENDING' },
-    });
-    const validated =
-      operation.hseValidatedById !== null || operation.hseValidatedByUserId !== null;
-    const open = operation.hseDerogationId !== null || (validated && pending === 0);
+    // PENDING) attend l'AGENT terrain, pas le contrôleur.
+    const enCoursSurLeTerrain = check
+      ? await this.prisma.operationHseCheckItem.count({
+          where: { checkId: check.id, outcome: 'PENDING' },
+        })
+      : 0;
+    const validated = check?.validatedAt != null;
+    const byDerogation = check?.derogationId != null;
+    const open = byDerogation || (validated && pending === 0);
 
     return {
       open,
       validated,
       pendingBlockingItems: pending,
-      byDerogation: operation.hseDerogationId !== null,
-      // ⚠️ CORRIGÉ — « la checklist n'a pas été validée » se disait aussi
-      //    quand AUCUNE checklist n'existait encore, ou quand elle était
-      //    encore en cours de renseignement sur le terrain : le message
-      //    annonçait une action en attente du contrôleur là où /hse ne montre,
-      //    à raison, rien à valider. Les trois situations n'appellent pas le
-      //    même geste — deux attendent le terrain, la troisième attend le
-      //    contrôleur (ou sa suppléance par le DG).
+      byDerogation,
       message: open
-        ? 'Verrou HSE ouvert : le chargement est autorisé.'
+        ? `Verrou HSE ouvert : l’étape ${operation.phase} est satisfaite.`
         : totalChecks === 0
-          ? 'Verrou HSE fermé : aucune checklist HSE n’a encore été renseignée sur le terrain.'
+          ? `Verrou HSE fermé : aucune checklist n’a encore été renseignée sur le terrain pour l’étape ${operation.phase}.`
           : enCoursSurLeTerrain > 0
-            ? 'Verrou HSE fermé : la checklist est en cours de renseignement sur le terrain.'
+            ? `Verrou HSE fermé : la checklist de l’étape ${operation.phase} est en cours de renseignement sur le terrain.`
             : !validated
-              ? 'Verrou HSE fermé : la checklist est renseignée, en attente de validation par le contrôleur HSE (ou sa suppléance par le DG, dans Contrôles HSE).'
-              : `Verrou HSE fermé : ${pending} contrôle(s) bloquant(s) non satisfait(s).`,
+              ? `Verrou HSE fermé : la checklist de l’étape ${operation.phase} est renseignée, en attente de validation par le contrôleur HSE (ou sa suppléance par le DG, dans Contrôles HSE).`
+              : `Verrou HSE fermé : ${pending} contrôle(s) bloquant(s) non satisfait(s) à l’étape ${operation.phase}.`,
     };
   }
 
@@ -473,7 +505,7 @@ export class OperationsService {
       data: {
         reference,
         dealId: dto.dealId,
-        status: OperationStatus.DRAFT,
+        phase: OperationPhase.PREPARATION,
         sourcingMode: dto.sourcingMode ?? SourcingMode.BACK_TO_BACK,
         productOwnerId: dto.productOwnerId ?? null,
         plannedVolume: dto.plannedVolume.toFixed(6),
@@ -500,10 +532,10 @@ export class OperationsService {
       include: { operationTypes: { include: { operationType: true } } },
     });
 
-    await this.prisma.operationStatusTransition.create({
+    await this.prisma.operationPhaseTransition.create({
       data: {
         operationId: created.id,
-        toStatus: OperationStatus.DRAFT,
+        toPhase: OperationPhase.PREPARATION,
         actorType: ActorType.INTERNAL_USER,
         actorId,
         reason: 'Création de l’opération',
@@ -646,11 +678,11 @@ export class OperationsService {
   async remove(id: string, actorId: string): Promise<void> {
     const operation = await this.prisma.operation.findUniqueOrThrow({
       where: { id },
-      select: { status: true, reference: true },
+      select: { phase: true, reference: true },
     });
-    if (operation.status !== OperationStatus.DRAFT) {
+    if (operation.phase !== OperationPhase.PREPARATION) {
       throw new BadRequestException(
-        `Cette opération n'est plus au brouillon (statut : ${operation.status}) : elle ne se supprime plus.`,
+        `Cette opération a dépassé l'étape PREPARATION (étape actuelle : ${operation.phase}) : elle ne se supprime plus.`,
       );
     }
 
@@ -667,8 +699,18 @@ export class OperationsService {
   }
 
   /**
-   * Changement d'état. Le verrou HSE se déclenche ici — sur le passage à
-   * LOADING et au-delà — et c'est PostgreSQL qui refuse, pas ce code.
+   * Avancement d'une étape à la suivante.
+   *
+   * ⚠️ REVU LE 22/08/2026 — TERRAIN SEUL.
+   *
+   *    Une opération avance depuis le terrain, à mesure que ses points de
+   *    contrôle sont réellement satisfaits — jamais depuis un bureau qui ne
+   *    peut pas constater un fait physique. Cette méthode ne doit plus être
+   *    atteinte que par `field-sync.controller.ts` (événement
+   *    `STATUS_ADVANCED`), jamais par une route interne. L'ordre strict et le
+   *    verrou HSE par étape sont appliqués par la base
+   *    (`enforce_phase_sequence`) —
+   *    c'est elle qui refuse, pas ce code.
    */
   async transition(
     operationId: string,
@@ -678,7 +720,7 @@ export class OperationsService {
   ) {
     const current = await this.prisma.operation.findUniqueOrThrow({
       where: { id: operationId },
-      select: { status: true },
+      select: { phase: true },
     });
 
     // L'auteur peut venir du TERRAIN. Les deux réalms sont deux tables
@@ -692,19 +734,18 @@ export class OperationsService {
     const updated = await this.prisma.operation.update({
       where: { id: operationId },
       data: {
-        status: dto.to,
-        ...(dto.to === OperationStatus.LOADING ? { actualLoadingDate: new Date() } : {}),
-        ...(dto.to === OperationStatus.DELIVERING ? { actualDischargeDate: new Date() } : {}),
-        ...(dto.to === OperationStatus.CLOSED ? { closedAt: new Date() } : {}),
-        ...(dto.to === OperationStatus.CANCELLED ? { cancellationReason: dto.reason ?? null } : {}),
+        phase: dto.to,
+        ...(dto.to === OperationPhase.CHARGEMENT ? { actualLoadingDate: new Date() } : {}),
+        ...(dto.to === OperationPhase.DECHARGEMENT ? { actualDischargeDate: new Date() } : {}),
+        ...(dto.to === OperationPhase.CLOTURE ? { closedAt: new Date() } : {}),
       },
     });
 
-    await this.prisma.operationStatusTransition.create({
+    await this.prisma.operationPhaseTransition.create({
       data: {
         operationId,
-        fromStatus: current.status,
-        toStatus: dto.to,
+        fromPhase: current.phase,
+        toPhase: dto.to,
         actorType: acteur.type,
         actorId: acteur.id,
         reason: dto.reason ?? null,
@@ -717,8 +758,40 @@ export class OperationsService {
       action: AuditAction.STATUS_CHANGE,
       entityType: 'Operation',
       entityId: operationId,
-      before: { status: current.status },
-      after: { status: dto.to },
+      before: { phase: current.phase },
+      after: { phase: dto.to },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Arrêt d'urgence — INCIDENT ou CANCELLED, réservé au DG et au CCOO
+   * (§ 22/08/2026).
+   *
+   * PARALLÈLE à la séquence, jamais une transition : `phase` n'est jamais
+   * touchée, l'étape en cours reste visible telle quelle. Le trigger
+   * `enforce_phase_sequence` refuse ensuite toute nouvelle transition tant
+   * que l'arrêt n'est pas levé.
+   */
+  async halt(operationId: string, dto: HaltDto, actorId: string) {
+    const updated = await this.prisma.operation.update({
+      where: { id: operationId },
+      data: {
+        haltedAt: new Date(),
+        haltType: dto.haltType,
+        haltReason: dto.reason,
+        haltedById: actorId,
+      },
+    });
+
+    await this.audit.record({
+      actorType: ActorType.INTERNAL_USER,
+      actorId,
+      action: AuditAction.STATUS_CHANGE,
+      entityType: 'Operation',
+      entityId: operationId,
+      after: { haltType: dto.haltType, haltReason: dto.reason },
     });
 
     return updated;
@@ -741,28 +814,40 @@ export class OperationsService {
    *
    *    Rien n'est validé ICI à dessein : la dérogation doit exister (créée au
    *    préalable via `POST /derogations`, type HSE_BLOCKING_OVERRIDE), et
-   *    c'est le TRIGGER, au prochain changement de statut, qui décidera si
+   *    c'est le TRIGGER, au prochain changement d'étape, qui décidera si
    *    elle est réellement opposable — actif, non révoquée, non expirée, et
    *    posée sur cette opération précise si elle désigne un sujet. Dupliquer
    *    ce contrôle ici lui donnerait une seconde version, vouée à diverger.
+   *
+   * ⚠️ DÉPLACÉ SUR LA CHECKLIST DE L'ÉTAPE COURANTE (22/08/2026) — la
+   *    dérogation n'ouvre plus le verrou de toute l'opération, seulement
+   *    celui de l'étape qu'elle vise. Le check est créé s'il n'existe pas
+   *    encore (l'agent n'a pas forcément ouvert la checklist quand
+   *    l'équipement manquant est constaté).
    */
   async attachHseDerogation(operationId: string, derogationId: string, actorId: string) {
-    const updated = await this.prisma.operation.update({
+    const operation = await this.prisma.operation.findUniqueOrThrow({
       where: { id: operationId },
-      data: { hseDerogationId: derogationId },
-      select: { id: true, reference: true, hseDerogationId: true },
+      select: { phase: true },
+    });
+
+    const check = await this.prisma.operationHseCheck.upsert({
+      where: { operationId_phase: { operationId, phase: operation.phase } },
+      update: { derogationId },
+      create: { operationId, phase: operation.phase, derogationId },
+      select: { id: true, phase: true, derogationId: true },
     });
 
     await this.audit.record({
       actorType: ActorType.INTERNAL_USER,
       actorId,
       action: AuditAction.OVERRIDE,
-      entityType: 'Operation',
-      entityId: operationId,
-      after: { hseDerogationId: derogationId },
+      entityType: 'OperationHseCheck',
+      entityId: check.id,
+      after: { phase: check.phase, derogationId },
     });
 
-    return updated;
+    return check;
   }
 
   /**
@@ -1134,14 +1219,24 @@ export class OperationsController {
     return this.service.setFieldAgent(id, dto.fieldAgentId ?? null, req.auth.sub);
   }
 
-  @Patch(':id/status')
-  @Roles(UserRole.LOGISTICS_COORD, UserRole.CCOO, UserRole.DG)
-  transition(
+  // ⚠️ PLUS DE ROUTE INTERNE POUR AVANCER UNE ÉTAPE (22/08/2026).
+  //
+  //    `OperationsService.transition()` reste appelé, mais UNIQUEMENT depuis
+  //    `field-sync.controller.ts` (événement STATUS_ADVANCED) — jamais depuis
+  //    un rôle de bureau. Une opération avance depuis le terrain, à mesure
+  //    que ses points de contrôle sont réellement satisfaits ; le bureau ne
+  //    constate pas un fait physique, il ne le décide pas. Voir `halt()`
+  //    ci-dessous pour ce qui reste au bureau : l'arrêt d'urgence.
+
+  /** Arrêt d'urgence — INCIDENT ou CANCELLED, réservé au DG et au CCOO. */
+  @Patch(':id/halt')
+  @Roles(UserRole.DG, UserRole.CCOO)
+  halt(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: TransitionDto,
+    @Body() dto: HaltDto,
     @Req() req: { auth: { sub: string } },
   ) {
-    return this.service.transition(id, dto, req.auth.sub);
+    return this.service.halt(id, dto, req.auth.sub);
   }
 
   /**

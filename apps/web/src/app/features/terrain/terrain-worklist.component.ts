@@ -110,7 +110,7 @@ import { MOTIF_PRESENCE, jour } from './terrain-libelles';
                      un libellé français ici afficherait un libellé faux dès
                      qu'une valeur serait ajoutée côté serveur. -->
                 <span class="rounded-[3px] bg-gray-100 px-2.5 py-1.5">
-                  <span class="t-code">{{ op.status }}</span>
+                  <span class="t-code">{{ op.phase }}</span>
                 </span>
                 <span class="rounded-[3px] bg-gray-100 px-2.5 py-1.5">
                   <span class="t-code">RISQUE {{ op.hseRiskLevel }}</span>

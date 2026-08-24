@@ -109,7 +109,7 @@ SELECT 'EXIGENCE_SITE', 'LOGISTICS_COORD', 'BLOQUANT',
   FROM v_exigences_site v
   JOIN operations o ON o.id = v.operation_id
  WHERE v.is_blocking
-   AND o.status::text IN ('DRAFT', 'SOURCING', 'HSE_PREPARATION', 'HSE_BLOCKED', 'PLANNED')
+   AND o.phase::text IN ('PREPARATION', 'PRE_CHARGEMENT')
    AND NOT EXISTS (
      SELECT 1 FROM operation_site_requirement_acks a
       WHERE a.operation_id = v.operation_id AND a.requirement_id = v.exigence_id
@@ -210,7 +210,8 @@ SELECT 'REFUS_TERRAIN', 'LOGISTICS_COORD', 'ANOMALIE',
   FROM field_sync_events e
   JOIN operations o ON o.id = e.operation_id
  WHERE e.status::text = 'REJECTED'
-   AND o.status::text NOT IN ('CLOSED', 'CANCELLED')
+   AND o.phase::text <> 'CLOTURE'
+   AND o.halted_at IS NULL
    AND NOT EXISTS (
      SELECT 1
        FROM field_sync_events r
@@ -295,7 +296,7 @@ SELECT 'MODELE_HSE_MANQUANT', 'HSE_CONTROLLER', 'BLOQUANT',
        o.updated_at
   FROM operations o
   JOIN deals d ON d.id = o.deal_id
- WHERE o.status::text IN ('DRAFT', 'SOURCING', 'HSE_PREPARATION', 'HSE_BLOCKED', 'PLANNED')
+ WHERE o.phase::text IN ('PREPARATION', 'PRE_CHARGEMENT')
    AND NOT EXISTS (
      SELECT 1
        FROM operation_hse_check_items i

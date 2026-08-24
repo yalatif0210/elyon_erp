@@ -48,7 +48,7 @@ import { jour, jourHeure } from './terrain-libelles';
         <p class="t-sub">{{ op.clientLegalName }}</p>
 
         <div class="mt-3 flex flex-wrap gap-2">
-          <span class="rounded-[3px] bg-gray-100 px-2.5 py-1.5"><span class="t-code">{{ op.status }}</span></span>
+          <span class="rounded-[3px] bg-gray-100 px-2.5 py-1.5"><span class="t-code">{{ op.phase }}</span></span>
           <span class="rounded-[3px] bg-gray-100 px-2.5 py-1.5"><span class="t-code">{{ op.transportMode }}</span></span>
           <span class="rounded-[3px] bg-gray-100 px-2.5 py-1.5"><span class="t-code">RISQUE {{ op.hse.riskLevel }}</span></span>
         </div>
@@ -308,7 +308,7 @@ export class TerrainOperationComponent implements OnInit {
    * signé.
    */
   protected clotureAccessible(op: FieldOperationDetail): boolean {
-    if (op.status === 'DELIVERING' || op.status === 'FINAL_CHECK') return true;
+    if (op.phase === 'DECHARGEMENT' || op.phase === 'POST_DECHARGEMENT') return true;
     return op.documents.some((d) => d.kind === 'OPERATION_REPORT' || d.kind === 'DELIVERY_NOTE');
   }
 

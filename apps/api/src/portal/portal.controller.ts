@@ -248,7 +248,7 @@ export class PortalService {
         createdAt: true,
         product: { select: { code: true, name: true } },
         operations: {
-          select: { id: true, reference: true, status: true, plannedVolume: true, uom: true, createdAt: true },
+          select: { id: true, reference: true, phase: true, plannedVolume: true, uom: true, createdAt: true },
         },
       },
     });
@@ -322,7 +322,7 @@ export class PortalService {
         select: {
           id: true,
           reference: true,
-          status: true,
+          phase: true,
           plannedVolume: true,
           uom: true,
           transportMode: true,

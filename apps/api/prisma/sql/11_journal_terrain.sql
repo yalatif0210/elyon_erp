@@ -93,7 +93,7 @@ COMMENT ON VIEW v_field_clock_drift IS
 CREATE OR REPLACE VIEW v_field_rejections AS
 SELECT e.id           AS event_id,
        o.reference    AS operation,
-       o.status::text AS operation_status,
+       o.phase::text  AS operation_phase,
        f.full_name    AS agent,
        f.email        AS agent_email,
        e.type::text   AS event_type,

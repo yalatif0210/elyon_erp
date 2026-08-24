@@ -167,12 +167,16 @@ SELECT 'Affaire approuvée hors bande de prix avec une dérogation non opposable
    AND NOT derogation_opposable(d.purchase_price_derogation_id, 'PURCHASE_PRICE_VARIANCE', d.reference)
 
 UNION ALL
+-- Dérogation PAR ÉTAPE depuis le 22/08/2026 (`operation_hse_checks.derogation_id`,
+-- déplacée depuis l'ancien `operations.hse_derogation_id` — un seul verrou
+-- global n'a plus de sens dès lors que chaque étape porte le sien).
 SELECT 'Opération partie sous une dérogation HSE non opposable',
-       o.reference,
-       derogation_motif_refus(o.hse_derogation_id, 'HSE_BLOCKING_OVERRIDE', o.reference)
-  FROM operations o
- WHERE o.hse_derogation_id IS NOT NULL
-   AND NOT derogation_opposable(o.hse_derogation_id, 'HSE_BLOCKING_OVERRIDE', o.reference)
+       o.reference || ' · ' || c.phase::text,
+       derogation_motif_refus(c.derogation_id, 'HSE_BLOCKING_OVERRIDE', o.reference)
+  FROM operation_hse_checks c
+  JOIN operations o ON o.id = c.operation_id
+ WHERE c.derogation_id IS NOT NULL
+   AND NOT derogation_opposable(c.derogation_id, 'HSE_BLOCKING_OVERRIDE', o.reference)
 
 UNION ALL
 SELECT 'Moyens affectés sous une dérogation de conformité non opposable',

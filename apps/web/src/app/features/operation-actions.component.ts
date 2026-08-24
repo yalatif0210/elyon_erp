@@ -28,17 +28,28 @@ interface MoyenDraft {
   complianceDerogationId: string | null;
 }
 
-/** Étapes offertes, dans l'ordre où elles se présentent réellement. */
-const NEXT_STEPS: { to: string; label: string }[] = [
-  { to: 'SOURCING', label: 'Mettre en sourcing' },
-  { to: 'HSE_PREPARATION', label: 'Préparation HSE' },
-  { to: 'PLANNED', label: 'Planifier' },
-  { to: 'LOADING', label: 'Chargement' },
-  { to: 'IN_TRANSIT', label: 'Départ en transit' },
-  { to: 'DELIVERING', label: 'Livraison' },
-  { to: 'FINAL_CHECK', label: 'Contrôle final' },
-  { to: 'CLOSED', label: 'Clôturer' },
+/**
+ * Les 9 étapes de la séquence physique (§ 22/08/2026), dans l'ordre où
+ * elles se suivent réellement — affichage seul : la console interne ne
+ * fait plus avancer une opération, seul le terrain le fait
+ * (`STATUS_ADVANCED`).
+ */
+const PHASE_SEQUENCE: { code: string; label: string }[] = [
+  { code: 'PREPARATION', label: 'Préparation' },
+  { code: 'PRE_CHARGEMENT', label: 'Avant chargement' },
+  { code: 'CHARGEMENT', label: 'Chargement' },
+  { code: 'POST_CHARGEMENT', label: 'Après chargement' },
+  { code: 'TRANSPORT', label: 'Transport' },
+  { code: 'PRE_DECHARGEMENT', label: 'Avant déchargement' },
+  { code: 'DECHARGEMENT', label: 'Déchargement' },
+  { code: 'POST_DECHARGEMENT', label: 'Contrôle final' },
+  { code: 'CLOTURE', label: 'Clôture' },
 ];
+
+const HALT_TYPE_LABEL: Record<string, string> = {
+  INCIDENT: 'Incident',
+  CANCELLED: 'Annulée',
+};
 
 /**
  * Conduite d'une opération (§ 7, § 11.2).
@@ -62,17 +73,21 @@ const NEXT_STEPS: { to: string; label: string }[] = [
     <section class="card overflow-hidden">
       <div class="card-header">
         <h2 class="card-title">Conduite de l’opération</h2>
-        <span class="text-[11px] text-ink-faint">{{ operation.status }}</span>
+        <span class="text-[11px] text-ink-faint">
+          {{ phaseLabel(operation.phase) }}
+          @if (operation.haltType) { · {{ haltTypeLabel(operation.haltType) }} }
+        </span>
       </div>
 
       <div class="card-body">
         <erp-action-feedback [error]="state.error()" [success]="state.done()" />
 
-        <!-- ============ Suppression du brouillon (§ 22/08/2026) ============
-             Réservée au DRAFT — même règle et même geste en deux temps que
-             pour une affaire (deal-approval.component.ts) : aucune décision
-             n'a encore été engagée, rien d'autre ne se supprime. -->
-        @if (operation.status === 'DRAFT') {
+        <!-- ============ Suppression (§ 22/08/2026) ============
+             Réservée à l'étape PREPARATION — mais SANS condition sur les
+             moyens déjà affectés ni sur une checklist déjà ouverte à ce
+             stade (décision explicite : plus permissif qu'avant, tant que
+             l'opération n'a pas quitté PREPARATION). -->
+        @if (operation.phase === 'PREPARATION') {
           <div class="mb-4 flex justify-end">
             <button
               type="button"
@@ -81,7 +96,7 @@ const NEXT_STEPS: { to: string; label: string }[] = [
               [disabled]="state.busy()"
             >
               <erp-icon name="trash-2" [size]="14" />
-              Supprimer le brouillon
+              Supprimer
             </button>
           </div>
           @if (showDeleteConfirm()) {
@@ -90,8 +105,8 @@ const NEXT_STEPS: { to: string; label: string }[] = [
                 Supprimer {{ operation.reference }} ?
               </h3>
               <p class="mb-2 text-[12px] text-ink-soft">
-                Aucune décision n’a encore été engagée sur cette opération : rien ne se supprime
-                au-delà du brouillon lui-même. L’action est définitive.
+                Réservé à l’étape Préparation, même avec des moyens déjà affectés ou une
+                checklist déjà ouverte. L’action est définitive.
               </p>
               <div class="flex gap-2">
                 <button
@@ -123,8 +138,17 @@ const NEXT_STEPS: { to: string; label: string }[] = [
              deviner avant d'essayer. -->
         @if (estTerminee()) {
           <p class="rounded-[3px] border border-rule-strong bg-gray-50 px-3.5 py-3 text-[13px] text-ink-soft">
-            Opération {{ operation.status === 'CANCELLED' ? 'annulée' : 'clôturée' }} : elle ne
-            reçoit plus d’affectation, de relevé ni de changement d’état.
+            @if (operation.haltType === 'INCIDENT') {
+              Opération à l’arrêt : incident déclaré à l’étape {{ phaseLabel(operation.phase) }}.
+            } @else if (operation.haltType === 'CANCELLED') {
+              Opération annulée à l’étape {{ phaseLabel(operation.phase) }}.
+            } @else {
+              Opération clôturée.
+            }
+            Elle ne reçoit plus d’affectation, de relevé ni de changement d’état.
+            @if (operation.haltReason) {
+              <span class="mt-1 block text-ink-muted">Motif : {{ operation.haltReason }}</span>
+            }
           </p>
         } @else {
 
@@ -350,8 +374,30 @@ const NEXT_STEPS: { to: string; label: string }[] = [
           }
         }
 
-        <!-- ============ Avancement ============ -->
+        <!-- ============ Avancement ============
+             Lecture seule (§ 22/08/2026) : la console interne ne fait plus
+             avancer une opération, elle ne fait que l'afficher — la
+             progression physique ne se constate que depuis le terrain
+             (STATUS_ADVANCED). Le bureau (DG, CCOO) garde un seul geste
+             sur la séquence : l'arrêt d'urgence, PARALLÈLE à elle. -->
         <h3 class="mb-2 mt-6 text-[13px] font-semibold text-ink">Avancement</h3>
+
+        <div class="mb-3 flex flex-wrap items-center gap-1.5">
+          @for (p of sequence; track p.code) {
+            <span
+              class="rounded-[3px] px-2 py-1 text-[11px] font-medium"
+              [class]="
+                p.code === operation.phase
+                  ? 'bg-primary text-white'
+                  : rang(p.code) < rangActuel()
+                    ? 'bg-ok-wash text-ok'
+                    : 'bg-gray-100 text-ink-faint'
+              "
+            >
+              {{ p.label }}
+            </span>
+          }
+        </div>
 
         <div
           class="mb-3 flex items-start gap-2 rounded-[3px] px-3 py-2 text-[13px]"
@@ -380,17 +426,65 @@ const NEXT_STEPS: { to: string; label: string }[] = [
           </div>
         }
 
-        <div class="flex flex-wrap gap-2">
-          @for (s of steps; track s.to) {
+        <!-- ============ Arrêt d'urgence (§ 22/08/2026) ============
+             Réservé DG/CCOO — deux échappatoires PARALLÈLES à la séquence,
+             jamais des étapes de celle-ci : phase n'est jamais écrasée,
+             l'étape où l'opération en était reste affichée. -->
+        @if (peutArreter()) {
+          <div class="flex flex-wrap gap-2">
             <button
-              class="btn-ghost"
-              [disabled]="state.busy() || s.to === operation.status"
-              (click)="move(s.to, s.label)"
+              type="button"
+              class="btn-ghost border-crit/50 text-crit"
+              [disabled]="state.busy()"
+              (click)="showHalt.set(showHalt() === 'INCIDENT' ? null : 'INCIDENT')"
             >
-              {{ s.label }}
+              Déclarer un incident
             </button>
+            <button
+              type="button"
+              class="btn-ghost"
+              [disabled]="state.busy()"
+              (click)="showHalt.set(showHalt() === 'CANCELLED' ? null : 'CANCELLED')"
+            >
+              Annuler l’opération
+            </button>
+          </div>
+          @if (showHalt(); as type) {
+            <div class="mt-3 rounded-[3px] border border-crit/30 bg-crit-wash px-3 py-3">
+              <h3 class="mb-1 text-[13px] font-semibold text-crit">
+                {{ type === 'INCIDENT' ? 'Déclarer un incident' : 'Annuler l’opération' }}
+              </h3>
+              <p class="mb-2 text-[12px] text-ink-soft">
+                Arrêt définitif avant clôture naturelle : l’étape où l’opération en est restée
+                ({{ phaseLabel(operation.phase) }}) reste affichée, jamais écrasée.
+              </p>
+              <textarea
+                class="field mb-2 w-full"
+                rows="2"
+                placeholder="Motif (10 caractères minimum)"
+                [(ngModel)]="haltReason"
+              ></textarea>
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  class="btn-ghost border-crit/50 text-crit"
+                  [disabled]="state.busy() || haltReason.trim().length < 10"
+                  (click)="halt(type)"
+                >
+                  Confirmer
+                </button>
+                <button
+                  type="button"
+                  class="btn-ghost"
+                  [disabled]="state.busy()"
+                  (click)="showHalt.set(null)"
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
           }
-        </div>
+        }
 
         <!-- ============ Relevé de volume ============ -->
         <h3 class="mb-2 mt-6 text-[13px] font-semibold text-ink">Relevé de volume</h3>
@@ -518,8 +612,10 @@ export class OperationActionsComponent {
   @Output() readonly changed = new EventEmitter<void>();
 
   protected readonly state = new ActionState();
-  protected readonly steps = NEXT_STEPS;
+  protected readonly sequence = PHASE_SEQUENCE;
   protected readonly compliance = signal<ComplianceSubject[]>([]);
+  protected readonly showHalt = signal<'INCIDENT' | 'CANCELLED' | null>(null);
+  protected haltReason = '';
 
   /** Une ligne par véhicule (§ 22/08/2026) ; au moins une, vide par défaut. */
   protected readonly moyens = signal<MoyenDraft[]>([{ vehicleId: '', driverId: '', complianceDerogationId: null }]);
@@ -676,9 +772,30 @@ export class OperationActionsComponent {
     return this.auth.role() === 'DG';
   }
 
-  /** Statuts terminaux : plus d'affectation, de relevé ni de changement d'état. */
+  /** Terminale : arrêtée (halte) ou clôturée naturellement — plus d'affectation, de relevé ni de changement d'état. */
   protected estTerminee(): boolean {
-    return this.operation.status === 'CLOSED' || this.operation.status === 'CANCELLED';
+    return this.operation.haltedAt !== null || this.operation.phase === 'CLOTURE';
+  }
+
+  protected phaseLabel(code: string): string {
+    return this.sequence.find((p) => p.code === code)?.label ?? code;
+  }
+
+  protected haltTypeLabel(haltType: string): string {
+    return HALT_TYPE_LABEL[haltType] ?? haltType;
+  }
+
+  protected rang(code: string): number {
+    return this.sequence.findIndex((p) => p.code === code);
+  }
+
+  protected rangActuel(): number {
+    return this.rang(this.operation.phase);
+  }
+
+  /** Qui peut déclencher l'arrêt d'urgence : réservé au bureau (§ 22/08/2026). */
+  protected peutArreter(): boolean {
+    return this.auth.hasRole('DG', 'CCOO');
   }
 
   /** Qui peut lever le verrou HSE par dérogation — même liste que la route serveur. */
@@ -761,12 +878,16 @@ export class OperationActionsComponent {
     });
   }
 
-  protected move(to: string, label: string): void {
-    if (this.state.busy()) return;
+  protected halt(haltType: 'INCIDENT' | 'CANCELLED'): void {
+    if (this.state.busy() || this.haltReason.trim().length < 10) return;
     this.state.start();
-    this.api.moveOperation(this.operation.id, to).subscribe({
+    this.api.haltOperation(this.operation.id, haltType, this.haltReason.trim()).subscribe({
       next: () => {
-        this.state.succeed(`${label} : état enregistré.`);
+        this.state.succeed(
+          haltType === 'INCIDENT' ? 'Incident déclaré.' : 'Opération annulée.',
+        );
+        this.showHalt.set(null);
+        this.haltReason = '';
         this.changed.emit();
       },
       error: (e: HttpFailure) => this.state.fail(e),

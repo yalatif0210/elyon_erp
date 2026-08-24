@@ -244,10 +244,10 @@ RETURNS TRIGGER AS $$
 DECLARE
   nb int;
 BEGIN
-  IF NEW.status::text = 'DRAFT' THEN
+  IF NEW.phase::text = 'PREPARATION' THEN
     RETURN NEW;
   END IF;
-  IF OLD.status::text = NEW.status::text THEN
+  IF OLD.phase = NEW.phase THEN
     RETURN NEW;
   END IF;
 
@@ -267,7 +267,7 @@ $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trg_operation_has_type ON operations;
 CREATE TRIGGER trg_operation_has_type
-  BEFORE UPDATE OF status ON operations
+  BEFORE UPDATE OF phase ON operations
   FOR EACH ROW EXECUTE FUNCTION enforce_operation_has_type();
 
 

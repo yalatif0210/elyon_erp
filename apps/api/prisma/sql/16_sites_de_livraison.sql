@@ -169,10 +169,12 @@ RETURNS TRIGGER AS $$
 DECLARE
   manquantes text;
 BEGIN
-  IF NEW.status::text NOT IN ('LOADING', 'IN_TRANSIT', 'DELIVERING', 'FINAL_CHECK', 'CLOSED') THEN
-    RETURN NEW;
-  END IF;
-  IF OLD.status::text = NEW.status::text THEN
+  -- ⚠️ REVU LE 22/08/2026 — le verrou porte désormais sur LA transition
+  --    PRE_CHARGEMENT → CHARGEMENT précisément (au lieu d'un ensemble
+  --    « engagée »). L'ordre strict de la séquence (`enforce_phase_sequence`)
+  --    garantit qu'une opération qui a franchi ce point ne peut plus y
+  --    revenir sans le retraverser : un seul contrôle suffit désormais.
+  IF NOT (OLD.phase::text = 'PRE_CHARGEMENT' AND NEW.phase::text = 'CHARGEMENT') THEN
     RETURN NEW;
   END IF;
 
@@ -204,7 +206,7 @@ $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trg_site_requirements ON operations;
 CREATE TRIGGER trg_site_requirements
-  BEFORE UPDATE OF status ON operations
+  BEFORE UPDATE OF phase ON operations
   FOR EACH ROW EXECUTE FUNCTION enforce_site_requirements();
 
 COMMENT ON FUNCTION enforce_site_requirements IS

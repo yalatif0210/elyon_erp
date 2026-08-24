@@ -157,7 +157,7 @@ import { jour, jourHeure } from './terrain-libelles';
             <div class="t-card">
               <div class="flex items-start justify-between gap-3">
                 <p class="font-mono text-[15px] font-bold text-gray-900">{{ h.reference }}</p>
-                <span class="t-code">{{ h.status }}</span>
+                <span class="t-code">{{ h.phase }}</span>
               </div>
               <p class="mt-1 text-[15px] text-ink-soft">{{ dateDe(h.date) }}</p>
               <p class="mt-1 text-[15px] text-ink-soft">

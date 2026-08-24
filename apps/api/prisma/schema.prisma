@@ -331,16 +331,54 @@ enum HseRiskLevel {
   @@map("hse_risk_level")
 }
 
-/// Phase de l'opération à laquelle un contrôle s'applique.
+/// L'ÉTAPE — SEUL champ d'état d'une opération, du début à la fin (§ 22/08/2026).
+///
+/// Avant cette date, une opération portait DEUX vocabulaires distincts :
+/// `OperationStatus` (12 valeurs, le statut de l'opération) et cet enum (6
+/// valeurs, utilisé UNIQUEMENT par les points de contrôle HSE), sans lien
+/// vérifié entre eux — un point de contrôle pouvait s'ouvrir sur une phase
+/// sans jamais être confronté au statut réel de l'opération. `OperationPhase`
+/// devient l'unique vocabulaire, étendu de 6 à 9 valeurs pour décrire la
+/// séquence physique réelle d'une opération de transport pétrolier :
+/// exigences de site et documentation, puis les trois temps du chargement,
+/// le transport, les trois temps du déchargement, la clôture.
+///
+/// ⚠️ L'ORDRE DE DÉCLARATION FAIT FOI. Le trigger `enforce_phase_sequence`
+///    (`05_lot2_invariants.sql`) s'appuie sur `enum_range(NULL::operation_phase)`
+///    pour connaître le rang de chaque valeur : réordonner cette liste change
+///    la séquence imposée en base, pas seulement l'affichage.
+///
+/// INCIDENT et CANCELLED n'en font PAS partie : ce sont deux arrêts
+/// d'urgence, parallèles à la séquence (`Operation.haltType` et les champs
+/// voisins), pas des étapes qu'on traverse.
 enum OperationPhase {
+  /// Exigences de site et documentation administrative.
   PREPARATION
-  PRE_DEPARTURE
-  LOADING
+  /// Avant chargement du camion ou de la barge.
+  PRE_CHARGEMENT
+  CHARGEMENT
+  /// Après chargement — scellés, documents de bord.
+  POST_CHARGEMENT
   TRANSPORT
-  DELIVERY
-  CLOSING
+  /// Avant déchargement du camion ou de la barge.
+  PRE_DECHARGEMENT
+  DECHARGEMENT
+  /// Après déchargement — contrôle.
+  POST_DECHARGEMENT
+  /// Fin d'opération.
+  CLOTURE
 
   @@map("operation_phase")
+}
+
+/// Arrêt d'urgence d'une opération — PARALLÈLE à `OperationPhase`, jamais une
+/// de ses valeurs : l'étape en cours au moment de l'arrêt doit rester
+/// visible, jamais écrasée. Réservé au DG et au CCOO (§ 22/08/2026).
+enum OperationHaltType {
+  INCIDENT
+  CANCELLED
+
+  @@map("operation_halt_type")
 }
 
 enum DocumentType {
@@ -550,7 +588,7 @@ model User {
   dealsDgApproved Deal[] @relation("DealDgApprover")
   dealTransitions DealStatusTransition[]
   operationsCoordinated Operation[] @relation("OperationCoordinator")
-  operationsHseValidated Operation[] @relation("OperationHseValidatorUser")
+  operationsHalted Operation[] @relation("OperationHaltedBy")
   assignmentsAuthored OperationAssignment[] @relation("AssignmentAuthor")
   purchaseOrdersIssued PurchaseOrder[] @relation("PoIssuer")
   hseChecksValidated OperationHseCheck[] @relation("HseCheckValidatorUser")
@@ -729,7 +767,6 @@ model FieldUser {
 
   // --- Relations inverses du lot 2 ---
   operationsAssigned Operation[] @relation("OperationFieldAgent")
-  operationsHseValidated Operation[] @relation("OperationHseValidator")
   hseChecksValidated OperationHseCheck[] @relation("HseCheckValidator")
   hseChecksRejected OperationHseCheck[] @relation("HseCheckRejector")
   hseItemsRecorded OperationHseCheckItem[] @relation("HseItemRecorder")
@@ -2090,7 +2127,7 @@ model Derogation {
   dealMargin Deal? @relation("DealMarginDerogation")
   dealPurchasePrice Deal? @relation("DealPurchasePriceDerogation")
   dealCredit Deal? @relation("DealCreditDerogation")
-  operationHse Operation? @relation("OperationHseDerogation")
+  operationHseCheck OperationHseCheck? @relation("OperationHseCheckDerogation")
   assignment OperationAssignment? @relation("AssignmentDerogation")
   ullage MeasurementRecord? @relation("UllageDerogation")
 
@@ -2249,23 +2286,6 @@ enum DealStatus {
 }
 
 /// Machine à états de l'Opération — niveau exécution physique (§ 4.3).
-enum OperationStatus {
-  DRAFT
-  SOURCING
-  HSE_PREPARATION
-  HSE_BLOCKED
-  PLANNED
-  LOADING
-  IN_TRANSIT
-  DELIVERING
-  FINAL_CHECK
-  CLOSED
-  INCIDENT
-  CANCELLED
-
-  @@map("operation_status")
-}
-
 /// Mode d'approvisionnement (§ 4.4). Le back-to-back n'est plus une propriété
 /// du système mais un attribut de l'opération.
 enum SourcingMode {
@@ -2741,7 +2761,9 @@ model Operation {
   dealId String @map("deal_id") @db.Uuid
   deal   Deal   @relation(fields: [dealId], references: [id], onDelete: Restrict)
 
-  status       OperationStatus @default(DRAFT)
+  /// L'ÉTAPE — seul champ d'état (§ 22/08/2026). Une opération créée entre
+  /// directement en PREPARATION : il n'y a plus de brouillon distinct.
+  phase        OperationPhase @default(PREPARATION)
   sourcingMode SourcingMode    @default(BACK_TO_BACK) @map("sourcing_mode")
 
   /// TYPES portés par l'opération, indiqués à sa création. Ils déterminent les
@@ -2792,16 +2814,11 @@ model Operation {
   // --- VERROU HSE (§ 7.2, § 11.2) ---
   /// Détermine la checklist applicable et l'exigence de présence du contrôleur.
   hseRiskLevel HseRiskLevel @default(STANDARD) @map("hse_risk_level")
-  /// Renseigné par le CONTRÔLEUR HSE seul. Sa présence conditionne le passage
-  /// au chargement — vérifié en base.
-  hseValidatedById String?    @map("hse_validated_by_id") @db.Uuid
-  hseValidatedBy   FieldUser? @relation("OperationHseValidator", fields: [hseValidatedById], references: [id], onDelete: Restrict)
-  hseValidatedAt   DateTime?  @map("hse_validated_at") @db.Timestamptz(3)
-  /// Suppléance éventuelle : le DG valide en l'absence du contrôleur (§ 3.4).
-  hseValidatedByUserId String? @map("hse_validated_by_user_id") @db.Uuid
-  hseValidatedByUser   User?   @relation("OperationHseValidatorUser", fields: [hseValidatedByUserId], references: [id], onDelete: Restrict)
-  hseDerogationId      String? @unique @map("hse_derogation_id") @db.Uuid
-  hseDerogation        Derogation? @relation("OperationHseDerogation", fields: [hseDerogationId], references: [id], onDelete: SetNull)
+  // ⚠️ RETIRÉ (22/08/2026) : hseValidatedById/hseValidatedByUserId/
+  //    hseValidatedAt/hseDerogationId — un seul verrou global n'a plus de
+  //    sens dès lors que CHAQUE étape porte sa propre checklist. La
+  //    validation (et sa dérogation éventuelle) se lit désormais PAR ÉTAPE,
+  //    directement sur `OperationHseCheck.validatedAt`/`derogationId`.
 
   // --- Affectation terrain ---
   fieldAgentId String?    @map("field_agent_id") @db.Uuid
@@ -2811,8 +2828,17 @@ model Operation {
   coordinatorId String? @map("coordinator_id") @db.Uuid
   coordinator   User?   @relation("OperationCoordinator", fields: [coordinatorId], references: [id], onDelete: SetNull)
 
-  cancellationReason String?   @map("cancellation_reason") @db.VarChar(1000)
-  closedAt           DateTime? @map("closed_at") @db.Timestamptz(3)
+  // --- ARRÊT D'URGENCE (§ 22/08/2026) ---
+  /// PARALLÈLE à `phase`, jamais une de ses valeurs : l'étape en cours au
+  /// moment de l'arrêt reste posée dans `phase`, jamais écrasée. Réservé au
+  /// DG et au CCOO — voir `PATCH :id/halt`.
+  haltedAt   DateTime?          @map("halted_at") @db.Timestamptz(3)
+  haltType   OperationHaltType? @map("halt_type")
+  haltReason String?            @map("halt_reason") @db.VarChar(1000)
+  haltedById String?            @map("halted_by_id") @db.Uuid
+  haltedBy   User?              @relation("OperationHaltedBy", fields: [haltedById], references: [id], onDelete: Restrict)
+
+  closedAt DateTime? @map("closed_at") @db.Timestamptz(3)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -2825,23 +2851,23 @@ model Operation {
   hseEvents          HseEvent[]
   measurements       MeasurementRecord[]
   costLines          OperationCostLine[]
-  statusTransitions  OperationStatusTransition[]
+  phaseTransitions   OperationPhaseTransition[]
   generatedDocuments GeneratedDocument[]
 
-  @@index([dealId, status])
-  @@index([status, plannedLoadingDate])
-  @@index([fieldAgentId, status])
-  @@index([hseRiskLevel, status])
+  @@index([dealId, phase])
+  @@index([phase, plannedLoadingDate])
+  @@index([fieldAgentId, phase])
+  @@index([hseRiskLevel, phase])
   @@map("operations")
 }
 
-model OperationStatusTransition {
+model OperationPhaseTransition {
   id          String    @id @default(uuid()) @db.Uuid
   operationId String    @map("operation_id") @db.Uuid
   operation   Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
 
-  fromStatus OperationStatus? @map("from_status")
-  toStatus   OperationStatus  @map("to_status")
+  fromPhase OperationPhase? @map("from_phase")
+  toPhase   OperationPhase  @map("to_phase")
 
   actorType ActorType @map("actor_type")
   actorId   String?   @map("actor_id") @db.Uuid
@@ -2854,7 +2880,7 @@ model OperationStatusTransition {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@index([operationId, createdAt])
-  @@map("operation_status_transitions")
+  @@map("operation_phase_transitions")
 }
 
 /// Moyens affectés à une opération — porte le VERROU DE CONFORMITÉ (§ 11.2).
@@ -3000,6 +3026,12 @@ model OperationHseCheck {
   rejectedByUser        User?      @relation("HseCheckRejectorUser", fields: [rejectedByUserId], references: [id], onDelete: Restrict)
   rejectedAt            DateTime?  @map("rejected_at") @db.Timestamptz(3)
   rejectionReason       String?    @map("rejection_reason") @db.VarChar(1000)
+
+  /// Dérogation HSE_BLOCKING_OVERRIDE — DÉPLACÉE depuis `Operation` le
+  /// 22/08/2026 : un verrou par étape appelle une dérogation par étape, pas
+  /// une seule pour toute l'opération.
+  derogationId String?     @unique @map("derogation_id") @db.Uuid
+  derogation   Derogation? @relation("OperationHseCheckDerogation", fields: [derogationId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)

@@ -251,7 +251,7 @@ export interface DealDetail extends DealRow {
   creditApprovedBy: { fullName: string; role: string } | null;
   dgApprovedBy: { fullName: string; role: string } | null;
   costLines: DealCostLine[];
-  operations: { id: string; reference: string; status: string; plannedVolume: string }[];
+  operations: { id: string; reference: string; phase: string; plannedVolume: string }[];
   invoices: {
     id: string;
     number: string | null;
@@ -292,7 +292,12 @@ export interface OperationalProcedureRow {
 export interface OperationRow {
   id: string;
   reference: string;
-  status: string;
+  /** Seul champ d'état (§ 22/08/2026) : PREPARATION, PRE_CHARGEMENT, CHARGEMENT, POST_CHARGEMENT, TRANSPORT, PRE_DECHARGEMENT, DECHARGEMENT, POST_DECHARGEMENT, CLOTURE. */
+  phase: string;
+  /** Arrêt d'urgence, PARALLÈLE à `phase` — jamais une de ses valeurs. */
+  haltedAt: string | null;
+  haltType: 'INCIDENT' | 'CANCELLED' | null;
+  haltReason: string | null;
   plannedVolume: string;
   uom: string;
   transportMode: string;
@@ -1066,7 +1071,7 @@ export interface EtatOperationnel {
 export interface OperationParEtat {
   operation_id: string;
   reference: string;
-  statut: string;
+  etape: string;
   affaire: string;
   client: string;
   produit: string;
@@ -1632,10 +1637,10 @@ export class ApiService {
 
   operations(
     page = 1,
-    filters: { status?: string; search?: string } = {},
+    filters: { phase?: string; search?: string } = {},
   ): Observable<Page<OperationRow>> {
     let params = new HttpParams().set('page', page).set('pageSize', 50);
-    if (filters.status) params = params.set('status', filters.status);
+    if (filters.phase) params = params.set('phase', filters.phase);
     if (filters.search) params = params.set('search', filters.search);
     return this.http.get<Page<OperationRow>>(`${this.base}/operations`, { params });
   }
@@ -1724,8 +1729,14 @@ export class ApiService {
     return this.http.patch(`${this.base}/operations/${id}/assignment`, { assignments: lignes });
   }
 
-  moveOperation(id: string, to: string, reason?: string): Observable<unknown> {
-    return this.http.patch(`${this.base}/operations/${id}/status`, { to, reason });
+  /**
+   * Arrêt d'urgence, réservé DG/CCOO (§ 22/08/2026) — PARALLÈLE à la
+   * séquence des étapes, ne la modifie jamais. Le bureau n'a plus d'autre
+   * action sur la progression physique d'une opération : elle ne se
+   * constate que depuis le terrain.
+   */
+  haltOperation(id: string, haltType: 'INCIDENT' | 'CANCELLED', reason: string): Observable<unknown> {
+    return this.http.patch(`${this.base}/operations/${id}/halt`, { haltType, reason });
   }
 
   recordMeasurement(id: string, body: Record<string, unknown>): Observable<unknown> {

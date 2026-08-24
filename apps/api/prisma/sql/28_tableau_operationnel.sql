@@ -42,7 +42,7 @@ WITH facture AS (
 )
 SELECT o.id                                            AS operation_id,
        o.reference,
-       o.status::text                                  AS statut,
+       o.phase::text                                   AS etape,
        d.reference                                     AS affaire,
        p.legal_name                                    AS client,
        pr.code                                         AS produit,
@@ -52,14 +52,19 @@ SELECT o.id                                            AS operation_id,
        o.actual_discharge_date,
 
        -- ⚠️ ORDRE DE PRIORITÉ : le premier cas vrai gagne, et un seul gagne.
+       -- REVU LE 22/08/2026 : plus de statut à part — INCIDENT/CANCELLED sont
+       -- des arrêts parallèles (`halt_type`) et le blocage HSE se calcule
+       -- (`operation_hse_bloquee`) au lieu de se lire (HSE_BLOCKED disparaît).
        CASE
          -- 1. Incident : le plus grave, il prime sur tout le reste.
-         WHEN o.status::text = 'INCIDENT'                      THEN 'INCIDENT'
-         -- 2. Bloquée par le verrou HSE.
-         WHEN o.status::text = 'HSE_BLOCKED'                   THEN 'BLOQUEE_HSE'
+         WHEN o.halt_type::text = 'INCIDENT'                   THEN 'INCIDENT'
+         -- 2. Bloquée par le verrou HSE à son étape courante.
+         WHEN o.halted_at IS NULL
+              AND operation_hse_bloquee(o.id)                  THEN 'BLOQUEE_HSE'
          -- 3. Engagée alors qu'un moyen affecté n'est PLUS conforme. Le verrou
          --    joue à l'affectation ; une pièce peut expirer ensuite.
-         WHEN o.status::text NOT IN ('CLOSED', 'CANCELLED', 'DRAFT')
+         WHEN o.halted_at IS NULL
+              AND o.phase::text NOT IN ('PREPARATION', 'CLOTURE')
               AND EXISTS (
                 SELECT 1 FROM operation_assignments a
                   JOIN v_transport_compliance c
@@ -69,24 +74,28 @@ SELECT o.id                                            AS operation_id,
                    AND a.compliance_derogation_id IS NULL
               )                                                THEN 'NON_CONFORME'
          -- 4. En retard : le chargement était prévu et n'a pas eu lieu.
-         WHEN o.status::text IN ('SOURCING', 'HSE_PREPARATION', 'PLANNED')
+         WHEN o.halted_at IS NULL
+              AND o.phase::text IN ('PREPARATION', 'PRE_CHARGEMENT')
               AND o.planned_loading_date IS NOT NULL
               AND o.planned_loading_date < CURRENT_DATE       THEN 'EN_RETARD'
          -- 5. Livrée mais pas facturée — un trou entre deux modules.
-         WHEN o.status::text IN ('FINAL_CHECK', 'CLOSED')
+         WHEN o.phase::text IN ('POST_DECHARGEMENT', 'CLOTURE')
               AND COALESCE(f.facture_pivot, 0) = 0             THEN 'LIVREE_NON_FACTUREE'
          -- 6. Facturée mais pas encaissée.
-         WHEN o.status::text = 'CLOSED'
+         WHEN o.phase::text = 'CLOTURE'
               AND COALESCE(f.facture_pivot, 0) > 0
               AND COALESCE(f.encaisse_pivot, 0) < f.facture_pivot
                                                                THEN 'FACTUREE_NON_ENCAISSEE'
          -- 7. En cours d'exécution.
-         WHEN o.status::text IN ('LOADING', 'IN_TRANSIT', 'DELIVERING', 'FINAL_CHECK')
+         WHEN o.halted_at IS NULL
+              AND o.phase::text IN ('CHARGEMENT', 'POST_CHARGEMENT', 'TRANSPORT',
+                                     'PRE_DECHARGEMENT', 'DECHARGEMENT', 'POST_DECHARGEMENT')
                                                                THEN 'EN_COURS'
          -- 8. À venir.
-         WHEN o.status::text IN ('DRAFT', 'SOURCING', 'HSE_PREPARATION', 'PLANNED')
+         WHEN o.halted_at IS NULL
+              AND o.phase::text IN ('PREPARATION', 'PRE_CHARGEMENT')
                                                                THEN 'A_VENIR'
-         WHEN o.status::text = 'CANCELLED'                     THEN 'ANNULEE'
+         WHEN o.halt_type::text = 'CANCELLED'                  THEN 'ANNULEE'
          ELSE 'SOLDEE'
        END                                             AS etat,
 
@@ -101,7 +110,7 @@ SELECT o.id                                            AS operation_id,
        -- Retard de chargement, pour la même raison.
        CASE WHEN o.planned_loading_date IS NOT NULL
                  AND o.planned_loading_date < CURRENT_DATE
-                 AND o.status::text IN ('SOURCING', 'HSE_PREPARATION', 'PLANNED')
+                 AND o.phase::text IN ('PREPARATION', 'PRE_CHARGEMENT')
             THEN CURRENT_DATE - o.planned_loading_date END      AS retard_chargement_jours
   FROM operations o
   JOIN deals d ON d.id = o.deal_id

@@ -122,12 +122,12 @@ DECLARE
   r RECORD;
   loaded numeric;
 BEGIN
-  IF OLD.status::text = NEW.status::text THEN
+  IF OLD.phase = NEW.phase THEN
     RETURN NEW;
   END IF;
 
   -- ----- A. Avances SUR MARCHANDISE, au chargement constaté ---------------
-  IF NEW.status::text = 'LOADING' THEN
+  IF NEW.phase::text = 'CHARGEMENT' THEN
     -- Volume retenu : celui du relevé faisant autorité s'il existe déjà,
     -- sinon le volume prévu de l'opération. La règle C corrigera plus tard.
     SELECT m.loaded_volume_15 INTO loaded
@@ -156,7 +156,7 @@ BEGIN
   -- Fret, inspection, douane : aucune réception physique n'existe. Leur
   -- contrepartie est la prestation rendue, donc la fin de la rotation. On les
   -- reconnaît à l'absence de commande d'achat.
-  IF NEW.status::text = 'CLOSED' THEN
+  IF NEW.phase::text = 'CLOTURE' THEN
     FOR r IN
       SELECT si.id AS invoice_id
         FROM supplier_invoices si
@@ -177,7 +177,7 @@ $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trg_settle_advances_on_operation ON operations;
 CREATE TRIGGER trg_settle_advances_on_operation
-  AFTER UPDATE OF status ON operations
+  AFTER UPDATE OF phase ON operations
   FOR EACH ROW EXECUTE FUNCTION settle_advances_on_operation();
 
 
@@ -199,11 +199,13 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  SELECT id, status, actual_loading_date INTO op
+  SELECT id, phase, actual_loading_date INTO op
     FROM operations WHERE id = NEW.operation_id;
 
   -- Avant le chargement, il n'y a rien à réviser : rien n'a été apuré.
-  IF op.status::text NOT IN ('LOADING', 'IN_TRANSIT', 'DELIVERING', 'FINAL_CHECK', 'CLOSED') THEN
+  IF op.phase::text NOT IN
+     ('CHARGEMENT', 'POST_CHARGEMENT', 'TRANSPORT', 'PRE_DECHARGEMENT',
+      'DECHARGEMENT', 'POST_DECHARGEMENT', 'CLOTURE') THEN
     RETURN NEW;
   END IF;
 
@@ -257,7 +259,7 @@ SELECT
     ELSE 'Apurement manuel : facture rattachée à aucun dossier'
   END                                            AS settlement_trigger,
   o.reference                                    AS operation,
-  o.status::text                                 AS operation_status
+  o.phase::text                                  AS operation_phase
 FROM supplier_invoices si
 JOIN partners p          ON p.id = si.supplier_id
 LEFT JOIN deals d        ON d.id = si.deal_id

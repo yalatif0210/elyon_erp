@@ -37,7 +37,6 @@ import {
   InvoiceType,
   MeasurementSource,
   OperationPhase,
-  OperationStatus,
   PrismaClient,
   PurchaseOrderStatus,
   SignatoryKind,
@@ -316,7 +315,7 @@ async function main(): Promise<void> {
     create: {
       reference: 'OP-2026-000001',
       dealId: deal1.id,
-      status: OperationStatus.DRAFT,
+      phase: OperationPhase.PREPARATION,
       sourcingMode: SourcingMode.BACK_TO_BACK,
       plannedVolume: `${VOLUME}.000000`,
       uom: UnitOfMeasure.L,
@@ -404,64 +403,66 @@ async function main(): Promise<void> {
   console.log('  ✓ OP-2026-000001 — moyens conformes affectés');
 
   // =========================================================================
-  //  6. CONTRÔLES HSE — séparation des tâches
+  //  6. CONTRÔLES HSE PAR ÉTAPE — séparation des tâches
   //
   //     L'AGENT renseigne, le CONTRÔLEUR valide. Un même utilisateur ne peut
   //     pas faire les deux sur un point bloquant : le trigger le refuse.
+  //
+  //     ⚠️ CHAQUE ÉTAPE VERROUILLE LA SUIVANTE DEPUIS LE 22/08/2026 — plus un
+  //        seul verrou avant chargement. PREPARATION, PRE_CHARGEMENT,
+  //        CHARGEMENT, TRANSPORT et DECHARGEMENT portent des points de
+  //        contrôle (§ seed.ts) : chacune doit être validée avant de passer à
+  //        la suivante. POST_CHARGEMENT, PRE_DECHARGEMENT et POST_DECHARGEMENT
+  //        n'en portent aucune — `validerEtape` n'y crée rien, le verrou
+  //        s'ouvre de lui-même (`resolve_hse_checklist` y rend zéro point).
   // =========================================================================
   const template = await prisma.hseChecklistTemplate.findFirstOrThrow({
     where: { code: 'LIVRAISON_ROUTIERE_V1' },
   });
 
-  let check = await prisma.operationHseCheck.findUnique({
-    where: { operationId_phase: { operationId: operation.id, phase: OperationPhase.PRE_DEPARTURE } },
-  });
-  if (!check) {
-    check = await prisma.operationHseCheck.create({
-      data: {
-        operationId: operation.id,
-        templateId: template.id,
-        templateVersion: template.version,
-        phase: OperationPhase.PRE_DEPARTURE,
-      },
+  /** Renseigne et valide la checklist d'UNE étape, si elle en porte une. */
+  async function validerEtape(phase: OperationPhase): Promise<void> {
+    const items = await prisma.hseChecklistItem.findMany({
+      where: { templateId: template.id, phase },
+      orderBy: { displayOrder: 'asc' },
     });
+    if (items.length === 0) return;
+
+    let check = await prisma.operationHseCheck.findUnique({
+      where: { operationId_phase: { operationId: operation.id, phase } },
+    });
+    if (check?.validatedAt) return; // déjà fait — jeu de données rejoué (upsert)
+
+    check ??= await prisma.operationHseCheck.create({
+      data: { operationId: operation.id, templateId: template.id, templateVersion: template.version, phase },
+    });
+    const checkId = check.id;
 
     // ⚠️ UN POINT EXIGEANT UNE PHOTO EN REÇOIT UNE.
     //
     //    Un verrou refuse d'enregistrer un tel point sans cliché : le
     //    contrôleur HSE valide à distance, sur pièces, et sans photo il n'a
-    //    rien à examiner. Les écarter aurait laissé l'opération SANS AUCUN
-    //    point de contrôle — que le verrou HSE refuse tout autant, et à juste
-    //    titre : une validation qui ne s'appuie sur rien n'est pas une
-    //    validation.
-    //
-    //    Le jeu de démonstration dépose donc une pièce jointe reconnaissable :
-    //    empreinte nulle, clé de stockage préfixée « demo/ ». Elle ne prétend
-    //    pas être une preuve, elle occupe la place de celle qu'un agent
-    //    fournira.
-    const items = await prisma.hseChecklistItem.findMany({
-      where: { templateId: template.id, phase: OperationPhase.PRE_DEPARTURE },
-      orderBy: { displayOrder: 'asc' },
-    });
-
+    //    rien à examiner. Le jeu de démonstration dépose donc une pièce
+    //    jointe reconnaissable : empreinte nulle, clé de stockage préfixée
+    //    « demo/ ». Elle ne prétend pas être une preuve, elle occupe la place
+    //    de celle qu'un agent fournira.
     for (const item of items) {
       // ⚠️ TROIS TEMPS, PARCE QUE C'EST L'ORDRE RÉEL DU TERRAIN.
       //
       //    Le point s'ouvre EN ATTENTE, la photo arrive, puis le point se
       //    conclut. Le verrou n'accepte un résultat définitif que si le cliché
       //    est déjà là — et il a raison : l'inverse permettrait de conclure
-      //    d'abord et de fournir la preuve ensuite, ou jamais.
-      //
-      //    Écrire directement PASSED était impossible, et ce n'est pas une
-      //    limite du jeu de données : c'est la règle qui s'applique à l'agent.
+      //    d'abord et de fournir la preuve ensuite, ou jamais. Écrire
+      //    directement PASSED était impossible, et ce n'est pas une limite du
+      //    jeu de données : c'est la règle qui s'applique à l'agent.
       const recorded = await prisma.operationHseCheckItem.create({
         data: {
-          checkId: check.id,
+          checkId,
           itemId: item.id,
           level: item.level,
           // ⚠️ LA PROVENANCE SE FIGE SUR LE POINT, PAS SUR LA CHECKLIST.
           //    Un modèle révisé plus tard ne doit pas réécrire ce qui a été
-          //    opposé à l'agent ce jour-là. Le jeu de données ne la posait pas.
+          //    opposé à l'agent ce jour-là.
           sourceTemplateId: template.id,
           sourceTemplateVersion: template.version,
           outcome: HseCheckOutcome.PENDING,
@@ -516,7 +517,7 @@ async function main(): Promise<void> {
 
     // Validation par le CONTRÔLEUR — à distance, mode normal (§ 7.2).
     await prisma.operationHseCheck.update({
-      where: { id: check.id },
+      where: { id: checkId },
       data: {
         validatedByFieldUserId: hseController.id,
         validatedAt: T('2026-08-10T06:45:00Z'),
@@ -525,18 +526,43 @@ async function main(): Promise<void> {
     });
   }
 
-  await prisma.operation.update({
-    where: { id: operation.id },
-    data: {
-      hseValidatedById: hseController.id,
-      hseValidatedAt: T('2026-08-10T06:45:00Z'),
-    },
-  });
+  /**
+   * Fait avancer l'opération jusqu'à `cible`, un pas à la fois — validant à
+   * chaque pas la checklist de l'étape QUITTÉE, exactement ce que
+   * `enforce_phase_sequence` exige désormais. Idempotent : rejoué sur une
+   * opération déjà avancée, ne fait rien au-delà d'où elle en est.
+   */
+  async function avancerJusqua(cible: OperationPhase): Promise<void> {
+    const SEQUENCE = Object.values(OperationPhase);
+    const rangCible = SEQUENCE.indexOf(cible);
+    for (;;) {
+      const courante = await prisma.operation.findUniqueOrThrow({
+        where: { id: operation.id },
+        select: { phase: true },
+      });
+      const rangCourant = SEQUENCE.indexOf(courante.phase);
+      if (rangCourant >= rangCible) return;
+      await validerEtape(courante.phase);
+      const suivante = SEQUENCE[rangCourant + 1];
+      await prisma.operation.update({ where: { id: operation.id }, data: { phase: suivante } });
+      await prisma.operationPhaseTransition.create({
+        data: {
+          operationId: operation.id,
+          fromPhase: courante.phase,
+          toPhase: suivante,
+          actorType: ActorType.FIELD_USER,
+          actorId: agent.id,
+        },
+      });
+    }
+  }
+
+  await avancerJusqua(OperationPhase.POST_DECHARGEMENT);
 
   const blockingCount = await prisma.operationHseCheckItem.count({
     where: { check: { operationId: operation.id }, level: HseControlLevel.BLOCKING },
   });
-  console.log(`  ✓ Checklist HSE validée à distance — ${blockingCount} contrôles bloquants satisfaits`);
+  console.log(`  ✓ Checklists HSE validées étape par étape — ${blockingCount} contrôles bloquants satisfaits`);
 
   // =========================================================================
   //  DOCUMENTS ET SIGNATURES (§ 12) — AVANT LA CLÔTURE
@@ -649,25 +675,19 @@ async function main(): Promise<void> {
   console.log('  ✓ Bon de livraison signé par le chauffeur et le client, puis scellé');
 
   // --- Les deux pièces étant scellées, la clôture est acceptée -------------
+  // POST_DECHARGEMENT ne porte aucun point de contrôle : ce dernier pas ne
+  // fait qu'écrire `phase = CLOTURE`, le verrou de clôture (§ 36) prenant le
+  // relais sur les deux pièces scellées ci-dessus.
+  await avancerJusqua(OperationPhase.CLOTURE);
+
   await prisma.operation.update({
     where: { id: operation.id },
     data: {
-      status: OperationStatus.CLOSED,
       actualLoadingDate: D('2026-08-10'),
       actualDischargeDate: D('2026-08-12'),
       billOfLadingDate: D('2026-08-10'),
       closedAt: T('2026-08-12T17:00:00Z'),
     },
-  });
-
-  await prisma.operationStatusTransition.createMany({
-    data: [
-      { operationId: operation.id, fromStatus: OperationStatus.DRAFT, toStatus: OperationStatus.HSE_PREPARATION, actorType: ActorType.FIELD_USER, actorId: agent.id },
-      { operationId: operation.id, fromStatus: OperationStatus.HSE_PREPARATION, toStatus: OperationStatus.PLANNED, actorType: ActorType.FIELD_USER, actorId: hseController.id, reason: 'Contrôles HSE validés' },
-      { operationId: operation.id, fromStatus: OperationStatus.PLANNED, toStatus: OperationStatus.LOADING, actorType: ActorType.FIELD_USER, actorId: agent.id },
-      { operationId: operation.id, fromStatus: OperationStatus.LOADING, toStatus: OperationStatus.CLOSED, actorType: ActorType.FIELD_USER, actorId: agent.id },
-    ],
-    skipDuplicates: true,
   });
 
   // =========================================================================

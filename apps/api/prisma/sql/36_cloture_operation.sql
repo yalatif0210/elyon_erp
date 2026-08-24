@@ -31,10 +31,10 @@ DECLARE
   rapport_scelle boolean;
   bon_livraison_scelle boolean;
 BEGIN
-  IF NEW.status::text <> 'CLOSED' THEN
+  IF NEW.phase::text <> 'CLOTURE' THEN
     RETURN NEW;
   END IF;
-  IF OLD.status::text = NEW.status::text THEN
+  IF OLD.phase = NEW.phase THEN
     RETURN NEW;
   END IF;
 
@@ -72,5 +72,5 @@ $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trg_closure_documents_sealed ON operations;
 CREATE TRIGGER trg_closure_documents_sealed
-  BEFORE UPDATE OF status ON operations
+  BEFORE UPDATE OF phase ON operations
   FOR EACH ROW EXECUTE FUNCTION enforce_closure_documents_sealed();

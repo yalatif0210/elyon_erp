@@ -386,7 +386,7 @@ export class SupervisionService {
   /** Le détail derrière un pavé : sans lui, le chiffre est sans recours. */
   async operationsParEtat(etat: string) {
     const lignes = await this.prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-      `SELECT operation_id, reference, statut, affaire, client, produit,
+      `SELECT operation_id, reference, etape, affaire, client, produit,
               planned_volume, uom, planned_loading_date, actual_discharge_date,
               etat, facture_pivot, encaisse_pivot, reste_a_encaisser,
               retard_encaissement_jours, retard_chargement_jours

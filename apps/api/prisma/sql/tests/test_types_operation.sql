@@ -51,11 +51,11 @@ BEGIN
   VALUES
     -- Point PROPRE au soutage : il doit s'ajouter.
     (gen_random_uuid(), t_soutage, 'SOUT_PASSERELLE', 'Passerelle d''accès sécurisée',
-     'PRE_DEPARTURE', 'BLOCKING', 5, true, now()),
+     'PRE_CHARGEMENT', 'BLOCKING', 5, true, now()),
     -- Point COMMUN avec la checklist routière, en niveau MOINS contraignant :
     -- il ne doit ni doubler, ni affaiblir le niveau retenu.
     (gen_random_uuid(), t_soutage, 'HSE_EPI', 'EPI complets portés par l''équipe',
-     'PRE_DEPARTURE', 'MANDATORY', 11, true, now());
+     'PRE_CHARGEMENT', 'MANDATORY', 11, true, now());
 
   INSERT INTO operation_type_assignments (id, operation_id, operation_type_id, sequence)
   VALUES (gen_random_uuid(), op_id, ot_soutage, 2);
@@ -99,7 +99,12 @@ BEGIN
   -- =======================================================================
   DELETE FROM operation_type_assignments WHERE operation_id = op_id;
   BEGIN
-    UPDATE operations SET status = 'CLOSED' WHERE id = op_id;
+    -- L'étape suivante IMMÉDIATE — pas n'importe laquelle : l'ordre strict
+    -- (§ 22/08/2026) refuserait aussi un saut, ce qui ne testerait plus le
+    -- verrou de type mais un tout autre verrou.
+    UPDATE operations o SET phase = (enum_range(NULL::operation_phase))[
+      array_position(enum_range(NULL::operation_phase), o.phase) + 1
+    ] WHERE o.id = op_id;
   EXCEPTION WHEN check_violation THEN
     refuse := true;
   END;

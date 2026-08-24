@@ -305,7 +305,7 @@ export class SupplierInvoicesService {
         prepaidAmount: true,
         settledAmount: true,
         settledAt: true,
-        purchaseOrder: { select: { operation: { select: { reference: true, status: true } } } },
+        purchaseOrder: { select: { operation: { select: { reference: true } } } },
       },
     });
     if (invoice.settledAt) {

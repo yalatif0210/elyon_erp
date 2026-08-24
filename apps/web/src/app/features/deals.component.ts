@@ -495,7 +495,7 @@ const INVOICE_TYPE_LABEL: Record<string, string> = {
                       <td class="num font-mono text-ink-soft">
                         {{ nf(op.plannedVolume) }} {{ d.uom }}
                       </td>
-                      <td class="text-right text-ink-soft">{{ op.status }}</td>
+                      <td class="text-right text-ink-soft">{{ op.phase }}</td>
                     </tr>
                   }
                 </tbody>
