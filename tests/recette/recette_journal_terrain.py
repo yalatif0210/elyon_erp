@@ -163,7 +163,7 @@ lot3 = [
     # Refusé : la phase de clôture n'a aucun point tant que rien n'est fait.
     ev(op_a, "CHECK_ITEM_RECORDED", {"checkItemId": str(uuid.uuid4()), "outcome": "PASSED"}, 10),
     # Même opération, APRÈS le refus : suspendu, pas perdu.
-    ev(op_a, "STATUS_ADVANCED", {"to": "SOURCING"}, 11),
+    ev(op_a, "STATUS_ADVANCED", {"to": "PRE_CHARGEMENT"}, 11),
     # Autre opération : sans rapport, elle doit passer.
     ev(op_b, "CHECK_OPENED", {"phase": "PREPARATION"}, 1),
 ]

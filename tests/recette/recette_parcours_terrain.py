@@ -159,11 +159,11 @@ check("Aucune donnée commerciale dans l'objet terrain", not fuites,
       f"fuites : {fuites}" if fuites else "ni prix, ni marge, ni coût, ni encours (§ 10.3)")
 
 print("\n=== B. CHECKLIST ===")
-st, m = sync(agent, op_id, "CHECK_OPENED", {"phase": "PRE_DEPARTURE"})
+st, m = sync(agent, op_id, "CHECK_OPENED", {"phase": "PREPARATION"})
 check("Checklist ouverte", st == "ACCEPTED", m or "phase avant départ")
 
 s, checks = call("GET", f"/api/field/hse/operations/{op_id}/checks", agent)
-c = next((x for x in checks if x["phase"] == "PRE_DEPARTURE"), None)
+c = next((x for x in checks if x["phase"] == "PREPARATION"), None)
 check("Elle est lisible avec ses points", c is not None and len(c["items"]) > 0,
       f"{len(c['items']) if c else 0} point(s)")
 
@@ -218,7 +218,7 @@ for p in c["items"][1:]:
         charge["recordedValue"] = "Relevé conforme"
     sync(agent, op_id, "CHECK_ITEM_RECORDED", charge)
 s, checks = call("GET", f"/api/field/hse/operations/{op_id}/checks", agent)
-c = next(x for x in checks if x["phase"] == "PRE_DEPARTURE")
+c = next(x for x in checks if x["phase"] == "PREPARATION")
 restants = [p for p in c["items"] if p["outcome"] == "PENDING"]
 check("Tous les points sont renseignés", len(restants) == 0,
       f"{len(restants)} en attente sur {len(c['items'])}")
@@ -236,7 +236,7 @@ check("Le contrôleur HSE valide, à distance", st == "ACCEPTED",
 # périmètre du contrôleur — elle ne lui est pas affectée, et il n'a plus rien
 # à y valider. C'est le cloisonnement qui se referme, pas une anomalie.
 s, checks = call("GET", f"/api/field/hse/operations/{op_id}/checks", agent)
-c = next(x for x in checks if x["phase"] == "PRE_DEPARTURE")
+c = next(x for x in checks if x["phase"] == "PREPARATION")
 check("La validation est inscrite", c.get("validatedAt") is not None,
       f"validée le {str(c.get('validatedAt'))[:19]}")
 
@@ -258,10 +258,10 @@ check("Il est attribué au réalm TERRAIN", auteur == "terrain",
       f"auteur : {auteur} — les deux réalms sont deux tables, jamais l'une pour l'autre")
 
 print("\n=== F. AVANCEMENT ===")
-st, m = sync(agent, op_id, "STATUS_ADVANCED", {"to": "SOURCING", "reason": "Sourcing engagé"})
-check("L'opération avance", st == "ACCEPTED", m[:150] or "vers SOURCING")
+st, m = sync(agent, op_id, "STATUS_ADVANCED", {"to": "PRE_CHARGEMENT", "reason": "Avant chargement"})
+check("L'opération avance", st == "ACCEPTED", m[:150] or "vers PRE_CHARGEMENT")
 
-acteur = psql(f"select actor_type from operation_status_transitions "
+acteur = psql(f"select actor_type from operation_phase_transitions "
               f"where operation_id='{op_id}' order by created_at desc limit 1;").strip()
 check("La transition porte le bon type d'acteur", acteur == "FIELD_USER",
       f"acteur : {acteur}")

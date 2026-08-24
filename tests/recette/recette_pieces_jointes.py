@@ -148,7 +148,7 @@ s, autre = call("POST", "/api/internal/operations", logi, {
 
 s, b = call("POST", "/api/field/sync", agent, {"deviceId": "tablette-recette", "events": [{
     "id": str(uuid.uuid4()), "operationId": op_id, "type": "CHECK_OPENED",
-    "payload": {"phase": "PRE_DEPARTURE"}, "sequence": 1,
+    "payload": {"phase": "PRE_CHARGEMENT"}, "sequence": 1,
     "deviceTimestamp": "2026-08-05T10:00:00.000Z"}]})
 point = psql(
     f"select i.id from operation_hse_check_items i "

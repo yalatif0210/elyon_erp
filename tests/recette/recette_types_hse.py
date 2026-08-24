@@ -106,7 +106,7 @@ check("Ils sont rendus dans l'ordre du déroulé",
       "rang 1 = première étape — le soutage ne précède pas le transport qui l'amène")
 
 s, b = call("POST", f"/api/field/hse/operations/{op['id']}/checks", agent,
-            {"phase": "PRE_DEPARTURE"})
+            {"phase": "PRE_CHARGEMENT"})
 points = b.get("items", []) if isinstance(b, dict) else []
 check("Checklist ouverte sur les types portés", s in (200, 201) and len(points) > 0,
       f"http {s} · {len(points)} point(s) — {msg(b) if s >= 400 else ''}")
@@ -155,7 +155,7 @@ if s in (200, 201):
           rangs == [(1, "ROUTE"), (2, "SOUTAGE")], f"{rangs}")
 
     s, b = call("POST", f"/api/field/hse/operations/{cree['id']}/checks", agent,
-                {"phase": "PRE_DEPARTURE"})
+                {"phase": "PRE_CHARGEMENT"})
     pts = b.get("items", []) if isinstance(b, dict) else []
     check("Checklist assemblée sur les deux types", s in (200, 201) and len(pts) > 0,
           f"http {s} · {len(pts)} point(s) — {msg(b) if s >= 400 else ''}")
