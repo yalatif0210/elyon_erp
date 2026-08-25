@@ -1,6 +1,6 @@
 import { Component, Input, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import {
   FieldApiService,
   FieldCheck,
@@ -457,6 +457,7 @@ import {
 export class TerrainChecklistComponent implements OnInit {
   private readonly api = inject(FieldApiService);
   private readonly session = inject(FieldSessionService);
+  private readonly router = inject(Router);
   protected readonly file = inject(FieldQueueService);
   /**
    * File des photos — DISTINCTE de celle des événements (§ 10.2).
@@ -742,27 +743,33 @@ export class TerrainChecklistComponent implements OnInit {
   }
 
   protected async valider(c: FieldCheck): Promise<void> {
-    await this.envoyer({
-      operationId: this.id,
-      reference: this.id,
-      type: 'CHECK_VALIDATED',
-      intitule: `Validation de la checklist ${c.phase}`,
-      // `checkId` est une clé d'adressage, comme `checkItemId`. `remotely`
-      // n'est pas transmis : le serveur retient « à distance » par défaut, et
-      // ce champ relève de l'organisation du contrôle, pas de la tablette.
-      payload: { checkId: c.id },
-    });
+    await this.envoyer(
+      {
+        operationId: this.id,
+        reference: this.id,
+        type: 'CHECK_VALIDATED',
+        intitule: `Validation de la checklist ${c.phase}`,
+        // `checkId` est une clé d'adressage, comme `checkItemId`. `remotely`
+        // n'est pas transmis : le serveur retient « à distance » par défaut, et
+        // ce champ relève de l'organisation du contrôle, pas de la tablette.
+        payload: { checkId: c.id },
+      },
+      { quitterApresAcquis: true },
+    );
   }
 
   protected async rejeter(c: FieldCheck): Promise<void> {
     const motif = this.motifRejet().trim();
-    await this.envoyer({
-      operationId: this.id,
-      reference: this.id,
-      type: 'CHECK_REJECTED',
-      intitule: `Rejet de la checklist ${c.phase}`,
-      payload: { checkId: c.id, reason: motif },
-    });
+    await this.envoyer(
+      {
+        operationId: this.id,
+        reference: this.id,
+        type: 'CHECK_REJECTED',
+        intitule: `Rejet de la checklist ${c.phase}`,
+        payload: { checkId: c.id, reason: motif },
+      },
+      { quitterApresAcquis: true },
+    );
     // Le motif n'est effacé qu'en cas d'échec net (refus) : un événement
     // simplement mis en file, ou suspendu derrière un refus antérieur,
     // repartira avec la même charge — perdre la saisie ici la rendrait
@@ -776,8 +783,24 @@ export class TerrainChecklistComponent implements OnInit {
    * Le rechargement n'a lieu qu'en cas d'ACQUIS : recharger sur un refus
    * afficherait l'ancien état comme s'il venait d'être confirmé, et effacerait
    * du même geste la saisie que l'agent doit reprendre.
+   *
+   * ⚠️ `quitterApresAcquis` — CORRIGÉ (§ 25/08/2026).
+   *
+   *    Le périmètre du contrôleur HSE inclut une opération SEULEMENT tant
+   *    qu'une de ses checklists l'attend (`FieldScopeService.where`). Valider
+   *    ou rejeter LA SEULE checklist qui l'y rattachait lui retire donc à
+   *    l'instant même l'accès à cette opération — le rechargement qui
+   *    suivait AUTOMATIQUEMENT retombait sur un 404 maquillé en refus
+   *    (« Cet élément ne figure pas dans votre affectation »), affiché à
+   *    l'écran comme si l'action elle-même avait échoué, alors qu'elle avait
+   *    réussi (vérifié en base). Pour ces deux actions, on quitte vers la
+   *    liste plutôt que de recharger un dossier qu'on vient peut-être de
+   *    perdre.
    */
-  private async envoyer(depot: DepotEvenement): Promise<void> {
+  private async envoyer(
+    depot: DepotEvenement,
+    options?: { quitterApresAcquis?: boolean },
+  ): Promise<void> {
     this.occupe.set(true);
     this.erreur.set(null);
     this.info.set(null);
@@ -789,7 +812,14 @@ export class TerrainChecklistComponent implements OnInit {
 
     if (compte.acquis) {
       this.brouillons.set({});
-      this.recharger();
+      if (options?.quitterApresAcquis) {
+        // Un bref délai, pour que le message de succès déjà affiché
+        // (`compte.info`) reste lisible avant que l'écran ne change sous les
+        // yeux du contrôleur.
+        setTimeout(() => this.router.navigate(['/terrain']), 1500);
+      } else {
+        this.recharger();
+      }
     }
   }
 }
