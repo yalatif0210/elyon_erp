@@ -413,10 +413,21 @@ export class HseComponent implements OnInit {
     return this.urls.get(attachmentId) ?? null;
   }
 
+  /**
+   * ⚠️ EN DATA:, PAS EN BLOB: — LE CSP NE S'ASSOUPLIT PAS POUR LE CONTOURNER.
+   *
+   *    `img-src` n'admet que `'self'` et `data:` (docker/nginx/security-
+   *    headers.conf) : une image chargée en `URL.createObjectURL(blob)`
+   *    s'affiche vide, silencieusement refusée par le navigateur. `data:`
+   *    est déjà une source admise ; s'y convertir évite d'élargir le CSP
+   *    pour ce seul besoin.
+   */
   private chargerImage(id: string): void {
     if (this.urls.has(id)) return;
     this.api.attachmentBlob(id).subscribe((blob) => {
-      this.urls.set(id, URL.createObjectURL(blob));
+      const lecteur = new FileReader();
+      lecteur.onload = () => this.urls.set(id, lecteur.result as string);
+      lecteur.readAsDataURL(blob);
     });
   }
 

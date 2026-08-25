@@ -399,33 +399,38 @@ import { RESULTATS_POINT, ResultatPoint, jourHeure } from './terrain-libelles';
           }
 
           <!-- ================= Rejet =================
-               Disponible dès maintenant, sans attendre que tout soit
-               renseigné : un point bloquant déjà constaté non conforme
-               suffit à savoir que l'opération ne peut pas se poursuivre en
-               l'état, et le dire tout de suite évite d'attendre pour rien. -->
-          <div class="mt-4 rounded-[3px] border border-rule-strong bg-surface p-4">
-            <p class="t-label">Rejeter cette checklist</p>
-            <p class="mt-1 text-[14px] leading-relaxed text-ink-soft">
-              Un point empêche déjà de poursuivre en l’état. Le rejet ne valide rien : les points
-              restent modifiables pour reprendre ce qui ne va pas.
-            </p>
-            <textarea
-              class="t-field mt-2"
-              maxlength="1000"
-              placeholder="Ce qui ne va pas, et ce qu’il faut reprendre (dix caractères au moins)"
-              [ngModel]="motifRejet()"
-              (ngModelChange)="motifRejet.set($event)"
-            ></textarea>
-            <div class="t-actionbar">
-              <button
-                class="t-btn-ghost"
-                [disabled]="occupe() || motifRejet().trim().length < 10"
-                (click)="rejeter(c)"
-              >
-                {{ occupe() ? 'Envoi…' : 'Rejeter la checklist' }}
-              </button>
+               ⚠️ CORRIGÉ (§ 25/08/2026) — proposé jusqu'ici en permanence,
+               y compris sur une checklist entièrement conforme : rien n'y
+               distinguait « je peux rejeter » de « j'ai une raison de le
+               faire ». Il ne s'affiche plus que si un point est
+               EFFECTIVEMENT non conforme (FAILED), auquel cas il est
+               disponible dès maintenant, sans attendre que tout soit
+               renseigné : le dire tout de suite évite d'attendre pour rien. -->
+          @if (nonConforme(c)) {
+            <div class="mt-4 rounded-[3px] border border-rule-strong bg-surface p-4">
+              <p class="t-label">Rejeter cette checklist</p>
+              <p class="mt-1 text-[14px] leading-relaxed text-ink-soft">
+                Un point est marqué non conforme. Le rejet ne valide rien : les points
+                restent modifiables pour reprendre ce qui ne va pas.
+              </p>
+              <textarea
+                class="t-field mt-2"
+                maxlength="1000"
+                placeholder="Ce qui ne va pas, et ce qu’il faut reprendre (dix caractères au moins)"
+                [ngModel]="motifRejet()"
+                (ngModelChange)="motifRejet.set($event)"
+              ></textarea>
+              <div class="t-actionbar">
+                <button
+                  class="t-btn-ghost"
+                  [disabled]="occupe() || motifRejet().trim().length < 10"
+                  (click)="rejeter(c)"
+                >
+                  {{ occupe() ? 'Envoi…' : 'Rejeter la checklist' }}
+                </button>
+              </div>
             </div>
-          </div>
+          }
         }
       }
 
@@ -623,10 +628,22 @@ export class TerrainChecklistComponent implements OnInit {
     return this.urls.get(attachmentId) ?? null;
   }
 
+  /**
+   * ⚠️ EN DATA:, PAS EN BLOB: — LE CSP NE S'ASSOUPLIT PAS POUR LE CONTOURNER.
+   *
+   *    `img-src` n'admet que `'self'` et `data:` (docker/nginx/security-
+   *    headers.conf) : une image chargée en `URL.createObjectURL(blob)`
+   *    s'affiche vide, silencieusement refusée par le navigateur, sans que
+   *    rien ne le signale à l'écran — le contrôleur voit juste l'alternatif
+   *    de l'image, jamais la photo. `data:` est déjà une source admise ; se
+   *    convertir vers elle évite d'élargir le CSP pour ce seul besoin.
+   */
   private chargerImage(id: string): void {
     if (this.urls.has(id)) return;
     this.api.attachmentBlob(id).subscribe((blob) => {
-      this.urls.set(id, URL.createObjectURL(blob));
+      const lecteur = new FileReader();
+      lecteur.onload = () => this.urls.set(id, lecteur.result as string);
+      lecteur.readAsDataURL(blob);
     });
   }
 
@@ -661,6 +678,11 @@ export class TerrainChecklistComponent implements OnInit {
     return c.items.filter(
       (i) => i.level === NIVEAU_BLOQUANT && i.recordedByFieldUser?.fullName === moi,
     ).length;
+  }
+
+  /** Au moins un point marqué non conforme — seul motif qui justifie d'offrir le rejet. */
+  protected nonConforme(c: FieldCheck): boolean {
+    return c.items.some((i) => i.outcome === 'FAILED');
   }
 
   // --- Production d'événements --------------------------------------------
