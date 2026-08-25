@@ -553,6 +553,19 @@ const HALT_TYPE_LABEL: Record<string, string> = {
           </div>
         </div>
 
+        <!-- ⚠️ AJOUTÉ (§ 25/08/2026) — sans ce contrôle, AUCUN relevé ne
+             pouvait jamais devenir celui qui fait autorité (le terrain en
+             est délibérément privé, voir terrain-saisies.component.ts) :
+             l'écart d'ullage ne se calculait donc jamais, l'apurement des
+             avances ne se déclenchait jamais, et le bon de livraison ne
+             portait jamais de volume livré. Réservé à qui fait la recette. -->
+        @if (peutDesignerAutorite()) {
+          <label class="mt-3 flex items-center gap-2 text-[13px] text-ink">
+            <input type="checkbox" [(ngModel)]="isAuthoritative" />
+            Ce relevé fait autorité pour cette étape
+          </label>
+        }
+
         <button class="btn-primary mt-3" (click)="measure()" [disabled]="state.busy()">
           Enregistrer le relevé
         </button>
@@ -703,6 +716,7 @@ export class OperationActionsComponent {
   protected tempC: number | null = null;
   protected source = 'CONTRADICTORY';
   protected measurementDate = new Date().toISOString().slice(0, 10);
+  protected isAuthoritative = false;
 
   protected ackReason = '';
   protected costPostId = '';
@@ -884,6 +898,11 @@ export class OperationActionsComponent {
     return this.auth.hasRole('DG', 'CCOO');
   }
 
+  /** Qui peut désigner un relevé faisant autorité : une décision de recette (§ 25/08/2026). */
+  protected peutDesignerAutorite(): boolean {
+    return this.auth.hasRole('DG', 'CCOO', 'LOGISTICS_COORD');
+  }
+
   /** Qui peut lever le verrou HSE par dérogation — même liste que la route serveur. */
   protected peutLeverVerrouHse(): boolean {
     const r = this.auth.role();
@@ -992,12 +1011,16 @@ export class OperationActionsComponent {
         observedVolume: Number(this.observedVolume ?? 0),
         tempC: Number(this.tempC),
         measuredDensity15: Number(this.density),
+        ...(this.peutDesignerAutorite() && this.isAuthoritative ? { isAuthoritative: true } : {}),
       })
       .subscribe({
         next: () => {
           this.state.succeed(
             'Relevé enregistré. L’écart se calcule dès que le relevé du bout opposé existe.',
           );
+          // Ne survit pas à l'envoi : cocher par défaut pour le relevé suivant
+          // désignerait un second relevé faisant autorité sans y avoir pensé.
+          this.isAuthoritative = false;
           this.changed.emit();
         },
         error: (e: HttpFailure) => this.state.fail(e),
