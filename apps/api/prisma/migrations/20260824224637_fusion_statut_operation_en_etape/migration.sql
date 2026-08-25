@@ -130,10 +130,37 @@ CREATE TYPE "operation_halt_type" AS ENUM ('INCIDENT', 'CANCELLED');
 -- DÉJÀ l'ancien type à 6 valeurs ont besoin d'être élargies ici ; les
 -- colonnes nouvelles seront créées plus bas en référençant directement le
 -- type final "operation_phase" (renommé avant qu'elles n'existent).
+--
+-- CORRIGÉ UNE SECONDE FOIS — le simple cast "phase"::text::"operation_phase_new"
+-- suppose que les libellés existants appartiennent déjà au nouveau type :
+-- faux pour PRE_DEPARTURE/LOADING/DELIVERY/CLOSING, qui n'existent plus sous
+-- ce nom (§ 22/08/2026, fusion status/phase). Une base neuve sans donnée
+-- réelle ne le révèle pas ; une base qui porte déjà des points de checklist
+-- ou des contrôles HSE réels échoue avec "invalid input value for enum
+-- operation_phase_new" (constaté en staging). Chaque ancienne valeur doit
+-- être traduite vers son équivalent de la nouvelle séquence.
 BEGIN;
 CREATE TYPE "operation_phase_new" AS ENUM ('PREPARATION', 'PRE_CHARGEMENT', 'CHARGEMENT', 'POST_CHARGEMENT', 'TRANSPORT', 'PRE_DECHARGEMENT', 'DECHARGEMENT', 'POST_DECHARGEMENT', 'CLOTURE');
-ALTER TABLE "hse_checklist_items" ALTER COLUMN "phase" TYPE "operation_phase_new" USING ("phase"::text::"operation_phase_new");
-ALTER TABLE "operation_hse_checks" ALTER COLUMN "phase" TYPE "operation_phase_new" USING ("phase"::text::"operation_phase_new");
+ALTER TABLE "hse_checklist_items" ALTER COLUMN "phase" TYPE "operation_phase_new" USING (
+  (CASE "phase"::text
+    WHEN 'PREPARATION' THEN 'PREPARATION'
+    WHEN 'PRE_DEPARTURE' THEN 'PRE_CHARGEMENT'
+    WHEN 'LOADING' THEN 'CHARGEMENT'
+    WHEN 'TRANSPORT' THEN 'TRANSPORT'
+    WHEN 'DELIVERY' THEN 'DECHARGEMENT'
+    WHEN 'CLOSING' THEN 'CLOTURE'
+  END)::"operation_phase_new"
+);
+ALTER TABLE "operation_hse_checks" ALTER COLUMN "phase" TYPE "operation_phase_new" USING (
+  (CASE "phase"::text
+    WHEN 'PREPARATION' THEN 'PREPARATION'
+    WHEN 'PRE_DEPARTURE' THEN 'PRE_CHARGEMENT'
+    WHEN 'LOADING' THEN 'CHARGEMENT'
+    WHEN 'TRANSPORT' THEN 'TRANSPORT'
+    WHEN 'DELIVERY' THEN 'DECHARGEMENT'
+    WHEN 'CLOSING' THEN 'CLOTURE'
+  END)::"operation_phase_new"
+);
 ALTER TYPE "operation_phase" RENAME TO "operation_phase_old";
 ALTER TYPE "operation_phase_new" RENAME TO "operation_phase";
 DROP TYPE "operation_phase_old";
