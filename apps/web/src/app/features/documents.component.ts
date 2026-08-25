@@ -23,7 +23,7 @@ interface DocumentRow {
   operation: { reference: string } | null;
   supersedes: { reference: string } | null;
   generatedBy: { fullName: string } | null;
-  _count: { signatures: number };
+  signatures: { kind: string; signatoryName: string; signatoryCapacity: string }[];
 }
 
 const KINDS: Record<string, string> = {
@@ -118,7 +118,7 @@ const KINDS: Record<string, string> = {
             <th>Référence</th>
             <th>Nature</th>
             <th>Rattachée à</th>
-            <th class="num">Signatures</th>
+            <th>Signataires</th>
             <th>État</th>
             <th>Remplace</th>
             <th style="width: 220px">Actions</th>
@@ -132,8 +132,14 @@ const KINDS: Record<string, string> = {
               <td class="font-mono text-[12px] text-ink-muted">
                 {{ d.operation?.reference ?? d.deal?.reference ?? '-' }}
               </td>
-              <td class="num font-mono" [class]="d._count.signatures > 0 ? 'text-ink' : 'text-ink-faint'">
-                {{ d._count.signatures }}
+              <td class="text-[13px]" [class]="d.signatures.length > 0 ? 'text-ink' : 'text-ink-faint'">
+                @if (d.signatures.length === 0) {
+                  -
+                } @else {
+                  @for (s of d.signatures; track s.signatoryName) {
+                    <div>{{ s.signatoryName }} · {{ s.signatoryCapacity }}</div>
+                  }
+                }
               </td>
               <td>
                 @if (d.isSealed) {

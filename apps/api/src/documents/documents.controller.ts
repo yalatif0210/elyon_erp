@@ -181,7 +181,19 @@ export class DocumentsService {
           invoice: { select: { number: true } },
           generatedBy: { select: { fullName: true } },
           supersedes: { select: { reference: true } },
-          _count: { select: { signatures: true } },
+          // ⚠️ CORRIGÉ (§ 25/08/2026) — un simple compte ne dit jamais QUI a
+          // signé. Constaté sur un bon de livraison réellement scellé par les
+          // deux parties : rien, nulle part dans l'application, ne permettait
+          // de retrouver l'identité du représentant du client après coup —
+          // ni le PDF (délibérément indépendant de la signature, voir
+          // `pdf.processor.ts`), ni la page de vérification par QR code
+          // (délibérément minimale, voir `verify` ci-dessous), ni cette
+          // liste. Le fait existait en base (`Signature.signatoryName`),
+          // juste jamais exposé.
+          signatures: {
+            orderBy: { serverTimestamp: 'asc' },
+            select: { kind: true, signatoryName: true, signatoryCapacity: true },
+          },
         },
       }),
       this.prisma.generatedDocument.count({ where }),
