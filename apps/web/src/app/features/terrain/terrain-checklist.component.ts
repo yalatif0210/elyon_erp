@@ -595,7 +595,11 @@ export class TerrainChecklistComponent implements OnInit {
         for (const check of c) {
           for (const pt of check.items) {
             for (const a of pt.attachments) {
-              if (a.kind === 'PHOTO' && a.mimeType.startsWith('image/')) this.chargerImage(a.id);
+              if (
+                (a.kind === 'PHOTO' || a.kind === 'SIGNATURE') &&
+                a.mimeType.startsWith('image/')
+              )
+                this.chargerImage(a.id);
             }
           }
         }
