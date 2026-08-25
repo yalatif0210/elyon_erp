@@ -257,16 +257,17 @@ check("La validation est inscrite", c.get("validatedAt") is not None,
       f"validée le {str(c.get('validatedAt'))[:19]}")
 
 print("\n=== E. RELEVÉ DE VOLUME ===")
-# ⚠️ Le contrat a changé : on relève des volumes OBSERVÉS et leurs
-#    températures, le serveur les ramène à 15 °C (ASTM D1250, § 8.2). Les
-#    anciens champs « à 15 °C » n'existent plus — ils laissaient la dilatation
-#    du produit se compter comme une perte.
+# ⚠️ Le contrat a changé deux fois : on relève un volume OBSERVÉ et sa
+#    température, le serveur le ramène à 15 °C (ASTM D1250, § 8.2) — les
+#    anciens champs « à 15 °C » n'existent plus. Et un relevé ne porte plus
+#    qu'un seul bout, choisi par `phase` : l'agent choisit l'étape à laquelle
+#    il relève, il ne saisit plus le chargé et le livré dans le même geste.
 st, m = sync(agent, op_id, "MEASUREMENT_RECORDED", {
+    "phase": "CHARGEMENT",
     "source": "CONTRADICTORY", "measurementDate": datetime.now(timezone.utc).date().isoformat(),
     "uom": "L", "measuredDensity15": 0.832,
-    "loadedObservedVolume": 28000, "loadedTempC": 31.2,
-    "dischargedObservedVolume": 27960, "dischargedTempC": 29.4})
-check("Le relevé est enregistré", st == "ACCEPTED", m[:150] or "28 000 à 31,2 °C · 27 960 à 29,4 °C")
+    "observedVolume": 28000, "tempC": 31.2})
+check("Le relevé est enregistré", st == "ACCEPTED", m[:150] or "28 000 à 31,2 °C")
 
 auteur = psql(f"select case when entered_by_field_user_id is not null then 'terrain' "
               f"else 'interne' end from measurement_records where operation_id='{op_id}' limit 1;").strip()
