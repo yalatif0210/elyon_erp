@@ -215,6 +215,13 @@ export interface FieldOperationDetail {
    * saisir une phase que le serveur connaît déjà.
    */
   phaseSequence: OperationPhase[];
+  /**
+   * TYPES portés, DANS L'ORDRE DU DÉROULÉ (§ 25/08/2026) — c'est par eux que
+   * les contrôles HSE de l'opération sont indexés (comme côté desk interne,
+   * `operations.controller.ts`). Sans cet affichage, une checklist qui
+   * apparaît vide ne dit pas pourquoi : aucun type retenu n'en porte.
+   */
+  types: { sequence: number; code: string; label: string }[];
   haltedAt: Date | null;
   haltType: string | null;
   haltReason: string | null;
@@ -603,6 +610,18 @@ export class FieldOperationsService {
           },
         },
         destinationSite: { select: { id: true, name: true, city: true } },
+        // TYPES portés, DANS L'ORDRE DU DÉROULÉ (§ 25/08/2026, comme le
+        // desk interne, operations.controller.ts) — c'est par eux que les
+        // contrôles HSE sont indexés. Sans eux affichés, l'agent découvre
+        // une checklist sans savoir d'où elle vient ni pourquoi elle est
+        // vide quand aucun type retenu n'en porte.
+        operationTypes: {
+          orderBy: { sequence: 'asc' },
+          select: {
+            sequence: true,
+            operationType: { select: { code: true, label: true } },
+          },
+        },
         // Un véhicule par ligne (§ 22/08/2026) — plusieurs quand la capacité
         // d'un seul ne couvre pas le volume prévu.
         assignments: {
@@ -683,6 +702,11 @@ export class FieldOperationsService {
       phase: operation.phase,
       nextPhase,
       phaseSequence: sequence,
+      types: operation.operationTypes.map((t) => ({
+        sequence: t.sequence,
+        code: t.operationType.code,
+        label: t.operationType.label,
+      })),
       haltedAt: operation.haltedAt,
       haltType: operation.haltType,
       haltReason: operation.haltReason,

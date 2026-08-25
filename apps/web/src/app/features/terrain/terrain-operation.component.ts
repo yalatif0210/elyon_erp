@@ -75,6 +75,24 @@ import { jour, jourHeure } from './terrain-libelles';
           }
         </div>
 
+        <!-- ============ Types de l'opération (§ 25/08/2026) ============
+             C'est PAR CES TYPES que les contrôles HSE ci-dessous sont
+             indexés (même principe que le desk interne, « Déroulé de
+             l'opération »). Affichés ici, juste avant l'accordéon, pour que
+             la provenance d'une checklist — et pourquoi une étape en est
+             parfois dépourvue — se lise d'un coup d'œil. -->
+        @if (op.types.length > 0) {
+          <p class="t-section">Types de l'opération</p>
+          <div class="rounded-[3px] border border-rule-strong bg-surface px-4">
+            @for (t of op.types; track t.code) {
+              <div class="t-row">
+                <span class="t-key">{{ t.sequence }}. {{ t.label }}</span>
+                <span class="t-val font-mono">{{ t.code }}</span>
+              </div>
+            }
+          </div>
+        }
+
         <!-- ⚠️ CORRIGÉ (§ 25/08/2026) — l'agent devait auparavant SAISIR une
              phase dans une liste pour ouvrir une checklist, alors que le
              serveur connaît déjà les 9 étapes et leur ordre

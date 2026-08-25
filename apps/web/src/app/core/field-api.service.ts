@@ -138,6 +138,12 @@ export interface FieldOperationDetail {
   nextPhase: string | null;
   /** Les 9 étapes, dans l'ordre — de quoi présenter l'accordéon des étapes sans jamais deviner une phase. */
   phaseSequence: string[];
+  /**
+   * TYPES portés, dans l'ordre du déroulé (§ 25/08/2026) — c'est par eux
+   * que les contrôles HSE sont indexés. Sans cet affichage, une checklist
+   * qui apparaît vide ne dit pas pourquoi : aucun type retenu n'en porte.
+   */
+  types: { sequence: number; code: string; label: string }[];
   /** Arrêt d'urgence (§ 22/08/2026), PARALLÈLE à `phase` — jamais une de ses valeurs. */
   haltedAt: string | null;
   haltType: string | null;
