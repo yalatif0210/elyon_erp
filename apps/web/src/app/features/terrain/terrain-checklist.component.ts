@@ -8,7 +8,7 @@ import {
   NIVEAU_BLOQUANT,
 } from '../../core/field-api.service';
 import { DepotEvenement, FieldQueueService } from '../../core/field-queue.service';
-import { FieldPhotoService } from '../../core/field-photo.service';
+import { FieldPhotoService, NaturePiece } from '../../core/field-photo.service';
 import { FieldSessionService } from '../../core/field-session.service';
 import { IconComponent } from '../../shared/icon.component';
 import { deposer, messageServeur } from './terrain-depot';
@@ -306,7 +306,7 @@ import {
                   </label>
                 }
 
-                @if (photos.pourPoint(pt.id); as cliches) {
+                @if (piecesLocales(pt, 'PHOTO'); as cliches) {
                   @if (cliches.length > 0) {
                     <div class="mt-2 flex flex-wrap gap-2">
                       @for (ph of cliches; track ph.clientUuid) {
@@ -364,6 +364,80 @@ import {
                   }
                 }
               </div>
+
+              <!-- ================= Signature (§ 25/08/2026) =================
+                   DISTINCTE de la photo : un point peut exiger les deux à la
+                   fois, et le serveur refuse une pièce déposée sous la
+                   mauvaise nature pour ce qu'elle prétend satisfaire. Le
+                   bouton capture toujours une image (photo du document signé,
+                   ou de la signature manuscrite) — seule la NATURE envoyée au
+                   serveur change. -->
+              @if (pt.item.requiresSignature) {
+                <div class="mt-3">
+                  <p class="t-label">Signature exigée pour ce point</p>
+
+                  <label class="t-btn-ghost cursor-pointer">
+                    <erp-icon name="camera" [size]="18" />
+                    Photographier la signature
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      class="sr-only"
+                      (change)="prendrePhoto(pt.id, $event, 'SIGNATURE')"
+                    />
+                  </label>
+
+                  @if (piecesLocales(pt, 'SIGNATURE'); as signatures) {
+                    @if (signatures.length > 0) {
+                      <div class="mt-2 flex flex-wrap gap-2">
+                        @for (ph of signatures; track ph.clientUuid) {
+                          <figure class="w-[104px]">
+                            <img
+                              [src]="ph.apercu"
+                              alt="Signature jointe au contrôle"
+                              class="h-[104px] w-[104px] rounded-[3px] border border-rule-strong object-cover"
+                              [class.opacity-50]="ph.etat !== 'ACQUISE'"
+                            />
+                            <figcaption class="mt-1 text-[13px] leading-tight">
+                              @switch (ph.etat) {
+                                @case ('ACQUISE') { <span class="text-ok">Reçue</span> }
+                                @case ('ENVOI')   { <span class="text-ink-muted">Envoi…</span> }
+                                @case ('REFUSEE') { <span class="text-crit">Refusée</span> }
+                                @default          { <span class="text-warn-ink">En attente</span> }
+                              }
+                            </figcaption>
+                            @if (ph.motif) {
+                              <p class="mt-0.5 text-[13px] leading-snug text-crit">{{ ph.motif }}</p>
+                              <button
+                                type="button"
+                                class="mt-1 text-[13px] font-semibold text-primary underline"
+                                (click)="photos.retirer(ph.clientUuid)"
+                              >
+                                Retirer
+                              </button>
+                            }
+                          </figure>
+                        }
+                      </div>
+                    }
+                  }
+
+                  @if (signatureManquante(pt)) {
+                    @if (signatureEnRoute(pt)) {
+                      <p class="t-hint">
+                        Signature en cours d’envoi. Le point pourra être enregistré dès qu’elle
+                        sera reçue : attendez, ne la reprenez pas.
+                      </p>
+                    } @else {
+                      <p class="t-hint">
+                        Ce point exige une signature : il ne pourra pas être enregistré sans
+                        elle.
+                      </p>
+                    }
+                  }
+                </div>
+              }
 
               <button
                 class="t-btn-primary mt-3"
@@ -547,12 +621,16 @@ export class TerrainChecklistComponent implements OnInit {
    * navigateur considère que la valeur n'a pas bougé — et l'agent croirait
    * avoir photographié alors que rien n'est parti.
    */
-  protected async prendrePhoto(checkItemId: string, evenement: Event): Promise<void> {
+  protected async prendrePhoto(
+    checkItemId: string,
+    evenement: Event,
+    nature: NaturePiece = 'PHOTO',
+  ): Promise<void> {
     const champ = evenement.target as HTMLInputElement;
     const fichier = champ.files?.[0];
     champ.value = '';
     if (!fichier) return;
-    await this.photos.ajouter(fichier, { checkItemId });
+    await this.photos.ajouter(fichier, { checkItemId }, nature);
   }
 
   protected choisir(itemId: string, code: string): void {
@@ -598,16 +676,27 @@ export class TerrainChecklistComponent implements OnInit {
    *    la saisie. Laisser cliquer « enregistrer » sur un point dont on sait
    *    déjà qu'il sera refusé, c'est lui faire perdre son travail.
    */
+  /** Pièces LOCALES de cette nature pour ce point — filtrées, jamais mêlées. */
+  protected piecesLocales(pt: FieldCheckItem, nature: NaturePiece) {
+    return this.photos.pourPoint(pt.id).filter((p) => p.nature === nature);
+  }
+
   protected saisissable(pt: FieldCheckItem): boolean {
     const s = this.saisie(pt.id);
     if (s.outcome === '') return false;
     if (pt.item.requiresValue && s.recordedValue.trim() === '') return false;
 
-    // Photo EXIGÉE : la base refuse le point tant qu'aucune pièce ne lui est
-    // rattachée. Une photo « en attente » ou « en envoi » ne compte pas — elle
-    // n'est pas encore en base, et le déclencheur ne la verra pas.
+    // Photo et signature EXIGÉES INDÉPENDAMMENT : un point peut demander les
+    // deux à la fois (§ 25/08/2026, ex. « les vannes sont-elles scellées » —
+    // photo du scellé, signature du chauffeur). La base refuse le point tant
+    // que la pièce de la bonne NATURE ne lui est pas rattachée ; une pièce
+    // « en attente » ou « en envoi » ne compte pas — elle n'est pas encore en
+    // base, et le déclencheur ne la verra pas.
     if (pt.item.photoPolicy === 'REQUIRED') {
-      return this.photos.pourPoint(pt.id).some((p) => p.etat === 'ACQUISE');
+      if (!this.piecesLocales(pt, 'PHOTO').some((p) => p.etat === 'ACQUISE')) return false;
+    }
+    if (pt.item.requiresSignature) {
+      if (!this.piecesLocales(pt, 'SIGNATURE').some((p) => p.etat === 'ACQUISE')) return false;
     }
     return true;
   }
@@ -616,15 +705,28 @@ export class TerrainChecklistComponent implements OnInit {
   protected photoManquante(pt: FieldCheckItem): boolean {
     return (
       pt.item.photoPolicy === 'REQUIRED' &&
-      !this.photos.pourPoint(pt.id).some((p) => p.etat === 'ACQUISE')
+      !this.piecesLocales(pt, 'PHOTO').some((p) => p.etat === 'ACQUISE')
     );
   }
 
   /** Vrai si la photo est prise mais pas encore parvenue au serveur. */
   protected photoEnRoute(pt: FieldCheckItem): boolean {
-    return this.photos
-      .pourPoint(pt.id)
-      .some((p) => p.etat === 'EN_ATTENTE' || p.etat === 'ENVOI');
+    return this.piecesLocales(pt, 'PHOTO').some((p) => p.etat === 'EN_ATTENTE' || p.etat === 'ENVOI');
+  }
+
+  /** Vrai si une signature exigée manque encore, pour l'expliquer à l'agent. */
+  protected signatureManquante(pt: FieldCheckItem): boolean {
+    return (
+      !!pt.item.requiresSignature &&
+      !this.piecesLocales(pt, 'SIGNATURE').some((p) => p.etat === 'ACQUISE')
+    );
+  }
+
+  /** Vrai si la signature est prise mais pas encore parvenue au serveur. */
+  protected signatureEnRoute(pt: FieldCheckItem): boolean {
+    return this.piecesLocales(pt, 'SIGNATURE').some(
+      (p) => p.etat === 'EN_ATTENTE' || p.etat === 'ENVOI',
+    );
   }
 
   // --- Lecture ------------------------------------------------------------
@@ -641,9 +743,19 @@ export class TerrainChecklistComponent implements OnInit {
     return RESULTAT_ENREGISTRE[outcome] ?? outcome;
   }
 
-  /** Photos (pas les signatures ni les documents) déjà en base pour ce point. */
+  /**
+   * Photos ET signatures déjà en base pour ce point — pas les documents.
+   *
+   * Les deux natures se mêlent ici sans distinction : cette liste sert la
+   * RELECTURE (le contrôleur valide à distance, sur pièces, § 7.2), où voir
+   * les deux preuves ensemble suffit. La distinction ne compte qu'au DÉPÔT,
+   * où le serveur refuse une pièce de la mauvaise nature pour ce qu'elle
+   * prétend satisfaire.
+   */
   protected photosEnBase(pt: FieldCheckItem) {
-    return pt.attachments.filter((a) => a.kind === 'PHOTO' && a.mimeType.startsWith('image/'));
+    return pt.attachments.filter(
+      (a) => (a.kind === 'PHOTO' || a.kind === 'SIGNATURE') && a.mimeType.startsWith('image/'),
+    );
   }
 
   protected urlPiece(attachmentId: string): string | null {

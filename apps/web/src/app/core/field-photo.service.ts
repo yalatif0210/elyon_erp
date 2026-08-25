@@ -28,9 +28,22 @@ import { FieldSessionService } from './field-session.service';
 
 export type EtatPhoto = 'EN_ATTENTE' | 'ENVOI' | 'ACQUISE' | 'REFUSEE';
 
+/**
+ * Nature de la pièce (§ 25/08/2026) — PAS un détail de présentation.
+ *
+ * Un point peut exiger une photo ET une signature à la fois (ex. « les
+ * vannes sont-elles scellées » : photo du scellé, signature du chauffeur).
+ * Le serveur refuse une pièce de la mauvaise nature pour ce qu'elle prétend
+ * satisfaire (`AttachmentKind`, § 12.2 du schéma) : envoyer toute pièce en
+ * PHOTO par défaut, sans savoir qu'un point voulait une SIGNATURE, produit
+ * un événement voué au refus.
+ */
+export type NaturePiece = 'PHOTO' | 'SIGNATURE';
+
 export interface PhotoTerrain {
   /** Produit sur l'appareil — la clé de l'idempotence. */
   clientUuid: string;
+  nature: NaturePiece;
   checkItemId?: string;
   hseEventId?: string;
   /** Aperçu local, affiché avant même que l'envoi ait abouti. */
@@ -138,7 +151,7 @@ export class FieldPhotoService {
   }
 
   /**
-   * Met une photo en file et tente de l'envoyer.
+   * Met une pièce en file et tente de l'envoyer.
    *
    * L'aperçu est disponible IMMÉDIATEMENT, avant tout envoi : l'agent doit
    * voir ce qu'il vient de prendre pour juger s'il recommence, sans attendre
@@ -147,6 +160,7 @@ export class FieldPhotoService {
   async ajouter(
     fichier: File,
     rattachement: { checkItemId?: string; hseEventId?: string },
+    nature: NaturePiece = 'PHOTO',
   ): Promise<void> {
     let contenu: Blob = fichier;
     try {
@@ -159,6 +173,7 @@ export class FieldPhotoService {
 
     const photo: PhotoTerrain = {
       clientUuid: crypto.randomUUID(),
+      nature,
       ...rattachement,
       apercu: await versDataUrl(contenu),
       fichier: contenu,
@@ -185,6 +200,7 @@ export class FieldPhotoService {
 
       const corps = new FormData();
       corps.append('clientUuid', photo.clientUuid);
+      corps.append('kind', photo.nature);
       if (photo.checkItemId) corps.append('checkItemId', photo.checkItemId);
       if (photo.hseEventId) corps.append('hseEventId', photo.hseEventId);
       corps.append('capturedAt', photo.capturedAt);
