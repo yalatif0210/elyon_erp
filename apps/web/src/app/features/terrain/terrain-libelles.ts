@@ -40,6 +40,36 @@ export const RESULTATS_POINT: readonly ResultatPoint[] = [
 ];
 
 /**
+ * Résultat ENREGISTRÉ d'un point, une fois relu depuis l'API (§ 25/08/2026).
+ *
+ * `RESULTATS_POINT` ci-dessus ne couvre que les BOUTONS de saisie — trois
+ * choix, jamais PENDING, qui n'est pas une réponse possible. Une fois le
+ * point relu depuis l'API, le même code s'affichait tel quel plutôt que
+ * traduit : l'agent lisait « Enregistré : PASSED » à côté d'un bouton
+ * « Conforme » qu'il vient de presser, un anglicisme que rien ne justifiait
+ * puisque le libellé existe déjà à deux lignes de là.
+ */
+export const RESULTAT_ENREGISTRE: Record<string, string> = {
+  PENDING: 'En attente',
+  PASSED: 'Conforme',
+  FAILED: 'Non conforme',
+  NOT_APPLICABLE: 'Sans objet',
+};
+
+/**
+ * Niveau d'un point de contrôle (§ 25/08/2026).
+ *
+ * Contrairement au résultat, le niveau n'est jamais saisi : il n'a donc pas
+ * d'équivalent « bouton » déjà traduit ailleurs, seulement ce dictionnaire.
+ */
+export const NIVEAU_CONTROLE: Record<string, string> = {
+  RECOMMENDED: 'Recommandé',
+  MANDATORY: 'Obligatoire',
+  CONDITIONAL: 'Conditionnel',
+  BLOCKING: 'Bloquant',
+};
+
+/**
  * Rôles du réalm terrain.
  *
  * Ils ne sont pas affichés pour l'ornement : ils CONDITIONNENT l'interface,

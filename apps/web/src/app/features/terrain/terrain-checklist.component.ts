@@ -12,7 +12,13 @@ import { FieldPhotoService } from '../../core/field-photo.service';
 import { FieldSessionService } from '../../core/field-session.service';
 import { IconComponent } from '../../shared/icon.component';
 import { deposer, messageServeur } from './terrain-depot';
-import { RESULTATS_POINT, ResultatPoint, jourHeure } from './terrain-libelles';
+import {
+  NIVEAU_CONTROLE,
+  RESULTAT_ENREGISTRE,
+  RESULTATS_POINT,
+  ResultatPoint,
+  jourHeure,
+} from './terrain-libelles';
 
 /**
  * CHECKLIST HSE — le cœur du travail de terrain.
@@ -154,7 +160,7 @@ import { RESULTATS_POINT, ResultatPoint, jourHeure } from './terrain-libelles';
                 [class]="bloquant(pt) ? 'bg-crit text-white' : 'bg-gray-100'"
               >
                 @if (bloquant(pt)) { <erp-icon name="lock" [size]="14" /> }
-                <span class="t-code" [class.text-white]="bloquant(pt)">{{ pt.level }}</span>
+                <span class="t-code" [class.text-white]="bloquant(pt)">{{ niveauLabel(pt.level) }}</span>
               </span>
             </p>
 
@@ -165,7 +171,7 @@ import { RESULTATS_POINT, ResultatPoint, jourHeure } from './terrain-libelles';
             <!-- État courant, tel qu'il est EN BASE. -->
             <p class="mt-2 text-[15px]">
               <span class="text-ink-muted">Enregistré :</span>
-              <span class="t-code ml-1">{{ pt.outcome }}</span>
+              <span class="t-code ml-1">{{ outcomeLabel(pt.outcome) }}</span>
               @if (pt.recordedByFieldUser) {
                 <span class="text-ink-muted"> · {{ pt.recordedByFieldUser.fullName }}</span>
               }
@@ -191,7 +197,12 @@ import { RESULTATS_POINT, ResultatPoint, jourHeure } from './terrain-libelles';
                   @for (a of pieces; track a.id) {
                     <figure class="w-[104px]">
                       @if (urlPiece(a.id); as src) {
-                        <a [href]="src" target="_blank" rel="noopener">
+                        <!-- ⚠️ CORRIGÉ (§ 25/08/2026) — l'ouverture plein écran
+                             prend un lien blob:, PAS le même data: que l'aperçu :
+                             Chrome refuse la navigation de premier niveau vers
+                             data: (page blanche silencieuse), alors qu'il
+                             l'accepte sans réserve vers blob:. -->
+                        <a [href]="urlOuverture(a.id)" target="_blank" rel="noopener">
                           <img
                             [src]="src"
                             alt="Photo jointe au contrôle"
@@ -493,6 +504,8 @@ export class TerrainChecklistComponent implements OnInit {
    * vit qu'en mémoire, jamais dans un champ persisté.
    */
   private readonly urls = new Map<string, string>();
+  /** Même pièce, en blob: — pour l'ouverture plein écran (voir `chargerImage`). */
+  private readonly urlsOuverture = new Map<string, string>();
 
   ngOnInit(): void {
     this.recharger();
@@ -619,6 +632,14 @@ export class TerrainChecklistComponent implements OnInit {
     return pt.level === NIVEAU_BLOQUANT;
   }
 
+  protected niveauLabel(level: string): string {
+    return NIVEAU_CONTROLE[level] ?? level;
+  }
+
+  protected outcomeLabel(outcome: string): string {
+    return RESULTAT_ENREGISTRE[outcome] ?? outcome;
+  }
+
   /** Photos (pas les signatures ni les documents) déjà en base pour ce point. */
   protected photosEnBase(pt: FieldCheckItem) {
     return pt.attachments.filter((a) => a.kind === 'PHOTO' && a.mimeType.startsWith('image/'));
@@ -626,6 +647,10 @@ export class TerrainChecklistComponent implements OnInit {
 
   protected urlPiece(attachmentId: string): string | null {
     return this.urls.get(attachmentId) ?? null;
+  }
+
+  protected urlOuverture(attachmentId: string): string | null {
+    return this.urlsOuverture.get(attachmentId) ?? null;
   }
 
   /**
@@ -644,6 +669,12 @@ export class TerrainChecklistComponent implements OnInit {
       const lecteur = new FileReader();
       lecteur.onload = () => this.urls.set(id, lecteur.result as string);
       lecteur.readAsDataURL(blob);
+      // Second lien, EN BLOB: CETTE FOIS — pour l'ouverture plein écran, une
+      // navigation de premier niveau que Chrome refuse en data: mais admet
+      // en blob:. Les deux formes cohabitent : l'une pour l'affichage
+      // inline, l'autre pour la navigation, chacune dans le registre que
+      // le navigateur accepte réellement.
+      this.urlsOuverture.set(id, URL.createObjectURL(blob));
     });
   }
 

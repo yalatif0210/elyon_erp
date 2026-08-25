@@ -81,18 +81,32 @@ async function comprimer(fichier: File, cotéMax = 1600, qualite = 0.72): Promis
   return compresse;
 }
 
-function chargerImage(fichier: Blob): Promise<HTMLImageElement> {
+/**
+ * ⚠️ EN DATA:, PAS EN BLOB: — LE CSP NE S'ASSOUPLIT PAS POUR LE CONTOURNER.
+ *
+ *    `img-src` n'admet que `'self'` et `data:` (docker/nginx/security-
+ *    headers.conf) : un `URL.createObjectURL(fichier)` chargé dans une
+ *    `Image` échouait silencieusement — `onerror`, jamais `onload` — et
+ *    `comprimer()` prenait ce refus pour « fichier illisible », renvoyant
+ *    la photo D'ORIGINE, non compressée. Sur la liaison étroite que ce
+ *    fichier dit vouloir ménager (§ 10.2), c'est l'inverse de l'effet
+ *    recherché.
+ */
+function versDataUrl(fichier: Blob): Promise<string> {
   return new Promise((resoudre, rejeter) => {
-    const url = URL.createObjectURL(fichier);
+    const lecteur = new FileReader();
+    lecteur.onload = () => resoudre(lecteur.result as string);
+    lecteur.onerror = () => rejeter(new Error('Fichier illisible.'));
+    lecteur.readAsDataURL(fichier);
+  });
+}
+
+async function chargerImage(fichier: Blob): Promise<HTMLImageElement> {
+  const url = await versDataUrl(fichier);
+  return new Promise((resoudre, rejeter) => {
     const image = new Image();
-    image.onload = () => {
-      URL.revokeObjectURL(url);
-      resoudre(image);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(url);
-      rejeter(new Error('Fichier illisible comme image.'));
-    };
+    image.onload = () => resoudre(image);
+    image.onerror = () => rejeter(new Error('Fichier illisible comme image.'));
     image.src = url;
   });
 }
@@ -146,7 +160,7 @@ export class FieldPhotoService {
     const photo: PhotoTerrain = {
       clientUuid: crypto.randomUUID(),
       ...rattachement,
-      apercu: URL.createObjectURL(contenu),
+      apercu: await versDataUrl(contenu),
       fichier: contenu,
       nom: fichier.name || 'photo.jpg',
       octets: contenu.size,
@@ -204,8 +218,6 @@ export class FieldPhotoService {
 
   /** Retire une photo refusée que l'agent renonce à envoyer. */
   retirer(clientUuid: string): void {
-    const photo = this.lignes().find((p) => p.clientUuid === clientUuid);
-    if (photo) URL.revokeObjectURL(photo.apercu);
     this.lignes.update((l) => l.filter((p) => p.clientUuid !== clientUuid));
   }
 

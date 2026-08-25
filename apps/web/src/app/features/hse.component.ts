@@ -305,6 +305,8 @@ export class HseComponent implements OnInit {
   private readonly attachmentsParOperation = new Map<string, AttachmentRow[]>();
   /** Objets-URL des images déjà téléchargées — un flux binaire n'a pas de sens à redemander. */
   private readonly urls = new Map<string, string>();
+  /** Même pièce, en blob: — pour l'ouverture plein écran (voir `chargerImage`). */
+  private readonly urlsOuverture = new Map<string, string>();
   protected readonly outcomeLabel = (o: string) => OUTCOME_LABEL[o] ?? o;
 
   protected readonly eventTypes = signal<VocabItem[]>([]);
@@ -428,12 +430,18 @@ export class HseComponent implements OnInit {
       const lecteur = new FileReader();
       lecteur.onload = () => this.urls.set(id, lecteur.result as string);
       lecteur.readAsDataURL(blob);
+      // Second lien, EN BLOB: CETTE FOIS — l'ouverture plein écran est une
+      // navigation de premier niveau, que Chrome refuse en data: (page
+      // blanche silencieuse) mais admet sans réserve en blob:. Les deux
+      // formes cohabitent : data: pour l'affichage inline, blob: pour la
+      // navigation, chacune dans le registre que le navigateur accepte.
+      this.urlsOuverture.set(id, URL.createObjectURL(blob));
     });
   }
 
   /** Plein écran : l'image est déjà en mémoire, un nouvel onglet suffit. */
   protected agrandir(attachmentId: string): void {
-    const url = this.urls.get(attachmentId);
+    const url = this.urlsOuverture.get(attachmentId);
     if (url) window.open(url, '_blank');
   }
 

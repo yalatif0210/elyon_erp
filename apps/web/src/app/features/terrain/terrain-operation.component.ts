@@ -5,7 +5,7 @@ import { FieldQueueService, messageDeRefus } from '../../core/field-queue.servic
 import { FieldSessionService } from '../../core/field-session.service';
 import { IconComponent } from '../../shared/icon.component';
 import { deposer } from './terrain-depot';
-import { jour, jourHeure } from './terrain-libelles';
+import { RESULTAT_ENREGISTRE, jour, jourHeure } from './terrain-libelles';
 
 /**
  * DOSSIER D'OPÉRATION.
@@ -145,7 +145,7 @@ import { jour, jourHeure } from './terrain-libelles';
                           class="t-code shrink-0"
                           [class.text-crit]="pt.level === 'BLOCKING' && pt.outcome !== 'PASSED'"
                         >
-                          {{ pt.outcome }}
+                          {{ outcomeLabel(pt.outcome) }}
                         </span>
                       </div>
                     }
@@ -407,6 +407,10 @@ export class TerrainOperationComponent implements OnInit {
 
   protected bloquantsDe(c: FieldCheck): number {
     return c.items.filter((i) => i.level === 'BLOCKING' && i.outcome !== 'PASSED').length;
+  }
+
+  protected outcomeLabel(outcome: string): string {
+    return RESULTAT_ENREGISTRE[outcome] ?? outcome;
   }
 
   /**
