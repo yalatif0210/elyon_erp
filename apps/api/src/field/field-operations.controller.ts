@@ -242,6 +242,8 @@ export interface FieldOperationDetail {
   hse: {
     riskLevel: HseRiskLevel;
     validatedAt: Date | null;
+    /** L'étape courante exige-t-elle une checklist ? Distinct de `validatedAt`, voir `findOne`. */
+    currentPhaseRequiresCheck: boolean;
     checks: FieldChecklistView[];
   };
   measurements: FieldMeasurementView[];
@@ -684,6 +686,19 @@ export class FieldOperationsService {
     // apprendrait à qui sonde les identifiants lesquels existent.
     if (!operation) throw new NotFoundException(notFoundMessage(id));
 
+    // L'étape courante exige-t-elle une checklist ? Distinct de « validée » :
+    // `hse.validatedAt` vaut déjà `null` aussi bien quand rien n'est requis
+    // (ex. CLOTURE, que peu de modèles couvrent) que quand la checklist
+    // requise n'a encore jamais été ouverte — deux situations que l'écran
+    // « Faire avancer » doit distinguer pour ne proposer l'avancement comme
+    // sûr que dans la première. Même fonction que le VERROU HSE en base
+    // (`resolve_hse_checklist`, trigger de `operations`) : aucune divergence
+    // possible entre ce qui s'affiche et ce qui sera réellement opposé.
+    const [{ count: pointsAttendus }] = await this.prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT count(*)::bigint AS count
+        FROM resolve_hse_checklist(${operation.id}::uuid)
+       WHERE phase = ${operation.phase}::text`;
+
     const product = operation.deal.product;
 
     // Ordre de la séquence tel que déclaré dans le schéma (§ 22/08/2026) —
@@ -749,6 +764,8 @@ export class FieldOperationsService {
         validatedAt:
           operation.hseChecks.find((check) => check.phase === operation.phase)?.validatedAt ??
           null,
+        // § 25/08/2026 — voir le commentaire ci-dessus sur pointsAttendus.
+        currentPhaseRequiresCheck: pointsAttendus > 0n,
         checks: operation.hseChecks.map((check) => ({
           id: check.id,
           phase: check.phase,

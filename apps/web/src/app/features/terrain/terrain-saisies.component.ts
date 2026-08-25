@@ -422,6 +422,22 @@ export class TerrainIncidentComponent extends EcranDeSaisie {
             </p>
           }
 
+          <!-- ⚠️ (§ 25/08/2026) — cette étape a produit un refus définitif en
+               test réel : le bouton restait actif alors que la checklist de
+               L'ÉTAPE COURANTE (celle qu'on QUITTE) n'avait même pas encore
+               été ouverte. currentPhaseRequiresCheck vient du serveur — le
+               client ne peut pas savoir seul si une étape en exige une. -->
+          @if (checklistCouranteManquante(op)) {
+            <p
+              class="mt-3 rounded-[3px] border border-crit/30 bg-crit-wash p-4 text-[15px]
+                     leading-relaxed text-crit"
+            >
+              La checklist de l’étape en cours ({{ op.phase }}) n’est pas validée. Ouvrez-la et
+              validez-la depuis le dossier de l’opération avant de faire avancer : sans elle, le
+              verrou HSE refusera l’avancement.
+            </p>
+          }
+
           <p class="mt-5 t-sub">
             Étape suivante : <span class="t-code text-[15px]">{{ op.nextPhase }}</span>
           </p>
@@ -432,7 +448,11 @@ export class TerrainIncidentComponent extends EcranDeSaisie {
           </div>
 
           <div class="t-actionbar">
-            <button class="t-btn-primary" [disabled]="occupe()" (click)="soumettre(op.nextPhase)">
+            <button
+              class="t-btn-primary"
+              [disabled]="occupe() || checklistCouranteManquante(op)"
+              (click)="soumettre(op.nextPhase)"
+            >
               {{ occupe() ? 'Envoi…' : 'Faire avancer' }}
             </button>
           </div>
@@ -446,6 +466,11 @@ export class TerrainStatusComponent extends EcranDeSaisie {
 
   protected bloquants(d: FieldOperationDetail): number {
     return d.hse.checks.reduce((total, c) => total + c.blockingPending, 0);
+  }
+
+  /** L'étape qu'on quitte exige une checklist, et elle n'est pas validée. */
+  protected checklistCouranteManquante(d: FieldOperationDetail): boolean {
+    return d.hse.currentPhaseRequiresCheck && !d.hse.validatedAt;
   }
 
   protected async soumettre(to: string): Promise<void> {

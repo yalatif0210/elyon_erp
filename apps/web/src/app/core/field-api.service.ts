@@ -161,7 +161,13 @@ export interface FieldOperationDetail {
   product: FieldProductView;
   /** Un véhicule par ligne — plusieurs quand la capacité d'un seul ne couvre pas le volume prévu. */
   means: FieldMeansView[];
-  hse: { riskLevel: string; validatedAt: string | null; checks: FieldChecklistView[] };
+  hse: {
+    riskLevel: string;
+    validatedAt: string | null;
+    /** L'étape courante exige-t-elle une checklist ? Distinct de `validatedAt` : celui-ci vaut déjà `null` aussi bien quand rien n'est requis que quand la checklist requise n'a jamais été ouverte. */
+    currentPhaseRequiresCheck: boolean;
+    checks: FieldChecklistView[];
+  };
   measurements: FieldMeasurementView[];
   incidents: FieldIncidentView[];
   documents: FieldDocumentView[];
