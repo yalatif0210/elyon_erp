@@ -20,6 +20,7 @@ import {
 import { DerogationInlineComponent } from '../shared/derogation-inline.component';
 import { IconComponent } from '../shared/icon.component';
 import { MontantDirective } from '../shared/montant.directive';
+import { grouper } from '../shared/format';
 
 /** Une ligne d'affectation en cours de saisie — un véhicule, son chauffeur. */
 interface MoyenDraft {
@@ -179,11 +180,30 @@ const HALT_TYPE_LABEL: Record<string, string> = {
 
         <!-- ============ Un véhicule par ligne (§ 22/08/2026) ============
              Un volume qui dépasse la capacité d'une seule citerne en mobilise
-             plusieurs, chacune avec son propre chauffeur. La base valide la
-             capacité CUMULÉE à l'enregistrement (message précis en cas
-             d'insuffisance) — aucun aperçu n'est recalculé ici : la
-             conformité (ComplianceSubject) ne porte pas la capacité, et
-             ce n'est de toute façon pas elle qui décide. -->
+             plusieurs, chacune avec son propre chauffeur. La base tranche à
+             l'enregistrement (somme des capacités contre le volume prévu,
+             message précis en cas d'insuffisance) — ce bandeau anticipe le
+             même calcul, pour que le choix ne se fasse pas à l'aveugle
+             (§ 25/08/2026) : la capacité de chaque véhicule s'affiche dans
+             la liste, et le cumul se lit avant d'enregistrer, pas après un
+             refus. -->
+        <p
+          class="mb-3 flex items-center gap-1.5 text-[13px]"
+          [class]="capaciteSuffisante() ? 'text-ok' : 'text-crit'"
+        >
+          <erp-icon
+            [name]="capaciteSuffisante() ? 'check-circle' : 'alert-triangle'"
+            [size]="14"
+          />
+          <span>
+            Capacité affectée : <strong>{{ capaciteAffectee() }} {{ operation.uom }}</strong>
+            sur <strong>{{ volumePrevu() }} {{ operation.uom }}</strong> prévus
+            @if (!capaciteSuffisante()) {
+              <span class="font-semibold"> — insuffisante</span>
+            }
+          </span>
+        </p>
+
         @for (m of moyens(); track $index; let i = $index) {
           <div class="mb-3 rounded-[3px] border border-rule-strong p-3">
             <div class="mb-2 flex items-center justify-between">
@@ -214,7 +234,7 @@ const HALT_TYPE_LABEL: Record<string, string> = {
                   @for (v of subjects('VEHICLE'); track v.subject_id) {
                     <option [ngValue]="v.subject_id">
                       {{ v.subject_code }} · {{ v.subject_label
-                      }}{{ v.is_compliant ? '' : ' (non conforme)' }}
+                      }}{{ capaciteLabel(v.subject_id) }}{{ v.is_compliant ? '' : ' (non conforme)' }}
                     </option>
                   }
                 </select>
@@ -614,6 +634,8 @@ export class OperationActionsComponent {
   protected readonly state = new ActionState();
   protected readonly sequence = PHASE_SEQUENCE;
   protected readonly compliance = signal<ComplianceSubject[]>([]);
+  /** Capacité de chaque véhicule, par id (§ 25/08/2026) — pour juger avant d'enregistrer, pas après un refus. */
+  protected readonly capacites = signal<Map<string, { capacity: number; uom: string }>>(new Map());
   protected readonly showHalt = signal<'INCIDENT' | 'CANCELLED' | null>(null);
   protected haltReason = '';
 
@@ -674,6 +696,18 @@ export class OperationActionsComponent {
     // Les moyens proposés viennent de la vue de conformité : leur statut y est
     // dérivé des pièces à échéance, jamais stocké sur le moyen lui-même.
     this.api.complianceOverview().subscribe((c) => this.compliance.set(c));
+    // Référentiel des véhicules (§ 25/08/2026) : seule source de la capacité —
+    // ComplianceSubject ne porte que la conformité documentaire, jamais ce
+    // que le camion peut transporter.
+    this.api.lignesReferentiel('vehicles', { pageSize: 500 }).subscribe((p) => {
+      const m = new Map<string, { capacity: number; uom: string }>();
+      for (const row of p.items) {
+        const id = row['id'];
+        if (typeof id !== 'string') continue;
+        m.set(id, { capacity: Number(row['capacity'] ?? 0), uom: String(row['capacityUom'] ?? '') });
+      }
+      this.capacites.set(m);
+    });
     this.api.costPosts2().subscribe((c) => this.costPosts.set(c));
     this.api.fieldAgents().subscribe((a) => this.fieldAgents.set(a));
     this.fieldAgentId = this.operation.fieldAgentId ?? '';
@@ -722,6 +756,33 @@ export class OperationActionsComponent {
 
   protected setMoyen<K extends keyof MoyenDraft>(index: number, champ: K, valeur: MoyenDraft[K]): void {
     this.moyens.update((m) => m.map((ligne, i) => (i === index ? { ...ligne, [champ]: valeur } : ligne)));
+  }
+
+  /**
+   * Capacité affichée dans la liste (§ 25/08/2026), pour choisir en
+   * connaissance de cause plutôt que de découvrir l'insuffisance au refus
+   * de l'enregistrement — la base tranche, ce libellé ne fait qu'anticiper
+   * le même calcul (§ 21_referentiels_administrables.sql).
+   */
+  protected capaciteLabel(vehicleId: string): string {
+    const c = this.capacites().get(vehicleId);
+    return c ? ` — ${grouper(c.capacity, { maximumFractionDigits: 0 })} ${c.uom}` : '';
+  }
+
+  private capaciteTotale(): number {
+    return this.moyens().reduce((total, m) => total + (this.capacites().get(m.vehicleId)?.capacity ?? 0), 0);
+  }
+
+  protected capaciteAffectee(): string {
+    return grouper(this.capaciteTotale(), { maximumFractionDigits: 0 });
+  }
+
+  protected volumePrevu(): string {
+    return grouper(Number(this.operation.plannedVolume), { maximumFractionDigits: 0 });
+  }
+
+  protected capaciteSuffisante(): boolean {
+    return this.capaciteTotale() >= Number(this.operation.plannedVolume);
   }
 
   /** L'acquittement d'un écart est réservé au CCOO, au CFO et au DG (§ 8.3). */
