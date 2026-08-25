@@ -442,6 +442,23 @@ export class HseService {
               },
             },
             recordedByFieldUser: { select: { fullName: true } },
+            // ⚠️ SANS ÇA, LE CONTRÔLEUR HSE — QUI VALIDE À DISTANCE, SUR
+            //    PIÈCES (§ 7.2) — N'A RIEN À EXAMINER : ni l'attachement, ni
+            //    même son existence. Le binaire n'y figure pas (§ 10.2,
+            //    `FieldAttachmentsService.pourOperation`, même principe) :
+            //    juste de quoi savoir qu'une pièce existe et aller la
+            //    chercher par `GET /api/field/attachments/:id`.
+            attachments: {
+              select: {
+                id: true,
+                kind: true,
+                mimeType: true,
+                caption: true,
+                capturedAt: true,
+                createdAt: true,
+              },
+              orderBy: { createdAt: 'asc' },
+            },
           },
           orderBy: { item: { displayOrder: 'asc' } },
         },

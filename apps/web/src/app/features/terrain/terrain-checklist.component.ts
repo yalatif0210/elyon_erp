@@ -180,7 +180,39 @@ import { RESULTATS_POINT, ResultatPoint, jourHeure } from './terrain-libelles';
               <p class="text-[15px] text-ink-soft">Commentaire : {{ pt.comment }}</p>
             }
 
-            @if (!c.validatedAt) {
+            <!-- ================= Pièces déjà en base (§ 25/08/2026) =================
+                 Le contrôleur HSE valide à distance, sur pièces (§ 7.2) : sans cet
+                 affichage, il n'avait rien à examiner, seulement le compte rendu
+                 écrit. Visible de tous, agent compris, qui y retrouve ses propres
+                 clichés une fois envoyés. -->
+            @if (photosEnBase(pt); as pieces) {
+              @if (pieces.length > 0) {
+                <div class="mt-2 flex flex-wrap gap-2">
+                  @for (a of pieces; track a.id) {
+                    <figure class="w-[104px]">
+                      @if (urlPiece(a.id); as src) {
+                        <a [href]="src" target="_blank" rel="noopener">
+                          <img
+                            [src]="src"
+                            alt="Photo jointe au contrôle"
+                            class="h-[104px] w-[104px] rounded-[3px] border border-rule-strong object-cover"
+                          />
+                        </a>
+                      } @else {
+                        <div class="flex h-[104px] w-[104px] items-center justify-center rounded-[3px] border border-rule-strong bg-gray-100 text-[12px] text-ink-faint">
+                          Chargement…
+                        </div>
+                      }
+                      @if (a.caption) {
+                        <figcaption class="mt-1 text-[12px] leading-tight text-ink-soft">{{ a.caption }}</figcaption>
+                      }
+                    </figure>
+                  }
+                </div>
+              }
+            }
+
+            @if (!c.validatedAt && !estControleur()) {
               <!-- Trois boutons pleine largeur plutôt qu'une liste déroulante :
                    c'est le geste le plus répété de la journée, et il doit se
                    faire d'un pouce, avec des gants. -->
@@ -449,6 +481,14 @@ export class TerrainChecklistComponent implements OnInit {
     Record<string, { outcome: string; recordedValue: string; comment: string }>
   >({});
 
+  /**
+   * URLs objet des pièces déjà en base, par identifiant de pièce.
+   *
+   * Même principe que `FieldPhotoService` pour la file locale : l'aperçu ne
+   * vit qu'en mémoire, jamais dans un champ persisté.
+   */
+  private readonly urls = new Map<string, string>();
+
   ngOnInit(): void {
     this.recharger();
   }
@@ -459,6 +499,13 @@ export class TerrainChecklistComponent implements OnInit {
       next: (c) => {
         this.checks.set(c);
         this.chargement.set(false);
+        for (const check of c) {
+          for (const pt of check.items) {
+            for (const a of pt.attachments) {
+              if (a.kind === 'PHOTO' && a.mimeType.startsWith('image/')) this.chargerImage(a.id);
+            }
+          }
+        }
       },
       error: (e: unknown) => {
         this.chargement.set(false);
@@ -565,6 +612,22 @@ export class TerrainChecklistComponent implements OnInit {
 
   protected bloquant(pt: FieldCheckItem): boolean {
     return pt.level === NIVEAU_BLOQUANT;
+  }
+
+  /** Photos (pas les signatures ni les documents) déjà en base pour ce point. */
+  protected photosEnBase(pt: FieldCheckItem) {
+    return pt.attachments.filter((a) => a.kind === 'PHOTO' && a.mimeType.startsWith('image/'));
+  }
+
+  protected urlPiece(attachmentId: string): string | null {
+    return this.urls.get(attachmentId) ?? null;
+  }
+
+  private chargerImage(id: string): void {
+    if (this.urls.has(id)) return;
+    this.api.attachmentBlob(id).subscribe((blob) => {
+      this.urls.set(id, URL.createObjectURL(blob));
+    });
   }
 
   /**

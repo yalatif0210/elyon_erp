@@ -225,6 +225,15 @@ export interface FieldCheckItem {
   comment: string | null;
   recordedAt: string | null;
   recordedByFieldUser: { fullName: string } | null;
+  /** Pièces déjà en base pour ce point : de quoi les lister, pas leur binaire (§ 25/08/2026). */
+  attachments: {
+    id: string;
+    kind: string;
+    mimeType: string;
+    caption: string | null;
+    capturedAt: string | null;
+    createdAt: string;
+  }[];
   item: {
     code: string;
     label: string;
@@ -356,6 +365,16 @@ export class FieldApiService {
           }),
         ),
       );
+  }
+
+  /**
+   * Binaire d'une pièce jointe déjà en base (§ 25/08/2026).
+   *
+   * En `blob`, comme côté interne (`ApiService.attachmentBlob`) : l'en-tête
+   * d'autorisation ne traverse jamais un simple `<img src>`.
+   */
+  attachmentBlob(id: string): Observable<Blob> {
+    return this.http.get(`${this.base}/attachments/${id}`, { responseType: 'blob' });
   }
 
   /**

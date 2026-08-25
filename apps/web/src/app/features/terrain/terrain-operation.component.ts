@@ -2,6 +2,7 @@ import { Component, Input, OnInit, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { FieldApiService, FieldCheck, FieldOperationDetail } from '../../core/field-api.service';
 import { FieldQueueService, messageDeRefus } from '../../core/field-queue.service';
+import { FieldSessionService } from '../../core/field-session.service';
 import { IconComponent } from '../../shared/icon.component';
 import { deposer } from './terrain-depot';
 import { jour, jourHeure } from './terrain-libelles';
@@ -133,7 +134,7 @@ import { jour, jourHeure } from './terrain-libelles';
                   }
                   <a class="t-btn-ghost mt-2" [routerLink]="['/terrain/operation', op.id, 'checklist', c.id]">
                     <erp-icon name="arrow-right" [size]="16" />
-                    {{ c.validatedAt ? 'Consulter' : 'Renseigner cette checklist' }}
+                    {{ c.validatedAt ? 'Consulter' : libelleChecklist(c) }}
                   </a>
                 } @else {
                   <p class="t-hint">Aucune checklist ouverte pour cette étape.</p>
@@ -340,6 +341,8 @@ export class TerrainOperationComponent implements OnInit {
   private readonly api = inject(FieldApiService);
   private readonly file = inject(FieldQueueService);
   private readonly router = inject(Router);
+  private readonly session = inject(FieldSessionService);
+  protected readonly estControleur = this.session.estControleurHse;
 
   /** Lié par `withComponentInputBinding()` — le paramètre de route `id`. */
   @Input() id = '';
@@ -386,6 +389,19 @@ export class TerrainOperationComponent implements OnInit {
 
   protected bloquantsDe(c: FieldCheck): number {
     return c.items.filter((i) => i.level === 'BLOCKING' && i.outcome !== 'PASSED').length;
+  }
+
+  /**
+   * Intitulé du lien vers une checklist non validée (§ 25/08/2026).
+   *
+   * ⚠️ « Renseigner » ne convient qu'à qui renseigne. Le contrôleur HSE ne
+   *    remplit jamais un point lui-même : lui montrer ce verbe laissait
+   *    croire que le système lui redemandait la même saisie que l'agent, au
+   *    lieu de l'amener vers l'examen et la validation qui l'attendent.
+   */
+  protected libelleChecklist(c: FieldCheck): string {
+    if (!this.estControleur()) return 'Renseigner cette checklist';
+    return this.enAttenteDe(c) === 0 ? 'Examiner et valider' : 'Suivre l’avancement';
   }
 
   protected basculer(phase: string): void {
