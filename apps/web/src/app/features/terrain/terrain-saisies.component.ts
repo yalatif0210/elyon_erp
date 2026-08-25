@@ -108,8 +108,8 @@ abstract class EcranDeSaisie implements OnInit {
 
       <h1 class="t-title mt-2">Relever un volume</h1>
       <p class="t-sub">
-        Le volume est ramené à 15 °C par le serveur. L'écart avec l'autre bout — chargement ou
-        livraison — se calcule dès qu'il existe : rien n'oblige à connaître les deux à la fois.
+        Le volume est ramené à 15 °C par le serveur. L'écart avec l'autre bout (chargement ou
+        livraison) se calcule dès qu'il existe : rien n'oblige à connaître les deux à la fois.
       </p>
 
       <!-- ⚠️ CORRIGÉ (§ 25/08/2026) — un relevé ne porte plus qu'un seul
@@ -237,7 +237,7 @@ export class TerrainMeasurementComponent extends EcranDeSaisie {
   protected async soumettre(): Promise<void> {
     const acquis = await this.envoyer(
       'MEASUREMENT_RECORDED',
-      `Relevé ${this.phase} — ${this.observedVolume} ${this.uom}`,
+      `Relevé ${this.phase} · ${this.observedVolume} ${this.uom}`,
       {
         phase: this.phase,
         source: this.source,

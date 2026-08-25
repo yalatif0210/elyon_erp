@@ -199,7 +199,7 @@ const HALT_TYPE_LABEL: Record<string, string> = {
             Capacité affectée : <strong>{{ capaciteAffectee() }} {{ operation.uom }}</strong>
             sur <strong>{{ volumePrevu() }} {{ operation.uom }}</strong> prévus
             @if (!capaciteSuffisante()) {
-              <span class="font-semibold"> — insuffisante</span>
+              <span class="font-semibold"> : insuffisante</span>
             }
           </span>
         </p>
@@ -514,7 +514,7 @@ const HALT_TYPE_LABEL: Record<string, string> = {
              jamais exigé à la saisie d'un seul. -->
         <h3 class="mb-2 mt-6 text-[13px] font-semibold text-ink">Relevé de volume</h3>
         <p class="mb-3 text-[11px] leading-relaxed text-ink-faint">
-          Volume corrigé à 15 °C. Statistique et opérationnel — jamais un coût ni une base de
+          Volume corrigé à 15 °C. Statistique et opérationnel : jamais un coût ni une base de
           facturation. L'écart avec l'autre bout, quand il existe, est CALCULÉ par le système.
         </p>
 
@@ -791,7 +791,7 @@ export class OperationActionsComponent {
    */
   protected capaciteLabel(vehicleId: string): string {
     const c = this.capacites().get(vehicleId);
-    return c ? ` — ${grouper(c.capacity, { maximumFractionDigits: 0 })} ${c.uom}` : '';
+    return c ? ` · ${grouper(c.capacity, { maximumFractionDigits: 0 })} ${c.uom}` : '';
   }
 
   private capaciteTotale(): number {
