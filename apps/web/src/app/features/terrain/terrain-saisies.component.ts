@@ -392,19 +392,20 @@ export class TerrainIncidentComponent extends EcranDeSaisie {
  * validés, notamment. Rejouer ces règles ici en donnerait une seconde version,
  * qui divergerait au premier ajustement.
  *
- * L'état courant est retiré des propositions : se transiter vers soi-même n'a
- * pas de sens, et c'est la seule règle que l'écran s'autorise.
+ * ⚠️ CORRIGÉ (§ 25/08/2026) — l'agent choisissait auparavant « le » nouvel
+ *    état dans une liste ouverte à toutes les valeurs apprises. Or la
+ *    séquence est désormais STRICTE : il n'existe qu'UNE étape suivante
+ *    possible, et le serveur la connaît déjà (`nextPhase`, calculée par
+ *    `FieldOperationsService.findOne()` dans le même ordre que le trigger
+ *    `enforce_phase_sequence`). Faire choisir l'agent entre des valeurs qui
+ *    seraient de toute façon refusées n'aidait personne : il n'a plus qu'à
+ *    constater l'étape suivante et l'exécuter, avec un motif s'il le juge
+ *    utile.
  */
 @Component({
   selector: 'terrain-avancement',
   standalone: true,
-  imports: [
-    FormsModule,
-    TerrainRetourComponent,
-    TerrainCompteRenduComponent,
-    VocabulaireChoixComponent,
-    MontantDirective,
-  ],
+  imports: [FormsModule, TerrainRetourComponent, TerrainCompteRenduComponent, MontantDirective],
   template: `
     <div class="t-screen">
       <terrain-retour [operationId]="id" />
@@ -415,60 +416,59 @@ export class TerrainIncidentComponent extends EcranDeSaisie {
         <p class="t-sub">
           État actuel : <span class="t-code text-[15px]">{{ op.phase }}</span>
         </p>
-        @if (bloquants(op) > 0) {
-          <p
-            class="mt-3 rounded-[3px] border border-crit/30 bg-crit-wash p-4 text-[15px]
-                   leading-relaxed text-crit"
-          >
-            {{ bloquants(op) }} point(s) de contrôle bloquant(s) ne sont pas levés. Le verrou HSE
-            est tenu automatiquement : tant qu’ils restent en souffrance, l’avancement sera refusé.
+
+        @if (op.haltedAt) {
+          <p class="mt-3 rounded-[3px] border border-crit/30 bg-crit-wash p-4 text-[15px] leading-relaxed text-crit">
+            Opération à l’arrêt ({{ op.haltType }}){{ op.haltReason ? ' : ' + op.haltReason : '' }}.
+            Elle n’avance plus.
           </p>
+        } @else if (!op.nextPhase) {
+          <p class="mt-3 rounded-[3px] border border-rule-strong bg-gray-50 p-4 text-[15px] leading-relaxed text-ink-soft">
+            L’opération est déjà à sa dernière étape.
+          </p>
+        } @else {
+          @if (bloquants(op) > 0) {
+            <p
+              class="mt-3 rounded-[3px] border border-crit/30 bg-crit-wash p-4 text-[15px]
+                     leading-relaxed text-crit"
+            >
+              {{ bloquants(op) }} point(s) de contrôle bloquant(s) ne sont pas levés. Le verrou HSE
+              est tenu automatiquement : tant qu’ils restent en souffrance, l’avancement sera refusé.
+            </p>
+          }
+
+          <p class="mt-5 t-sub">
+            Étape suivante : <span class="t-code text-[15px]">{{ op.nextPhase }}</span>
+          </p>
+
+          <div class="mt-4">
+            <label class="t-label" for="motif">Commentaire (facultatif)</label>
+            <textarea id="motif" class="t-field" maxlength="1000" [(ngModel)]="reason"></textarea>
+          </div>
+
+          <div class="t-actionbar">
+            <button class="t-btn-primary" [disabled]="occupe()" (click)="soumettre(op.nextPhase)">
+              {{ occupe() ? 'Envoi…' : 'Faire avancer' }}
+            </button>
+          </div>
         }
       }
-
-      <div class="mt-5">
-        <terrain-choix
-          champ="to"
-          libelle="Nouvel état"
-          idChamp="etat"
-          [exclure]="etatCourant()"
-          [(value)]="to"
-        />
-      </div>
-
-      <div class="mt-4">
-        <label class="t-label" for="motif">Motif (facultatif)</label>
-        <textarea id="motif" class="t-field" maxlength="1000" [(ngModel)]="reason"></textarea>
-      </div>
-
-      <div class="t-actionbar">
-        <button class="t-btn-primary" [disabled]="occupe() || to === ''" (click)="soumettre()">
-          {{ occupe() ? 'Envoi…' : 'Enregistrer l’avancement' }}
-        </button>
-      </div>
     </div>
   `,
 })
 export class TerrainStatusComponent extends EcranDeSaisie {
-  protected to = '';
   protected reason = '';
-
-  protected etatCourant(): string[] {
-    const etape = this.operation()?.phase;
-    return etape ? [etape] : [];
-  }
 
   protected bloquants(d: FieldOperationDetail): number {
     return d.hse.checks.reduce((total, c) => total + c.blockingPending, 0);
   }
 
-  protected async soumettre(): Promise<void> {
-    const acquis = await this.envoyer('STATUS_ADVANCED', `Avancement vers ${this.to}`, {
-      to: this.to,
+  protected async soumettre(to: string): Promise<void> {
+    const acquis = await this.envoyer('STATUS_ADVANCED', `Avancement vers ${to}`, {
+      to,
       ...(this.reason.trim() ? { reason: this.reason.trim() } : {}),
     });
     if (acquis) {
-      this.to = '';
       this.reason = '';
     }
   }

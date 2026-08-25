@@ -201,6 +201,18 @@ export interface FieldOperationDetail {
   id: string;
   reference: string;
   phase: OperationPhase;
+  /**
+   * Étape suivante, déjà calculée (§ 25/08/2026) — la séquence est stricte
+   * et connue du serveur seul : l'agent n'a plus à la choisir, il l'exécute.
+   * `null` à l'arrêt (haltedAt) ou déjà en CLOTURE : rien à avancer.
+   */
+  nextPhase: OperationPhase | null;
+  /**
+   * Les 9 étapes, dans l'ordre (§ 25/08/2026) — pour que l'écran d'un
+   * dossier les présente toutes (accordéon), sans jamais faire deviner ou
+   * saisir une phase que le serveur connaît déjà.
+   */
+  phaseSequence: OperationPhase[];
   haltedAt: Date | null;
   haltType: string | null;
   haltReason: string | null;
@@ -651,10 +663,22 @@ export class FieldOperationsService {
 
     const product = operation.deal.product;
 
+    // Ordre de la séquence tel que déclaré dans le schéma (§ 22/08/2026) —
+    // même idiome que seed-lot2.ts : Object.values() d'un enum Prisma en
+    // restitue les libellés dans l'ordre de déclaration, qui FAIT FOI (le
+    // trigger `enforce_phase_sequence` s'appuie sur ce même ordre côté base,
+    // via enum_range). Aucune étape suivante à l'arrêt ou depuis CLOTURE.
+    const sequence = Object.values(OperationPhase);
+    const rang = sequence.indexOf(operation.phase);
+    const nextPhase =
+      operation.haltedAt || rang < 0 || rang >= sequence.length - 1 ? null : sequence[rang + 1];
+
     return {
       id: operation.id,
       reference: operation.reference,
       phase: operation.phase,
+      nextPhase,
+      phaseSequence: sequence,
       haltedAt: operation.haltedAt,
       haltType: operation.haltType,
       haltReason: operation.haltReason,

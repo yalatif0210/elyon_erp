@@ -1,5 +1,6 @@
 import { Component, OnDestroy, OnInit, computed, inject } from '@angular/core';
 import { RouterLink, RouterOutlet } from '@angular/router';
+import { FieldApiService } from '../../core/field-api.service';
 import { FieldQueueService } from '../../core/field-queue.service';
 import { FieldSessionService } from '../../core/field-session.service';
 import { IconComponent } from '../../shared/icon.component';
@@ -98,6 +99,7 @@ import { ROLES_TERRAIN } from './terrain-libelles';
 export class TerrainShellComponent implements OnInit, OnDestroy {
   protected readonly session = inject(FieldSessionService);
   private readonly file = inject(FieldQueueService);
+  private readonly api = inject(FieldApiService);
 
   protected readonly profil = this.session.profil;
   protected readonly enAttente = computed(() => this.file.enAttente().length);
@@ -126,6 +128,10 @@ export class TerrainShellComponent implements OnInit, OnDestroy {
     // la tablette s'est éteinte. C'est le premier geste du cadre, avant tout
     // écran de saisie.
     void this.file.initialiser();
+    // Vocabulaire fixe (§ 25/08/2026) — chargé une fois ici, pour que
+    // « source », « nature » et « gravité » proposent leurs valeurs dès le
+    // premier écran visité, sans attendre un refus pour les apprendre.
+    this.api.chargerVocabulaire();
   }
 
   ngOnDestroy(): void {

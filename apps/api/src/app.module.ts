@@ -45,6 +45,7 @@ import {
 } from './field/field-attachments.controller';
 import { FieldScopeService } from './field/field-scope.service';
 import { FieldSyncController, FieldSyncService } from './field/field-sync.controller';
+import { FieldVocabularyController } from './field/field-vocabulary.controller';
 import { HealthController } from './health/health.controller';
 import { FieldHseController, HseController, HseService } from './hse/hse.controller';
 import { InvoicesController, InvoicesService } from './invoicing/invoices.controller';
@@ -135,6 +136,7 @@ import {
     FieldHseController,
     FieldOperationsController,
     FieldSyncController,
+    FieldVocabularyController,
     FieldAttachmentsController,
     InternalAttachmentsController,
     InvoicesController,

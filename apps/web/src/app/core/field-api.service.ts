@@ -130,6 +130,10 @@ export interface FieldOperationDetail {
   id: string;
   reference: string;
   phase: string;
+  /** Étape suivante déjà calculée par le serveur (§ 25/08/2026) — `null` à l'arrêt ou en CLOTURE. */
+  nextPhase: string | null;
+  /** Les 9 étapes, dans l'ordre — de quoi présenter l'accordéon des étapes sans jamais deviner une phase. */
+  phaseSequence: string[];
   /** Arrêt d'urgence (§ 22/08/2026), PARALLÈLE à `phase` — jamais une de ses valeurs. */
   haltedAt: string | null;
   haltType: string | null;
@@ -284,6 +288,26 @@ export class FieldApiService {
   private readonly http = inject(HttpClient);
   private readonly vocabulaire = inject(FieldVocabularyService);
   private readonly base = '/api/field';
+
+  /**
+   * Vocabulaire fixe (§ 25/08/2026) — source d'un relevé, nature et gravité
+   * d'un incident. Trois champs qu'aucun autre objet lu par la tablette
+   * n'expose : sans cet appel, le premier agent à ouvrir l'écran concerné
+   * saisissait à l'aveugle, condamné à un refus pour connaître la liste.
+   * Appelé une fois à l'entrée du cadre terrain (`TerrainShellComponent`),
+   * pour tous les écrans enfants.
+   */
+  chargerVocabulaire(): void {
+    this.http
+      .get<{ source: string[]; hseEventType: string[]; severity: string[] }>(
+        `${this.base}/vocabulaire`,
+      )
+      .subscribe((v) => {
+        this.vocabulaire.noterListe('source', v.source);
+        this.vocabulaire.noterListe('hseEventType', v.hseEventType);
+        this.vocabulaire.noterListe('severity', v.severity);
+      });
+  }
 
   /**
    * Liste de travail. Le serveur borne déjà le périmètre par l'affectation :

@@ -13,7 +13,6 @@ import { FieldSessionService } from '../../core/field-session.service';
 import { IconComponent } from '../../shared/icon.component';
 import { deposer, messageServeur } from './terrain-depot';
 import { RESULTATS_POINT, ResultatPoint, jourHeure } from './terrain-libelles';
-import { VocabulaireChoixComponent } from './vocabulaire-choix.component';
 
 /**
  * CHECKLIST HSE — le cœur du travail de terrain.
@@ -39,7 +38,7 @@ import { VocabulaireChoixComponent } from './vocabulaire-choix.component';
 @Component({
   selector: 'terrain-checklist',
   standalone: true,
-  imports: [FormsModule, RouterLink, IconComponent, VocabulaireChoixComponent],
+  imports: [FormsModule, RouterLink, IconComponent],
   template: `
     <div class="t-screen">
       <a
@@ -84,28 +83,20 @@ import { VocabulaireChoixComponent } from './vocabulaire-choix.component';
         </p>
       }
 
-      <!-- ================= Ouverture d'une checklist ================= -->
+      <!-- ⚠️ CORRIGÉ (§ 25/08/2026) — cet écran demandait la phase à l'agent.
+           Elle se choisit désormais depuis l'accordéon des étapes du
+           dossier, qui la connaît déjà et ouvre la checklist directement :
+           ce cas ne s'atteint plus par un lien normal, seul un ancien signet
+           peut encore y mener. -->
       @if (!checkId) {
         <h1 class="t-title mt-2">Ouvrir une checklist</h1>
         <p class="t-sub">
-          La checklist est assemblée à partir des types portés par l’opération.
-          Vous choisissez la phase, pas les points.
+          Les checklists s’ouvrent depuis le dossier de l’opération, étape par étape : il connaît
+          déjà l’ordre, vous n’avez rien à choisir ici.
         </p>
-
-        <div class="mt-5">
-          <terrain-choix
-            champ="phase"
-            libelle="Phase de l’opération"
-            idChamp="phase"
-            [(value)]="phase"
-          />
-        </div>
-
-        <div class="t-actionbar">
-          <button class="t-btn-primary" [disabled]="occupe() || phase === ''" (click)="ouvrir()">
-            {{ occupe() ? 'Envoi…' : 'Ouvrir la checklist' }}
-          </button>
-        </div>
+        <a class="t-btn-primary mt-3" [routerLink]="['/terrain/operation', id]">
+          Revenir au dossier de l’opération
+        </a>
       }
 
       <!-- ================= Points de contrôle ================= -->
@@ -429,14 +420,12 @@ export class TerrainChecklistComponent implements OnInit {
   protected readonly photos = inject(FieldPhotoService);
 
   @Input() id = '';
-  /** Absent : on ouvre une checklist. Présent : on la renseigne. */
+  /** Absent : l'ouverture se fait désormais depuis le dossier, pas ici (§ 25/08/2026). Présent : on la renseigne. */
   @Input() checkId = '';
 
   protected readonly resultats = RESULTATS_POINT;
   protected readonly dateHeureDe = jourHeure;
   protected readonly estControleur = this.session.estControleurHse;
-
-  protected phase = '';
 
   private readonly checks = signal<FieldCheck[]>([]);
   protected readonly chargement = signal(true);
@@ -612,19 +601,6 @@ export class TerrainChecklistComponent implements OnInit {
   }
 
   // --- Production d'événements --------------------------------------------
-
-  protected async ouvrir(): Promise<void> {
-    await this.envoyer({
-      operationId: this.id,
-      reference: this.id,
-      type: 'CHECK_OPENED',
-      intitule: `Ouverture de la checklist ${this.phase}`,
-      // `OpenCheckDto` : la phase, et rien d'autre. `templateId` restreindrait
-      // la checklist à un seul modèle et ferait perdre les contrôles des
-      // autres types portés par l'opération.
-      payload: { phase: this.phase },
-    });
-  }
 
   protected async renseigner(pt: FieldCheckItem): Promise<void> {
     const s = this.saisie(pt.id);

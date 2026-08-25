@@ -7,9 +7,9 @@ import { Injectable, computed, signal } from '@angular/core';
  *
  *   Plusieurs charges utiles du journal exigent une valeur d'énumération :
  *   la PHASE d'une checklist, l'état visé d'une transition, la nature et la
- *   gravité d'un incident, la source d'un relevé. Le réalm terrain ne publie
- *   AUCUNE route qui énumère ces valeurs : `/api/internal/parameters`, qui les
- *   porte pour la console, est fermé au jeton de la tablette.
+ *   gravité d'un incident, la source d'un relevé. `/api/internal/parameters`,
+ *   qui porte le paramétrage RÉELLEMENT administrable pour la console, reste
+ *   fermé au jeton de la tablette — à raison, ce n'en est pas.
  *
  *   Les recopier en dur dans un `const PHASES = [...]` réglerait l'affichage
  *   et créerait une seconde vérité : le jour où une phase est ajoutée côté
@@ -20,16 +20,25 @@ import { Injectable, computed, signal } from '@angular/core';
  *
  *   Il n'invente rien : il RETIENT ce que le serveur a déjà nommé.
  *
- *   1. Par OBSERVATION — chaque objet lu contient des valeurs réelles : le
- *      statut de chaque opération de la liste de travail, la phase de chaque
- *      checklist ouverte, la nature et la gravité de chaque incident de
- *      l'historique du site. Elles sont vraies par construction.
+ *   1. Par PUBLICATION DIRECTE — `GET /api/field/vocabulaire` (§ 25/08/2026)
+ *      récite les énumérations Prisma CLOSES qui n'apparaissent nulle part
+ *      ailleurs dans les objets lus par la tablette (source d'un relevé,
+ *      nature et gravité d'un incident) : chargé une fois à l'entrée du
+ *      cadre terrain, AVANT toute saisie. Ce n'est pas la seconde vérité que
+ *      ce service évite ailleurs — une énumération Prisma ne change qu'avec
+ *      un déploiement de code, jamais par un paramétrage qui s'écarterait de
+ *      la tablette pendant qu'elle reste figée.
  *
- *   2. Par APPRENTISSAGE DU REFUS — quand une valeur ne convient pas, la
- *      validation du serveur répond « phase must be one of the following
- *      values: PREPARATION, PRE_CHARGEMENT, … ». Ce message, que l'interface a
- *      de toute façon l'obligation d'afficher intégralement, ÉNUMÈRE la liste
- *      autorisée. On la retient plutôt que de la laisser défiler.
+ *   2. Par OBSERVATION — chaque objet lu contient aussi des valeurs réelles :
+ *      le statut de chaque opération de la liste de travail, la phase de
+ *      chaque checklist ouverte. Elles sont vraies par construction.
+ *
+ *   3. Par APPRENTISSAGE DU REFUS — pour tout champ que ni l'un ni l'autre ne
+ *      couvre : quand une valeur ne convient pas, la validation du serveur
+ *      répond « phase must be one of the following values: PREPARATION,
+ *      PRE_CHARGEMENT, … ». Ce message, que l'interface a de toute façon
+ *      l'obligation d'afficher intégralement, ÉNUMÈRE la liste autorisée. On
+ *      la retient plutôt que de la laisser défiler.
  *
  *   Tant qu'un champ n'a rien à proposer, l'écran bascule en saisie libre et
  *   le dit — mieux vaut un champ ouvert qu'une liste fausse.

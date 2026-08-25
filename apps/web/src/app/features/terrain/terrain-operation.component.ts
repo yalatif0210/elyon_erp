@@ -1,8 +1,9 @@
 import { Component, Input, OnInit, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
-import { FieldApiService, FieldOperationDetail } from '../../core/field-api.service';
-import { messageDeRefus } from '../../core/field-queue.service';
+import { Router, RouterLink } from '@angular/router';
+import { FieldApiService, FieldCheck, FieldOperationDetail } from '../../core/field-api.service';
+import { FieldQueueService, messageDeRefus } from '../../core/field-queue.service';
 import { IconComponent } from '../../shared/icon.component';
+import { deposer } from './terrain-depot';
 import { jour, jourHeure } from './terrain-libelles';
 
 /**
@@ -73,30 +74,82 @@ import { jour, jourHeure } from './terrain-libelles';
           }
         </div>
 
-        @for (c of op.hse.checks; track c.id) {
-          <a class="t-card mt-3" [routerLink]="['/terrain/operation', op.id, 'checklist', c.id]">
-            <div class="flex items-center justify-between gap-3">
-              <span class="t-code text-[15px]">{{ c.phase }}</span>
-              <erp-icon name="chevron-right" [size]="22" class="text-ink-faint" />
-            </div>
-            <p class="mt-1.5 text-[15px] text-ink-soft">
-              {{ c.itemsTotal - c.itemsPending }} / {{ c.itemsTotal }} points renseignés
-            </p>
-            @if (c.blockingPending > 0) {
-              <p class="mt-1 text-[15px] font-semibold text-crit">
-                {{ c.blockingPending }} bloquant(s) non levé(s)
-              </p>
-            }
-            <p class="mt-1 text-[14px]" [class]="c.validatedAt ? 'text-ok font-semibold' : 'text-ink-muted'">
-              {{ c.validatedAt ? 'Validée le ' + dateDe(c.validatedAt) : 'Non validée' }}
-            </p>
-          </a>
-        }
+        <!-- ⚠️ CORRIGÉ (§ 25/08/2026) — l'agent devait auparavant SAISIR une
+             phase dans une liste pour ouvrir une checklist, alors que le
+             serveur connaît déjà les 9 étapes et leur ordre
+             (op.phaseSequence). Chaque étape s'affiche désormais telle
+             quelle, dans l'ordre, avec sa checklist repliée en accordéon :
+             plus rien à deviner ni à taper. -->
+        @for (phase of op.phaseSequence; track phase) {
+          <div class="t-card mt-3 overflow-hidden !p-0">
+            <button
+              type="button"
+              class="flex w-full items-center justify-between gap-3 p-4 text-left"
+              (click)="basculer(phase)"
+            >
+              <span class="flex items-center gap-2.5">
+                <span class="t-code text-[15px]">{{ phase }}</span>
+                @if (checkDe(phase); as c) {
+                  @if (c.validatedAt) {
+                    <span class="text-[14px] font-semibold text-ok">Validée</span>
+                  } @else if (bloquantsDe(c) > 0) {
+                    <span class="text-[14px] font-semibold text-crit">
+                      {{ bloquantsDe(c) }} bloquant(s)
+                    </span>
+                  } @else {
+                    <span class="text-[14px] text-ink-soft">
+                      {{ c.items.length - enAttenteDe(c) }} / {{ c.items.length }} renseignés
+                    </span>
+                  }
+                } @else {
+                  <span class="text-[14px] text-ink-faint">Pas encore ouverte</span>
+                }
+              </span>
+              <erp-icon
+                name="chevron-right"
+                [size]="20"
+                class="shrink-0 text-ink-faint transition-transform"
+                [class.rotate-90]="etendue() === phase"
+              />
+            </button>
 
-        <a class="t-btn-ghost mt-3" [routerLink]="['/terrain/operation', op.id, 'checklist']">
-          <erp-icon name="plus" [size]="18" />
-          Ouvrir une checklist sur une phase
-        </a>
+            @if (etendue() === phase) {
+              <div class="border-t border-rule-strong p-4">
+                @if (checkDe(phase); as c) {
+                  @if (c.items.length === 0) {
+                    <p class="t-hint">Aucun point de contrôle prévu pour cette étape.</p>
+                  } @else {
+                    @for (pt of c.items; track pt.id) {
+                      <div class="mb-2 flex items-start justify-between gap-3 text-[14px]">
+                        <span class="text-ink">{{ pt.item.label }}</span>
+                        <span
+                          class="t-code shrink-0"
+                          [class.text-crit]="pt.level === 'BLOCKING' && pt.outcome !== 'PASSED'"
+                        >
+                          {{ pt.outcome }}
+                        </span>
+                      </div>
+                    }
+                  }
+                  <a class="t-btn-ghost mt-2" [routerLink]="['/terrain/operation', op.id, 'checklist', c.id]">
+                    <erp-icon name="arrow-right" [size]="16" />
+                    {{ c.validatedAt ? 'Consulter' : 'Renseigner cette checklist' }}
+                  </a>
+                } @else {
+                  <p class="t-hint">Aucune checklist ouverte pour cette étape.</p>
+                  <button
+                    type="button"
+                    class="t-btn-primary mt-2"
+                    [disabled]="ouverture()"
+                    (click)="ouvrirEtape(phase)"
+                  >
+                    {{ ouverture() ? 'Ouverture…' : 'Ouvrir cette checklist' }}
+                  </button>
+                }
+              </div>
+            }
+          </div>
+        }
 
         <!-- ======================= Le travail ======================= -->
         <p class="t-section">Ce que je fais ici</p>
@@ -270,6 +323,8 @@ import { jour, jourHeure } from './terrain-libelles';
 })
 export class TerrainOperationComponent implements OnInit {
   private readonly api = inject(FieldApiService);
+  private readonly file = inject(FieldQueueService);
+  private readonly router = inject(Router);
 
   /** Lié par `withComponentInputBinding()` — le paramètre de route `id`. */
   @Input() id = '';
@@ -277,6 +332,12 @@ export class TerrainOperationComponent implements OnInit {
   protected readonly operation = signal<FieldOperationDetail | null>(null);
   protected readonly chargement = signal(true);
   protected readonly erreur = signal<string | null>(null);
+
+  /** Checklists complètes, POINTS COMPRIS (§ 25/08/2026) — l'accordéon en a besoin, le résumé de `op.hse` n'en porte que le compte. */
+  protected readonly checks = signal<FieldCheck[]>([]);
+  /** Étape actuellement dépliée dans l'accordéon — une seule à la fois. */
+  protected readonly etendue = signal<string | null>(null);
+  protected readonly ouverture = signal(false);
 
   protected readonly dateDe = jour;
   protected readonly dateHeureDe = jourHeure;
@@ -291,6 +352,56 @@ export class TerrainOperationComponent implements OnInit {
         this.chargement.set(false);
         this.erreur.set(messageDeRefus(e, 'Opération inaccessible.'));
       },
+    });
+    this.rechargerChecks();
+  }
+
+  private rechargerChecks(): void {
+    this.api.checks(this.id).subscribe((c) => this.checks.set(c));
+  }
+
+  protected checkDe(phase: string): FieldCheck | null {
+    return this.checks().find((c) => c.phase === phase) ?? null;
+  }
+
+  /** Points encore à l'état de départ posé par le serveur à l'ouverture — même idiome que l'écran de checklist. */
+  protected enAttenteDe(c: FieldCheck): number {
+    return c.items.filter((i) => i.outcome === 'PENDING').length;
+  }
+
+  protected bloquantsDe(c: FieldCheck): number {
+    return c.items.filter((i) => i.level === 'BLOCKING' && i.outcome !== 'PASSED').length;
+  }
+
+  protected basculer(phase: string): void {
+    this.etendue.set(this.etendue() === phase ? null : phase);
+  }
+
+  /**
+   * Ouvre la checklist d'une étape CONNUE — jamais saisie, toujours reprise
+   * de `op.phaseSequence` (§ 25/08/2026). Une fois acquise, la checklist
+   * nouvellement créée est rechargée puis ouverte directement : l'agent n'a
+   * pas de second geste à faire pour la retrouver.
+   */
+  protected async ouvrirEtape(phase: string): Promise<void> {
+    this.ouverture.set(true);
+    this.erreur.set(null);
+    const compte = await deposer(this.file, {
+      operationId: this.id,
+      reference: this.operation()?.reference ?? this.id,
+      type: 'CHECK_OPENED',
+      intitule: `Ouverture de la checklist ${phase}`,
+      payload: { phase },
+    });
+    this.ouverture.set(false);
+    if (!compte.acquis) {
+      this.erreur.set(compte.erreur ?? compte.info);
+      return;
+    }
+    this.api.checks(this.id).subscribe((c) => {
+      this.checks.set(c);
+      const cree = c.find((chk) => chk.phase === phase);
+      if (cree) void this.router.navigate(['/terrain/operation', this.id, 'checklist', cree.id]);
     });
   }
 
