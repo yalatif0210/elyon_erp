@@ -174,8 +174,8 @@ check("Registre documentaire lisible", s == 200, f"{s} — {b.get('total')} piè
 s, bls = call("GET", "/api/internal/documents?kind=DELIVERY_NOTE&pageSize=20", dg)
 bl = next((d for d in bls.get("items", [])), None)
 check("Bon de livraison signé et scellé",
-      bl is not None and bl["isSealed"] and bl["_count"]["signatures"] >= 2,
-      f"{bl['reference'] if bl else '—'} · {bl['_count']['signatures'] if bl else 0} signature(s)")
+      bl is not None and bl["isSealed"] and len(bl["signatures"]) >= 2,
+      f"{bl['reference'] if bl else '—'} · {len(bl['signatures']) if bl else 0} signature(s)")
 
 if bl:
     s, b = call("GET", f"/api/internal/documents/{bl['id']}", dg)
