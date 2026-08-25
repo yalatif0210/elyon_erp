@@ -438,6 +438,21 @@ export class TerrainIncidentComponent extends EcranDeSaisie {
             </p>
           }
 
+          <!-- ⚠️ (§ 25/08/2026) — même refus définitif constaté en test réel,
+               pour la CLÔTURE cette fois : sans ambiguïté possible (contrairement
+               à currentPhaseRequiresCheck), TOUTE opération qui clôture exige les
+               deux pièces scellées, quel que soit son type. -->
+          @if (op.nextPhase === 'CLOTURE' && clotureIncomplete(op)) {
+            <p
+              class="mt-3 rounded-[3px] border border-crit/30 bg-crit-wash p-4 text-[15px]
+                     leading-relaxed text-crit"
+            >
+              Le rapport d’exécution et le bon de livraison doivent être générés et signés avant
+              la clôture. Rendez-vous sur l’écran de clôture pour les produire et les faire signer :
+              sans eux, le verrou refusera l’avancement.
+            </p>
+          }
+
           <p class="mt-5 t-sub">
             Étape suivante : <span class="t-code text-[15px]">{{ op.nextPhase }}</span>
           </p>
@@ -450,7 +465,11 @@ export class TerrainIncidentComponent extends EcranDeSaisie {
           <div class="t-actionbar">
             <button
               class="t-btn-primary"
-              [disabled]="occupe() || checklistCouranteManquante(op)"
+              [disabled]="
+                occupe() ||
+                checklistCouranteManquante(op) ||
+                (op.nextPhase === 'CLOTURE' && clotureIncomplete(op))
+              "
               (click)="soumettre(op.nextPhase)"
             >
               {{ occupe() ? 'Envoi…' : 'Faire avancer' }}
@@ -471,6 +490,12 @@ export class TerrainStatusComponent extends EcranDeSaisie {
   /** L'étape qu'on quitte exige une checklist, et elle n'est pas validée. */
   protected checklistCouranteManquante(d: FieldOperationDetail): boolean {
     return d.hse.currentPhaseRequiresCheck && !d.hse.validatedAt;
+  }
+
+  /** Le rapport d'exécution et le bon de livraison, scellés tous les deux — sans ambiguïté, exigé pour TOUTE clôture. */
+  protected clotureIncomplete(d: FieldOperationDetail): boolean {
+    const scelle = (kind: string) => d.documents.some((doc) => doc.kind === kind && doc.isSealed);
+    return !scelle('OPERATION_REPORT') || !scelle('DELIVERY_NOTE');
   }
 
   protected async soumettre(to: string): Promise<void> {
