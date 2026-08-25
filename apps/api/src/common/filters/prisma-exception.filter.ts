@@ -191,12 +191,37 @@ export function translatePostgresError(raw: string): { status: number; message: 
         message: pgMessage ?? 'Référence inexistante ou dépendance bloquante.',
       };
 
-    default:
+    default: {
+      // ⚠️ CORRIGÉ — un appel Prisma Client ordinaire (createMany/deleteMany/
+      //    update…), à la différence d'un $queryRaw, ne fait PAS remonter le
+      //    wrapper « PostgresError { code: "...", message: "...", severity:
+      //    ... } » que le motif ci-dessus attend : juste « Error in connector:
+      //    Error querying the database: ERROR: <message métier> », le tout
+      //    sur UNE SEULE ligne (« ERROR: » n'ouvre pas sa propre ligne, donc
+      //    `cleanPgMessage` — écrit pour P2010 — ne le trouve pas non plus).
+      //    Le motif ci-dessus ne matchait jamais, et un refus de trigger
+      //    parfaitement rédigé (ex. le verrou de capacité cumulée des
+      //    véhicules) retombait sur le texte générique — inexploitable pour
+      //    l'utilisateur qui vient de le provoquer en saisie courante. Une
+      //    CRUD ordinaire n'atteint ce texte brut QUE via un CHECK ou un
+      //    RAISE EXCEPTION (unicité, clé étrangère : déjà interceptées plus
+      //    haut) : chercher « ERROR: » n'importe où dans le texte, pas
+      //    seulement en tête de ligne, est donc sûr ici.
+      const idx = raw.indexOf('ERROR:');
+      const extrait = idx >= 0 ? raw.slice(idx + 'ERROR:'.length).split('\n')[0].trim() : undefined;
+      if (extrait) {
+        return {
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          code: 'INVARIANT_VIOLATION',
+          message: extrait,
+        };
+      }
       return {
         status: HttpStatus.INTERNAL_SERVER_ERROR,
         code: sqlState ?? 'UNKNOWN',
         message: 'Erreur de persistance.',
       };
+    }
   }
 }
 
