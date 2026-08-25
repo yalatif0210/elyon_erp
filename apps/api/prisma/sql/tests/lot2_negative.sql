@@ -203,28 +203,40 @@ UNION ALL SELECT _t('Facture simple emise sans decision motivee',
 
 \echo ''
 \echo '=== H. RELEVES ET DOCUMENTS ==='
-SELECT _t('Ecart d''ullage mal calcule',
-  $s$INSERT INTO measurement_records (id,reference,operation_id,source,measurement_date,
-     loaded_volume_15,discharged_volume_15,uom,measured_density_15,ullage_variance_pct,updated_at)
-     VALUES (gen_random_uuid(),'MR-KO-1','33333333-3333-3333-3333-333333333333',
-     'CONTRADICTORY',CURRENT_DATE,3000,2990,'L',0.84,99,now())$s$)
+-- ⚠️ CORRIGÉ (§ 25/08/2026) — un relevé ne porte plus qu'un seul bout
+--   (chargement OU livraison) ; l'écart se rapproche entre deux lignes,
+--   via paired_measurement_id / paired_loaded_volume_15 sur la ligne qui
+--   referme la paire (§ H ci-dessus dans le schéma).
+SELECT _p('Releve de chargement authoritatif, seul (pas encore rapproche)',
+  $s$INSERT INTO measurement_records (id,reference,operation_id,phase,source,is_authoritative,
+     measurement_date,observed_volume,observed_temp_c,vcf,volume_15,uom,measured_density_15,updated_at)
+     VALUES ('44444444-4444-4444-4444-444444444441','MR-OK-1',
+     '33333333-3333-3333-3333-333333333333','CHARGEMENT','CONTRADICTORY',true,CURRENT_DATE,
+     3000,28,1,3000,'L',0.84,now())$s$)
+UNION ALL SELECT _t('Ecart d''ullage mal calcule (rapproche a une valeur fausse)',
+  $s$INSERT INTO measurement_records (id,reference,operation_id,phase,source,measurement_date,
+     observed_volume,observed_temp_c,vcf,volume_15,uom,measured_density_15,
+     paired_measurement_id,paired_loaded_volume_15,ullage_variance_pct,updated_at)
+     VALUES (gen_random_uuid(),'MR-KO-1','33333333-3333-3333-3333-333333333333','DECHARGEMENT',
+     'CONTRADICTORY',CURRENT_DATE,2990,29,1,2990,'L',0.84,
+     '44444444-4444-4444-4444-444444444441',3000,99,now())$s$)
 UNION ALL SELECT _p('Ecart correctement calcule : (3000-2990)/3000 = 0,333333 %',
-  $s$INSERT INTO measurement_records (id,reference,operation_id,source,is_authoritative,
-     measurement_date,loaded_volume_15,discharged_volume_15,uom,measured_density_15,
-     ullage_variance_pct,updated_at)
-     VALUES ('44444444-4444-4444-4444-444444444444','MR-OK-1',
-     '33333333-3333-3333-3333-333333333333','CONTRADICTORY',true,CURRENT_DATE,3000,2990,'L',
-     0.84,0.333333,now())$s$)
-UNION ALL SELECT _t('Deuxieme releve faisant autorite sur la meme operation',
-  $s$INSERT INTO measurement_records (id,reference,operation_id,source,is_authoritative,
-     measurement_date,loaded_volume_15,discharged_volume_15,uom,measured_density_15,
-     ullage_variance_pct,updated_at)
-     VALUES (gen_random_uuid(),'MR-KO-2','33333333-3333-3333-3333-333333333333',
-     'SELF_MEASURED',true,CURRENT_DATE,3000,2990,'L',0.84,0.333333,now())$s$)
+  $s$INSERT INTO measurement_records (id,reference,operation_id,phase,source,is_authoritative,
+     measurement_date,observed_volume,observed_temp_c,vcf,volume_15,uom,measured_density_15,
+     paired_measurement_id,paired_loaded_volume_15,ullage_variance_pct,updated_at)
+     VALUES ('44444444-4444-4444-4444-444444444442','MR-OK-2',
+     '33333333-3333-3333-3333-333333333333','DECHARGEMENT','CONTRADICTORY',true,CURRENT_DATE,
+     2990,29,1,2990,'L',0.84,
+     '44444444-4444-4444-4444-444444444441',3000,0.333333,now())$s$)
+UNION ALL SELECT _t('Deuxieme releve faisant autorite sur la meme etape (DECHARGEMENT) de la meme operation',
+  $s$INSERT INTO measurement_records (id,reference,operation_id,phase,source,is_authoritative,
+     measurement_date,observed_volume,observed_temp_c,vcf,volume_15,uom,measured_density_15,updated_at)
+     VALUES (gen_random_uuid(),'MR-KO-2b','33333333-3333-3333-3333-333333333333','DECHARGEMENT',
+     'SELF_MEASURED',true,CURRENT_DATE,2985,29,1,2985,'L',0.84,now())$s$)
 UNION ALL SELECT _t('Acquittement d''ecart par un role non habilite (SALES_REP)',
   $s$UPDATE measurement_records SET ullage_ack_by_id=(SELECT id FROM users WHERE role='SALES_REP'),
      ullage_ack_at=now(), ullage_ack_reason='Motif suffisamment long pour passer'
-     WHERE id='44444444-4444-4444-4444-444444444444'$s$)
+     WHERE id='44444444-4444-4444-4444-444444444442'$s$)
 UNION ALL SELECT _t('Signature sans qualite du signataire',
   $s$INSERT INTO signatures (id,document_id,kind,signatory_name,signatory_capacity)
      VALUES (gen_random_uuid(),

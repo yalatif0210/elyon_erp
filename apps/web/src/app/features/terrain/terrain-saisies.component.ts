@@ -108,8 +108,22 @@ abstract class EcranDeSaisie implements OnInit {
 
       <h1 class="t-title mt-2">Relever un volume</h1>
       <p class="t-sub">
-        Les volumes sont ceux ramenés à 15 °C. L’écart avec le prévu est calculé automatiquement.
+        Le volume est ramené à 15 °C par le serveur. L'écart avec l'autre bout — chargement ou
+        livraison — se calcule dès qu'il existe : rien n'oblige à connaître les deux à la fois.
       </p>
+
+      <!-- ⚠️ CORRIGÉ (§ 25/08/2026) — un relevé ne porte plus qu'un seul
+           bout. Le chargement et la livraison se constatent rarement au
+           même moment, parfois pas par le même agent : imposer les deux
+           d'un coup empêchait de saisir ce qu'on avait sous la main. -->
+      <div class="mt-5">
+        <label class="t-label" for="mphase">Étape du relevé</label>
+        <select id="mphase" class="t-field" [(ngModel)]="phase">
+          @for (p of operation()?.phaseSequence ?? []; track p) {
+            <option [value]="p">{{ p }}</option>
+          }
+        </select>
+      </div>
 
       <div class="mt-5">
         <terrain-choix champ="source" libelle="Source du relevé" idChamp="source" [(value)]="source" />
@@ -123,56 +137,32 @@ abstract class EcranDeSaisie implements OnInit {
       <!-- ⚠️ ON RELÈVE CE QU'ON VOIT À LA JAUGE, PAS UN VOLUME « À 15 °C ».
            Les anciens champs demandaient un volume déjà corrigé — que
            personne ne corrigeait. La dilatation du produit se comptait donc
-           comme une perte : 32 °C au chargement et 26 °C à la livraison
-           affichaient 0,48 % d'écart sur une opération parfaitement saine,
-           plus du double du seuil critique. Le serveur applique désormais la
-           correction ASTM D1250 (§ 8.2) ; il lui faut les deux températures. -->
-      <p class="t-section">Chargement</p>
+           comme une perte, plus du double du seuil critique sur une
+           opération parfaitement saine. Le serveur applique la correction
+           ASTM D1250 (§ 8.2) ; il lui faut la température. -->
       <div class="mt-2">
-        <label class="t-label" for="charge">Volume relevé à la jauge</label>
+        <label class="t-label" for="ovolume">Volume relevé à la jauge</label>
         <input
-          id="charge"
+          id="ovolume"
           class="t-field tabular"
           erpMontant
-          [(ngModel)]="loadedObservedVolume"
+          [(ngModel)]="observedVolume"
         />
       </div>
       <div class="mt-3">
-        <label class="t-label" for="tcharge">Température au chargement (°C)</label>
+        <label class="t-label" for="otemp">Température (°C)</label>
         <input
-          id="tcharge"
+          id="otemp"
           type="number"
           inputmode="decimal"
           step="0.1"
           class="t-field tabular"
-          [(ngModel)]="loadedTempC"
+          [(ngModel)]="tempC"
         />
         <p class="t-hint">
-          Sans elle, le volume ne peut pas être ramené à 15 °C, et les deux bouts ne sont pas
-          comparables.
+          Sans elle, le volume ne peut pas être ramené à 15 °C, et deux relevés pris à des
+          températures différentes ne sont pas comparables.
         </p>
-      </div>
-
-      <p class="t-section">Livraison</p>
-      <div class="mt-2">
-        <label class="t-label" for="livre">Volume relevé à la jauge</label>
-        <input
-          id="livre"
-          class="t-field tabular"
-          erpMontant
-          [(ngModel)]="dischargedObservedVolume"
-        />
-      </div>
-      <div class="mt-3">
-        <label class="t-label" for="tlivre">Température à la livraison (°C)</label>
-        <input
-          id="tlivre"
-          type="number"
-          inputmode="decimal"
-          step="0.1"
-          class="t-field tabular"
-          [(ngModel)]="dischargedTempC"
-        />
       </div>
 
       <div class="mt-4">
@@ -213,50 +203,47 @@ abstract class EcranDeSaisie implements OnInit {
   `,
 })
 export class TerrainMeasurementComponent extends EcranDeSaisie {
+  protected phase = '';
   protected source = '';
   protected quand = maintenantLocal();
   protected uom = '';
   protected measuredDensity15: number | null = null;
   protected isOffSpec = false;
 
-  protected loadedObservedVolume: number | null = null;
-  protected loadedTempC: number | null = null;
-  protected dischargedObservedVolume: number | null = null;
-  protected dischargedTempC: number | null = null;
+  protected observedVolume: number | null = null;
+  protected tempC: number | null = null;
 
   protected override apresChargement(d: FieldOperationDetail): void {
     // L'unité vient de l'opération : la faire ressaisir invite à la faute, et
     // un litre pris pour un mètre cube fausse tout ce qui suit.
     this.uom = d.uom;
+    // Pré-rempli sur l'étape courante, mais modifiable : un relevé tardif
+    // sur une étape déjà quittée reste un geste légitime.
+    this.phase = d.phase;
   }
 
   protected complet(): boolean {
     return (
+      this.phase !== '' &&
       this.source !== '' &&
       this.quand !== '' &&
       this.uom !== '' &&
-      estPositif(this.loadedObservedVolume) &&
-      estPositif(this.dischargedObservedVolume) &&
+      estPositif(this.observedVolume) &&
       this.measuredDensity15 !== null &&
-      // Les DEUX températures sont exigées : une seule ne permet de corriger
-      // qu'un bout, et comparer un volume corrigé à un volume brut est pire
-      // que ne rien corriger du tout.
-      this.loadedTempC !== null &&
-      this.dischargedTempC !== null
+      this.tempC !== null
     );
   }
 
   protected async soumettre(): Promise<void> {
     const acquis = await this.envoyer(
       'MEASUREMENT_RECORDED',
-      `Relevé ${this.dischargedObservedVolume} ${this.uom}`,
+      `Relevé ${this.phase} — ${this.observedVolume} ${this.uom}`,
       {
+        phase: this.phase,
         source: this.source,
         measurementDate: versIso(this.quand),
-        loadedObservedVolume: Number(this.loadedObservedVolume),
-        loadedTempC: Number(this.loadedTempC),
-        dischargedObservedVolume: Number(this.dischargedObservedVolume),
-        dischargedTempC: Number(this.dischargedTempC),
+        observedVolume: Number(this.observedVolume),
+        tempC: Number(this.tempC),
         uom: this.uom,
         measuredDensity15: Number(this.measuredDensity15),
         ...(this.isOffSpec ? { isOffSpec: true } : {}),
@@ -268,10 +255,8 @@ export class TerrainMeasurementComponent extends EcranDeSaisie {
   }
 
   private reinitialiser(): void {
-    this.loadedObservedVolume = null;
-    this.loadedTempC = null;
-    this.dischargedObservedVolume = null;
-    this.dischargedTempC = null;
+    this.observedVolume = null;
+    this.tempC = null;
     this.measuredDensity15 = null;
     this.isOffSpec = false;
   }

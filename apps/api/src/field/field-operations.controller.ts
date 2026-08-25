@@ -152,10 +152,12 @@ export interface FieldChecklistView {
   blockingPending: number;
 }
 
+/** Un relevé = un seul bout (§ 25/08/2026) — `phase` dit lequel. */
 export interface FieldMeasurementView {
   measurementDate: Date;
-  loadedVolume15: number;
-  dischargedVolume15: number;
+  phase: OperationPhase;
+  observedVolume: number;
+  volume15: number;
   uom: UnitOfMeasure;
   /** La température est obligatoire à la saisie (§ 10.4) : elle est rendue. */
   observedTempC: number | null;
@@ -624,11 +626,13 @@ export class FieldOperationsService {
           orderBy: { measurementDate: 'desc' },
           select: {
             measurementDate: true,
-            loadedVolume15: true,
-            dischargedVolume15: true,
+            phase: true,
+            observedVolume: true,
+            volume15: true,
             uom: true,
             observedTempC: true,
             isOffSpec: true,
+            ullageVariancePct: true,
           },
         },
         hseEvents: {
@@ -735,11 +739,13 @@ export class FieldOperationsService {
       },
       measurements: operation.measurements.map((m) => ({
         measurementDate: m.measurementDate,
-        loadedVolume15: toNumber(m.loadedVolume15),
-        dischargedVolume15: toNumber(m.dischargedVolume15),
+        phase: m.phase,
+        observedVolume: toNumber(m.observedVolume),
+        volume15: toNumber(m.volume15),
         uom: m.uom,
         observedTempC: toNumberOrNull(m.observedTempC),
         isOffSpec: m.isOffSpec,
+        ullageVariancePct: toNumberOrNull(m.ullageVariancePct),
       })),
       incidents: operation.hseEvents.map(toIncident),
       documents: operation.generatedDocuments.map((doc) => ({
@@ -856,12 +862,14 @@ export class FieldOperationsService {
         plannedLoadingDate: true,
         actualLoadingDate: true,
         actualDischargeDate: true,
-        // Le volume qui compte est celui du relevé faisant autorité (§ 8.1).
-        // Un seul par opération, garanti par index unique partiel en base.
+        // Le volume qui compte est celui du relevé DECHARGEMENT faisant
+        // autorité (§ 8.1, § 25/08/2026 : un relevé ne porte plus qu'un
+        // bout — voir schema.prisma). Un seul par (opération, étape),
+        // garanti par index unique partiel en base.
         measurements: {
-          where: { isAuthoritative: true },
+          where: { isAuthoritative: true, phase: OperationPhase.DECHARGEMENT },
           take: 1,
-          select: { dischargedVolume15: true },
+          select: { volume15: true },
         },
         hseEvents: {
           orderBy: { occurredAt: 'desc' },
@@ -912,7 +920,7 @@ export class FieldOperationsService {
         date: row.actualDischargeDate ?? row.actualLoadingDate ?? row.plannedLoadingDate,
         plannedVolume: toNumber(row.plannedVolume),
         deliveredVolume: row.measurements[0]
-          ? toNumber(row.measurements[0].dischargedVolume15)
+          ? toNumber(row.measurements[0].volume15)
           : null,
         uom: row.uom,
         incidents: row.hseEvents.map(toIncident),

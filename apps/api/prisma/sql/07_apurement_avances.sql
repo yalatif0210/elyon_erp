@@ -128,12 +128,14 @@ BEGIN
 
   -- ----- A. Avances SUR MARCHANDISE, au chargement constaté ---------------
   IF NEW.phase::text = 'CHARGEMENT' THEN
-    -- Volume retenu : celui du relevé faisant autorité s'il existe déjà,
-    -- sinon le volume prévu de l'opération. La règle C corrigera plus tard.
-    SELECT m.loaded_volume_15 INTO loaded
+    -- Volume retenu : celui du relevé CHARGEMENT faisant autorité s'il
+    -- existe déjà (§ 25/08/2026, un relevé ne porte plus qu'un bout — voir
+    -- schema.prisma), sinon le volume prévu de l'opération. La règle C
+    -- corrigera plus tard. L'index unique (operation_id, phase) garantit
+    -- qu'il n'y en a jamais plus d'un.
+    SELECT m.volume_15 INTO loaded
       FROM measurement_records m
-     WHERE m.operation_id = NEW.id AND m.is_authoritative
-     LIMIT 1;
+     WHERE m.operation_id = NEW.id AND m.is_authoritative AND m.phase::text = 'CHARGEMENT';
     loaded := COALESCE(loaded, NEW.planned_volume);
 
     FOR r IN
@@ -195,7 +197,11 @@ DECLARE
   r RECORD;
   op RECORD;
 BEGIN
-  IF NOT NEW.is_authoritative THEN
+  -- § 25/08/2026 — un relevé ne porte plus qu'un bout : seul celui pris à
+  -- l'étape CHARGEMENT donne le volume réellement enlevé. Un relevé
+  -- DECHARGEMENT authoritatif ne doit rien réviser ici, quand bien même il
+  -- vient d'être rapproché.
+  IF NOT (NEW.is_authoritative AND NEW.phase::text = 'CHARGEMENT') THEN
     RETURN NEW;
   END IF;
 
@@ -217,7 +223,7 @@ BEGIN
        AND si.prepaid_amount > 0
   LOOP
     PERFORM apply_advance_settlement(
-      r.invoice_id, r.ordered_volume, NEW.loaded_volume_15,
+      r.invoice_id, r.ordered_volume, NEW.volume_15,
       COALESCE(op.actual_loading_date, NEW.measurement_date)
     );
   END LOOP;
@@ -228,7 +234,7 @@ $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trg_revise_advances_on_measurement ON measurement_records;
 CREATE TRIGGER trg_revise_advances_on_measurement
-  AFTER INSERT OR UPDATE OF loaded_volume_15, is_authoritative ON measurement_records
+  AFTER INSERT OR UPDATE OF volume_15, is_authoritative ON measurement_records
   FOR EACH ROW EXECUTE FUNCTION revise_advances_on_measurement();
 
 

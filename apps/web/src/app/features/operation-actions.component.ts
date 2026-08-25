@@ -506,30 +506,38 @@ const HALT_TYPE_LABEL: Record<string, string> = {
           }
         }
 
-        <!-- ============ Relevé de volume ============ -->
+        <!-- ============ Relevé de volume ============
+             ⚠️ CORRIGÉ (§ 25/08/2026) — un relevé ne porte plus qu'un seul
+             bout : le chargement et la livraison se constatent rarement au
+             même moment, parfois pas par le même agent. L'écart entre les
+             deux se calcule au RAPPROCHEMENT, dès que les deux existent —
+             jamais exigé à la saisie d'un seul. -->
         <h3 class="mb-2 mt-6 text-[13px] font-semibold text-ink">Relevé de volume</h3>
         <p class="mb-3 text-[11px] leading-relaxed text-ink-faint">
-          Volumes corrigés à 15 °C. L’écart est CALCULÉ par le système, jamais déclaré. La
-          température est exigée : sans elle, un écart peut n’être qu’un ullage fantôme dû à la
-          dilatation.
+          Volume corrigé à 15 °C. Statistique et opérationnel — jamais un coût ni une base de
+          facturation. L'écart avec l'autre bout, quand il existe, est CALCULÉ par le système.
         </p>
 
         <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
           <div>
-            <label class="label" for="loaded">Volume chargé</label>
-            <input id="loaded" class="field text-right font-mono" erpMontant [(ngModel)]="loaded" />
+            <label class="label" for="mphase">Étape du relevé</label>
+            <select id="mphase" class="field" [(ngModel)]="mesurePhase">
+              @for (p of sequence; track p.code) {
+                <option [value]="p.code">{{ p.label }}</option>
+              }
+            </select>
           </div>
           <div>
-            <label class="label" for="discharged">Volume livré</label>
-            <input id="discharged" class="field text-right font-mono" erpMontant [(ngModel)]="discharged" />
-          </div>
-          <div>
-            <label class="label" for="density">Densité 15 °C</label>
-            <input id="density" class="field text-right font-mono" [(ngModel)]="density" />
+            <label class="label" for="ovolume">Volume relevé</label>
+            <input id="ovolume" class="field text-right font-mono" erpMontant [(ngModel)]="observedVolume" />
           </div>
           <div>
             <label class="label" for="temp">Température °C</label>
             <input id="temp" class="field text-right font-mono" [(ngModel)]="tempC" />
+          </div>
+          <div>
+            <label class="label" for="density">Densité 15 °C</label>
+            <input id="density" class="field text-right font-mono" [(ngModel)]="density" />
           </div>
           <div>
             <label class="label" for="source">Source</label>
@@ -549,29 +557,45 @@ const HALT_TYPE_LABEL: Record<string, string> = {
           Enregistrer le relevé
         </button>
 
-        <!-- Acquittement d'un écart : réservé au CCOO, au CFO et au DG. -->
+        <!-- Acquittement d'un écart : réservé au CCOO, au CFO et au DG. Un
+             relevé sans pendant (ullageVariancePct nul) s'affiche sans
+             alerte ni acquittement : il n'y a encore rien à comparer. -->
         @if (measurements.length > 0) {
           <div class="mt-4 space-y-2">
             @for (m of measurements; track m.id) {
               <div
                 class="flex flex-wrap items-center gap-2 rounded-[3px] px-3 py-2 text-[13px]"
-                [class]="m.ullageAckAt ? 'bg-gray-100 text-ink-soft' : 'bg-warn-wash text-warn-ink'"
+                [class]="
+                  m.ullageVariancePct === null
+                    ? 'bg-gray-50 text-ink-soft'
+                    : m.ullageAckAt
+                      ? 'bg-gray-100 text-ink-soft'
+                      : 'bg-warn-wash text-warn-ink'
+                "
               >
-                <erp-icon [name]="m.ullageAckAt ? 'check-circle' : 'alert-triangle'" [size]="13" />
+                <erp-icon
+                  [name]="m.ullageVariancePct === null ? 'gauge' : m.ullageAckAt ? 'check-circle' : 'alert-triangle'"
+                  [size]="13"
+                />
                 <span class="font-mono">{{ m.reference }}</span>
-                <span>écart {{ m.ullageVariancePct }} %</span>
-                @if (m.ullageAckAt) {
-                  <span class="text-ink-faint">acquitté</span>
-                } @else if (canAcknowledge()) {
-                  <input
-                    class="field ml-auto max-w-sm"
-                    [(ngModel)]="ackReason"
-                    placeholder="Motif de l’acquittement (10 caractères minimum)"
-                    [attr.aria-label]="'Motif pour ' + m.reference"
-                  />
-                  <button class="btn-ghost" (click)="acknowledge(m.id)" [disabled]="state.busy()">
-                    Acquitter
-                  </button>
+                <span class="font-mono text-[11px] text-ink-muted">{{ m.phase }}</span>
+                @if (m.ullageVariancePct === null) {
+                  <span>{{ m.volume15 }} {{ operation.uom }}</span>
+                } @else {
+                  <span>écart {{ m.ullageVariancePct }} %</span>
+                  @if (m.ullageAckAt) {
+                    <span class="text-ink-faint">acquitté</span>
+                  } @else if (canAcknowledge()) {
+                    <input
+                      class="field ml-auto max-w-sm"
+                      [(ngModel)]="ackReason"
+                      placeholder="Motif de l’acquittement (10 caractères minimum)"
+                      [attr.aria-label]="'Motif pour ' + m.reference"
+                    />
+                    <button class="btn-ghost" (click)="acknowledge(m.id)" [disabled]="state.busy()">
+                      Acquitter
+                    </button>
+                  }
                 }
               </div>
             }
@@ -672,8 +696,9 @@ export class OperationActionsComponent {
       });
   }
 
-  protected loaded: number | null = null;
-  protected discharged: number | null = null;
+  /** Étape du relevé (§ 25/08/2026) — un relevé ne porte qu'un seul bout ; l'écart se calcule au rapprochement avec l'autre. */
+  protected mesurePhase = 'CHARGEMENT';
+  protected observedVolume: number | null = null;
   protected density = 0.84;
   protected tempC: number | null = null;
   protected source = 'CONTRADICTORY';
@@ -960,17 +985,19 @@ export class OperationActionsComponent {
     this.state.start();
     this.api
       .recordMeasurement(this.operation.id, {
+        phase: this.mesurePhase,
         source: this.source,
         measurementDate: this.measurementDate,
         uom: this.operation.uom,
-        loadedVolume15: Number(this.loaded ?? 0),
-        dischargedVolume15: Number(this.discharged ?? 0),
+        observedVolume: Number(this.observedVolume ?? 0),
+        tempC: Number(this.tempC),
         measuredDensity15: Number(this.density),
-        observedTempC: this.tempC === null ? undefined : Number(this.tempC),
       })
       .subscribe({
         next: () => {
-          this.state.succeed('Relevé enregistré : l’écart a été calculé.');
+          this.state.succeed(
+            'Relevé enregistré. L’écart se calcule dès que le relevé du bout opposé existe.',
+          );
           this.changed.emit();
         },
         error: (e: HttpFailure) => this.state.fail(e),

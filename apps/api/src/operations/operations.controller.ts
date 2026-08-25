@@ -165,14 +165,25 @@ class CostLineDto {
   @IsOptional() @IsISO8601() incurredAt?: string;
 }
 
+/**
+ * Relevé de mesure — UN SEUL BOUT (§ 25/08/2026).
+ *
+ * Portait auparavant le chargé ET le livré ensemble, dans le même envoi :
+ * une saisie que le terrain ne peut pas toujours faire d'un coup (le
+ * chargement se constate à un moment, la livraison à un autre, parfois un
+ * autre jour, parfois un autre agent). `phase` porte l'étape à laquelle CE
+ * relevé est pris ; l'écart avec l'autre bout, s'il existe déjà, se calcule
+ * au rapprochement — voir `OperationsService.recordMeasurement`.
+ */
 export class MeasurementDto {
+  @IsEnum(OperationPhase) phase!: OperationPhase;
   @IsEnum(MeasurementSource) source!: MeasurementSource;
   @IsOptional() @IsBoolean() isAuthoritative?: boolean;
   @IsOptional() @IsUUID() inspectorId?: string;
   @IsISO8601() measurementDate!: string;
 
   /**
-   * CE QUI A ÉTÉ RELEVÉ, aux deux bouts — volume à la jauge et température.
+   * CE QUI A ÉTÉ RELEVÉ — volume à la jauge et température.
    *
    * ⚠️ La température est OBLIGATOIRE (§ 8.2). Sans elle, aucun volume ne peut
    *    être ramené à 15 °C, et deux relevés pris à des températures
@@ -180,10 +191,8 @@ export class MeasurementDto {
    *    32 °C et une livraison à 26 °C affichent 0,48 % d'écart à masse
    *    constante — plus du double du seuil critique.
    */
-  @Type(() => Number) @IsNumber() @Min(0.000001) loadedObservedVolume!: number;
-  @Type(() => Number) @IsNumber() loadedTempC!: number;
-  @Type(() => Number) @IsNumber() @Min(0.000001) dischargedObservedVolume!: number;
-  @Type(() => Number) @IsNumber() dischargedTempC!: number;
+  @Type(() => Number) @IsNumber() @Min(0.000001) observedVolume!: number;
+  @Type(() => Number) @IsNumber() tempC!: number;
 
   @IsEnum(UnitOfMeasure) uom!: UnitOfMeasure;
   @Type(() => Number) @IsNumber() @Min(0) measuredDensity15!: number;
@@ -958,11 +967,12 @@ export class OperationsService {
   }
 
   /**
-   * Relevé de mesure.
+   * Relevé de mesure — UN SEUL BOUT (§ 25/08/2026).
    *
-   * L'écart d'ullage est CALCULÉ ici et re-vérifié par un CHECK en base : il
-   * ne se déclare pas. Les seuils applicables sont figés au moment du relevé —
-   * une grille révisée ensuite ne doit pas requalifier un écart déjà acquitté.
+   * Le volume à 15 °C est CALCULÉ ici, jamais reçu. Une fois le relevé
+   * enregistré, `reconcilierUllage` cherche son pendant (CHARGEMENT si ce
+   * relevé est un DECHARGEMENT, et réciproquement) et calcule l'écart s'il
+   * le trouve — jamais avant, jamais en l'exigeant à la saisie.
    */
   async recordMeasurement(
     operationId: string,
@@ -970,40 +980,7 @@ export class OperationsService {
     actorId: string,
     origine?: FieldOrigin,
   ) {
-    const operation = await this.prisma.operation.findUniqueOrThrow({
-      where: { id: operationId },
-      select: { transportMode: true, deal: { select: { productId: true, segment: true } } },
-    });
-
-    // ⚠️ LES VOLUMES À 15 °C SONT CALCULÉS ICI, PAS REÇUS.
-    //
-    //    Ils étaient pris tels quels de la tablette, dans des champs nommés
-    //    « à 15 °C » que rien ne corrigeait. L'écart d'ullage mesurait alors la
-    //    dilatation du produit autant que la perte réelle — et on ne savait
-    //    pas dire dans quelle proportion.
-    const chargement = this.astm.corrige(
-      dto.loadedObservedVolume, dto.loadedTempC, dto.measuredDensity15);
-    const livraison = this.astm.corrige(
-      dto.dischargedObservedVolume, dto.dischargedTempC, dto.measuredDensity15);
-
-    const loadedVolume15 = chargement.volume15;
-    const dischargedVolume15 = livraison.volume15;
-
-    const variance = round6(
-      ((loadedVolume15 - dischargedVolume15) / loadedVolume15) * 100,
-    );
-
-    const tolerance = await this.resolveTolerance(
-      operation.deal.productId,
-      operation.transportMode,
-      operation.deal.segment,
-      new Date(dto.measurementDate),
-    );
-
-    const alert = tolerance?.alertThresholdPct ? Number(tolerance.alertThresholdPct) : null;
-    const critical = tolerance?.criticalThresholdPct
-      ? Number(tolerance.criticalThresholdPct)
-      : null;
+    const correction = this.astm.corrige(dto.observedVolume, dto.tempC, dto.measuredDensity15);
 
     const reference = await this.reference.annual('MES');
 
@@ -1011,43 +988,22 @@ export class OperationsService {
       data: {
         reference,
         operationId,
+        phase: dto.phase,
         source: dto.source,
         isAuthoritative: dto.isAuthoritative ?? false,
         inspectorId: dto.inspectorId ?? null,
         measurementDate: new Date(dto.measurementDate),
-        // Résultats de la correction.
-        loadedVolume15: loadedVolume15.toFixed(6),
-        dischargedVolume15: dischargedVolume15.toFixed(6),
+        // Résultat de la correction, et ce qui a servi à l'obtenir — les
+        // trois sont conservés : sans eux le calcul n'est pas rejouable, et
+        // une révision de la table de correction changerait rétroactivement
+        // un écart déjà acquitté.
+        volume15: correction.volume15.toFixed(6),
+        observedVolume: dto.observedVolume.toFixed(6),
+        observedTempC: dto.tempC.toFixed(2),
+        vcf: correction.vcf.toFixed(6),
         uom: dto.uom,
-
-        // Ce qui a été relevé, et le facteur appliqué. Les trois sont
-        // conservés : sans eux le calcul n'est pas rejouable, et une révision
-        // de la table changerait rétroactivement un écart déjà acquitté.
-        loadedObservedVolume: dto.loadedObservedVolume.toFixed(6),
-        loadedTempC: dto.loadedTempC.toFixed(2),
-        loadedVcf: chargement.vcf.toFixed(6),
-        dischargedObservedVolume: dto.dischargedObservedVolume.toFixed(6),
-        dischargedTempC: dto.dischargedTempC.toFixed(2),
-        dischargedVcf: livraison.vcf.toFixed(6),
-
-        // Conservés pour l'historique : ils portaient le relevé « observé »
-        // unique de l'ancien modèle, qui ne distinguait pas les deux bouts.
-        observedVolume: dto.dischargedObservedVolume.toFixed(6),
-        observedTempC: dto.dischargedTempC.toFixed(2),
         measuredDensity15: dto.measuredDensity15.toFixed(6),
         isOffSpec: dto.isOffSpec ?? false,
-        ullageVariancePct: variance.toFixed(6),
-        toleranceId: tolerance?.id ?? null,
-        alertThresholdPct: alert?.toFixed(6) ?? null,
-        criticalThresholdPct: critical?.toFixed(6) ?? null,
-        // ⚠️ COMPARAISON LARGE, ET NON STRICTE.
-        //
-        //    Elle était stricte. Or la grille actuelle porte un seuil normal
-        //    ÉGAL au seuil d'alerte (0,200000 %) : un écart tombant exactement
-        //    dessus ne levait AUCUNE alerte. Un seuil qu'on peut atteindre sans
-        //    le déclencher n'est pas un seuil.
-        ullageAlertTriggered: alert !== null && variance >= alert,
-        ullageCriticalTriggered: critical !== null && variance >= critical,
         // Deux colonnes distinctes, jamais l'une pour l'autre : le relevé
         // contradictoire fait sur le terrain et la saisie faite au bureau
         // n'ont pas la même valeur probante, et la confusion se paierait au
@@ -1066,7 +1022,72 @@ export class OperationsService {
       after: record,
     });
 
-    return record;
+    return (await this.reconcilierUllage(operationId)) ?? record;
+  }
+
+  /**
+   * Rapprochement chargé/livré (§ 8.2, § 8.3, § 25/08/2026).
+   *
+   * Cherche le relevé CHARGEMENT et le relevé DECHARGEMENT faisant autorité
+   * de l'opération (au plus un de chaque — index unique en base). Si les
+   * deux existent, (re)calcule l'écart sur le relevé DECHARGEMENT : c'est
+   * lui qui referme la paire, quel que soit l'ordre d'arrivée des deux
+   * relevés (un chargement ressaisi après coup doit réviser un écart déjà
+   * posé, tout comme une livraison qui arrive après un chargement ancien).
+   * Sans pendant, ne fait rien — un relevé isolé n'a rien à comparer.
+   *
+   * L'écart reste ce qu'il a toujours été : statistique et opérationnel, il
+   * n'entre ni dans les coûts ni dans la facturation (§ 8.3). Le volume
+   * CHARGÉ, lui, reste lu séparément par l'apurement des avances
+   * fournisseurs (07_apurement_avances.sql) — un calcul de trésorerie, sans
+   * rapport avec l'écart calculé ici.
+   */
+  private async reconcilierUllage(operationId: string) {
+    const [chargement, dechargement] = await Promise.all([
+      this.prisma.measurementRecord.findFirst({
+        where: { operationId, phase: OperationPhase.CHARGEMENT, isAuthoritative: true },
+      }),
+      this.prisma.measurementRecord.findFirst({
+        where: { operationId, phase: OperationPhase.DECHARGEMENT, isAuthoritative: true },
+      }),
+    ]);
+    if (!chargement || !dechargement) return null;
+
+    const loadedVolume15 = Number(chargement.volume15);
+    const dischargedVolume15 = Number(dechargement.volume15);
+    const variance = round6(((loadedVolume15 - dischargedVolume15) / loadedVolume15) * 100);
+
+    const operation = await this.prisma.operation.findUniqueOrThrow({
+      where: { id: operationId },
+      select: { transportMode: true, deal: { select: { productId: true, segment: true } } },
+    });
+    const tolerance = await this.resolveTolerance(
+      operation.deal.productId,
+      operation.transportMode,
+      operation.deal.segment,
+      dechargement.measurementDate,
+    );
+    const alert = tolerance?.alertThresholdPct ? Number(tolerance.alertThresholdPct) : null;
+    const critical = tolerance?.criticalThresholdPct
+      ? Number(tolerance.criticalThresholdPct)
+      : null;
+
+    return this.prisma.measurementRecord.update({
+      where: { id: dechargement.id },
+      data: {
+        pairedMeasurementId: chargement.id,
+        pairedLoadedVolume15: loadedVolume15.toFixed(6),
+        ullageVariancePct: variance.toFixed(6),
+        toleranceId: tolerance?.id ?? null,
+        alertThresholdPct: alert?.toFixed(6) ?? null,
+        criticalThresholdPct: critical?.toFixed(6) ?? null,
+        // ⚠️ COMPARAISON LARGE, ET NON STRICTE — la grille actuelle porte un
+        //    seuil normal ÉGAL au seuil d'alerte (0,200000 %) : un écart
+        //    tombant exactement dessus ne levait AUCUNE alerte avec `>`.
+        ullageAlertTriggered: alert !== null && variance >= alert,
+        ullageCriticalTriggered: critical !== null && variance >= critical,
+      },
+    });
   }
 
   /** Acquittement d'un écart — CCOO, CFO ou DG seuls, vérifié en base (§ 8.3). */

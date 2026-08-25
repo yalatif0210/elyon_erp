@@ -1,6 +1,12 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
-import { ActorType, AttachmentKind, GeneratedDocumentKind, InvoiceType } from '@prisma/client';
+import {
+  ActorType,
+  AttachmentKind,
+  GeneratedDocumentKind,
+  InvoiceType,
+  OperationPhase,
+} from '@prisma/client';
 import type { Job } from 'bullmq';
 import { randomBytes } from 'node:crypto';
 import * as QRCode from 'qrcode';
@@ -249,7 +255,12 @@ export class DocumentsPdfProcessor extends WorkerHost {
             },
           },
         },
-        measurements: { where: { isAuthoritative: true }, take: 1 },
+        // § 25/08/2026 — un relevé ne porte plus qu'un bout : celui qui
+        // compte pour le bon de livraison est le relevé DECHARGEMENT.
+        measurements: {
+          where: { isAuthoritative: true, phase: OperationPhase.DECHARGEMENT },
+          take: 1,
+        },
       },
     });
 
@@ -333,7 +344,7 @@ export class DocumentsPdfProcessor extends WorkerHost {
       destinationLocation: op.destinationLocation,
       plannedVolume: op.plannedVolume.toString(),
       uom: op.uom,
-      deliveredVolume: measurement?.dischargedVolume15?.toString() ?? op.plannedVolume.toString(),
+      deliveredVolume: measurement?.volume15?.toString() ?? op.plannedVolume.toString(),
       isDeliveredVolumeAuthoritative: Boolean(measurement),
       actualLoadingDate: op.actualLoadingDate?.toISOString() ?? null,
       actualDischargeDate: op.actualDischargeDate?.toISOString() ?? null,

@@ -249,21 +249,36 @@ import { jour, jourHeure } from './terrain-libelles';
           <p class="t-hint">Aucun moyen n’est encore affecté à cette opération.</p>
         }
 
+        <!-- ⚠️ CORRIGÉ (§ 25/08/2026) — un relevé ne porte plus qu'un seul
+             bout (chargement OU livraison, jamais les deux dans la même
+             ligne) : une carte par relevé, avec son étape. -->
         <p class="t-section">Relevés</p>
         @if (op.measurements.length === 0) {
           <p class="t-hint">Aucun relevé enregistré.</p>
         } @else {
           @for (m of op.measurements; track m.measurementDate) {
             <div class="t-card">
-              <p class="text-[15px] font-semibold text-ink">{{ dateHeureDe(m.measurementDate) }}</p>
+              <div class="flex items-center justify-between gap-2">
+                <p class="text-[15px] font-semibold text-ink">{{ dateHeureDe(m.measurementDate) }}</p>
+                <span class="t-code">{{ m.phase }}</span>
+              </div>
               <p class="mt-1 text-[15px] text-ink-soft">
-                Chargé <span class="tabular font-semibold text-ink">{{ m.loadedVolume15 }}</span> ·
-                Livré <span class="tabular font-semibold text-ink">{{ m.dischargedVolume15 }}</span>
+                <span class="tabular font-semibold text-ink">{{ m.volume15 }}</span>
                 <span class="t-code ml-1">{{ m.uom }}</span>
               </p>
               <p class="mt-1 text-[15px] text-ink-soft">
                 Température {{ m.observedTempC ?? '-' }} °C
               </p>
+              @if (m.ullageVariancePct !== null) {
+                <p class="mt-1 text-[15px] text-ink-soft">
+                  Écart rapproché
+                  <span class="tabular font-semibold text-ink ml-1">{{ m.ullageVariancePct }} %</span>
+                </p>
+              } @else if (m.phase === 'CHARGEMENT' || m.phase === 'DECHARGEMENT') {
+                <p class="mt-1 text-[13px] text-ink-muted">
+                  En attente du relevé de l'autre bout pour calculer l'écart.
+                </p>
+              }
               @if (m.isOffSpec) {
                 <p class="mt-1 text-[15px] font-semibold text-crit">Hors spécification</p>
               }

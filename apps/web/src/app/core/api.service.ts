@@ -446,11 +446,20 @@ export interface OperationDetail extends Omit<OperationRow, 'deal'> {
   }[];
 }
 
-/** Relevé de mesure, réduit à ce qu'un écran d'action doit en savoir. */
+/**
+ * Relevé de mesure, réduit à ce qu'un écran d'action doit en savoir.
+ *
+ * Un relevé = un seul bout (§ 25/08/2026, `phase` dit lequel).
+ * `ullageVariancePct` reste NUL tant que le pendant (l'autre bout) n'a pas
+ * encore été relevé — un relevé isolé n'a rien à comparer.
+ */
 export interface MeasurementSummary {
   id: string;
   reference: string;
-  ullageVariancePct: string;
+  phase: string;
+  observedVolume: string;
+  volume15: string;
+  ullageVariancePct: string | null;
   ullageAlertTriggered: boolean;
   ullageAckAt: string | null;
 }

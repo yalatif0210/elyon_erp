@@ -90,13 +90,17 @@ export interface FieldChecklistView {
   blockingPending: number;
 }
 
+/** Un relevé = un seul bout (§ 25/08/2026) — `phase` dit lequel. */
 export interface FieldMeasurementView {
   measurementDate: string;
-  loadedVolume15: number;
-  dischargedVolume15: number;
+  phase: string;
+  observedVolume: number;
+  volume15: number;
   uom: string;
   observedTempC: number | null;
   isOffSpec: boolean;
+  /** Nul tant que le relevé du bout opposé n'existe pas encore. */
+  ullageVariancePct: number | null;
 }
 
 export interface FieldIncidentView {

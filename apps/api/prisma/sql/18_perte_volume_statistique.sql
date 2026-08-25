@@ -89,6 +89,11 @@ COMMENT ON FUNCTION refuse_perte_volume_en_cout IS
 --  facture pas ». Il reste un signal de premier ordre : un transporteur, un
 --  itinéraire ou un dépôt qui dérive se voit ici avant de se voir ailleurs.
 -- ---------------------------------------------------------------------------
+-- § 25/08/2026 — un relevé ne porte plus qu'un bout (schema.prisma,
+-- MeasurementRecord). Seul le relevé DECHARGEMENT authoritatif, une fois
+-- rapproché du CHARGEMENT correspondant, porte un écart non nul
+-- (`ullage_variance_pct`, `paired_loaded_volume_15`) : c'est lui qu'on
+-- agrège ici, jamais le relevé CHARGEMENT lui-même qui n'a rien à comparer.
 CREATE OR REPLACE VIEW v_ullage_statistiques AS
 SELECT p.legal_name                              AS transporteur,
        pr.code                                   AS produit,
@@ -102,7 +107,7 @@ SELECT p.legal_name                              AS transporteur,
        -- Volume perdu cumulé, EN VOLUME et jamais en devise : c'est ce qui
        -- rend deux transporteurs comparables sans introduire un coût qui
        -- n'existe pas.
-       round(sum(m.loaded_volume_15 - m.discharged_volume_15), 3) AS volume_perdu_cumule
+       round(sum(m.paired_loaded_volume_15 - m.volume_15), 3) AS volume_perdu_cumule
   FROM measurement_records m
   JOIN operations o ON o.id = m.operation_id
   JOIN deals d ON d.id = o.deal_id
@@ -110,6 +115,8 @@ SELECT p.legal_name                              AS transporteur,
   LEFT JOIN operation_assignments a ON a.operation_id = o.id
   LEFT JOIN partners p ON p.id = a.carrier_id
  WHERE m.is_authoritative
+   AND m.phase::text = 'DECHARGEMENT'
+   AND m.ullage_variance_pct IS NOT NULL
  GROUP BY p.legal_name, pr.code, o.transport_mode;
 
 COMMENT ON VIEW v_ullage_statistiques IS

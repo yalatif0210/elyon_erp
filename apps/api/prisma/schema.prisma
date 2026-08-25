@@ -3231,6 +3231,35 @@ model OperationAttachment {
 //  s'appuie sur celui qui FAIT AUTORITÉ pour le segment.
 // ============================================================================
 
+/// UN RELEVÉ = UN SEUL BOUT (§ 25/08/2026).
+///
+/// Portait auparavant le chargé ET le livré dans la même ligne, avec l'écart
+/// calculé entre ces deux colonnes. Ça ne correspond pas au terrain : le
+/// chargement se constate à un moment, la livraison à un autre — souvent un
+/// autre jour, parfois un autre agent — et rien n'obligeait déjà les deux à
+/// être connus ensemble. `phase` porte désormais l'étape (CHARGEMENT,
+/// DECHARGEMENT, ou toute autre si un relevé y a un sens) à laquelle CE
+/// relevé est pris ; plusieurs relevés peuvent coexister sur une opération.
+///
+/// L'écart entre chargé et livré (`ullageVariancePct` et ce qui l'entoure)
+/// reste NUL tant que les deux bouts ne sont pas connus — il se calcule au
+/// RAPPROCHEMENT, dans le service, dès qu'un relevé DECHARGEMENT authoritatif
+/// trouve un relevé CHARGEMENT authoritatif sur la même opération (et
+/// réciproquement, si le chargement arrive après coup). Le résultat est posé
+/// EN SNAPSHOT sur le relevé qui complète la paire (`pairedLoadedVolume15`) —
+/// jamais recalculé par jointure vivante, même principe que `vcf` : sans lui,
+/// le calcul n'est pas rejouable, et une donnée qui se recalculerait au fil
+/// des lectures changerait rétroactivement un écart déjà acquitté.
+///
+/// ⚠️ CET ÉCART EST STATISTIQUE ET OPÉRATIONNEL, JAMAIS FINANCIER (§ 8.3,
+///    18_perte_volume_statistique.sql) — « je livre ce que j'ai charge » :
+///    le volume facturé est celui chargé, l'écart à la livraison ne réduit
+///    aucune marge, ne se chiffre pas en coût, ne modifie aucune facture. Il
+///    sert au suivi HSE et statistique en interne. Le volume CHARGÉ reste en
+///    revanche lu par l'apurement des avances fournisseurs (§ 14.6,
+///    07_apurement_avances.sql) : un calcul de trésorerie, distinct de la
+///    facturation, qui rapporte le volume réellement enlevé à ce qui a été
+///    avancé — pas de lien avec l'écart de livraison lui-même.
 model MeasurementRecord {
   id        String @id @default(uuid()) @db.Uuid
   reference String @unique @db.VarChar(24)
@@ -3238,9 +3267,13 @@ model MeasurementRecord {
   operationId String    @map("operation_id") @db.Uuid
   operation   Operation @relation(fields: [operationId], references: [id], onDelete: Restrict)
 
+  /// L'étape à laquelle CE relevé (un seul bout) est pris.
+  phase OperationPhase
+
   source MeasurementSource
-  /// Vrai pour le relevé qui fait foi sur cette opération. Un seul par
-  /// opération — index unique partiel en base.
+  /// Vrai pour le relevé qui fait foi, PAR ÉTAPE — un CHARGEMENT et un
+  /// DECHARGEMENT authoritatifs coexistent normalement sur la même
+  /// opération. Index unique partiel en base, sur (operationId, phase).
   isAuthoritative Boolean @default(false) @map("is_authoritative")
 
   /// Inspecteur tiers, lorsque la source est une inspection indépendante.
@@ -3249,44 +3282,27 @@ model MeasurementRecord {
 
   measurementDate DateTime @map("measurement_date") @db.Date
 
-  // --- Volumes corrigés à 15 °C (ASTM D1250) ---
+  // ⚠️ `volume15` EST UN RÉSULTAT, PAS UNE SAISIE.
   //
-  // ⚠️ CES DEUX COLONNES SONT DES RÉSULTATS, PAS DES SAISIES.
-  //
-  //    Elles étaient prises telles quelles de la tablette, sans qu'aucune
-  //    correction de température n'existe nulle part dans le code. Un
-  //    chargement à 32 °C et une livraison à 26 °C, saisis dans des champs
-  //    nommés « à 15 °C », produisaient ~0,48 % d'écart apparent — plus du
-  //    DOUBLE du seuil critique — sur une opération parfaitement saine. Et
-  //    symétriquement, une perte réelle pouvait être masquée par un écart
-  //    thermique inverse.
-  //
-  //    Elles sont désormais CALCULÉES à partir du volume observé, de la
-  //    température et de la masse volumique, par le service de correction.
-  loadedVolume15     Decimal       @map("loaded_volume_15") @db.Decimal(18, 6)
-  dischargedVolume15 Decimal       @map("discharged_volume_15") @db.Decimal(18, 6)
+  //    Il était pris tel quel de la tablette, sans qu'aucune correction de
+  //    température n'existe nulle part dans le code. Un relevé à 32 °C saisi
+  //    dans un champ nommé « à 15 °C » produisait un écart apparent qui
+  //    n'était que de la dilatation. Il est désormais CALCULÉ à partir du
+  //    volume observé, de la température et de la masse volumique, par le
+  //    service de correction (ASTM D1250).
+  volume15 Decimal @map("volume_15") @db.Decimal(18, 6)
 
-  // --- Ce qui a été RÉELLEMENT relevé, aux deux bouts -----------------------
-  //
-  // Le § 8.2 l'exige : « l'application terrain doit OBLIGER à saisir la
-  // température à chaque relevé ». Un volume sans sa température n'est pas
-  // corrigible, donc pas comparable à l'autre bout.
-  loadedObservedVolume     Decimal? @map("loaded_observed_volume") @db.Decimal(18, 6)
-  loadedTempC              Decimal? @map("loaded_temp_c") @db.Decimal(6, 2)
-  /// Facteur de correction appliqué au chargement, CONSERVÉ.
-  /// Sans lui, le calcul n'est pas rejouable : une révision de la table de
-  /// correction changerait rétroactivement un écart déjà acquitté.
-  loadedVcf                Decimal? @map("loaded_vcf") @db.Decimal(9, 6)
+  // Ce qui a été RÉELLEMENT relevé. Le § 8.2 l'exige : « l'application
+  // terrain doit OBLIGER à saisir la température à chaque relevé ». Un
+  // volume sans sa température n'est pas corrigible.
+  observedVolume Decimal @map("observed_volume") @db.Decimal(18, 6)
+  observedTempC  Decimal @map("observed_temp_c") @db.Decimal(6, 2)
+  /// Facteur de correction appliqué, CONSERVÉ. Sans lui le calcul n'est pas
+  /// rejouable : une révision de la table de correction changerait
+  /// rétroactivement un écart déjà acquitté.
+  vcf Decimal @map("vcf") @db.Decimal(9, 6)
 
-  dischargedObservedVolume Decimal? @map("discharged_observed_volume") @db.Decimal(18, 6)
-  dischargedTempC          Decimal? @map("discharged_temp_c") @db.Decimal(6, 2)
-  dischargedVcf            Decimal? @map("discharged_vcf") @db.Decimal(9, 6)
-  uom                UnitOfMeasure
-
-  /// Volume observé et température : sans eux, la correction n'est pas
-  /// vérifiable et l'écart peut être un ullage fantôme (§ 8.2).
-  observedVolume Decimal? @map("observed_volume") @db.Decimal(18, 6)
-  observedTempC  Decimal? @map("observed_temp_c") @db.Decimal(6, 2)
+  uom UnitOfMeasure
 
   // --- Qualité ---
   measuredDensity15   Decimal  @map("measured_density_15") @db.Decimal(9, 6)
@@ -3296,11 +3312,21 @@ model MeasurementRecord {
   flashPointC         Decimal? @map("flash_point_c") @db.Decimal(6, 2)
   isOffSpec           Boolean  @default(false) @map("is_off_spec")
 
-  // --- Écart de volume (§ 8.2, § 8.3) ---
-  /// (chargé − livré) / chargé × 100. Cohérence vérifiée par CHECK.
-  ullageVariancePct Decimal @map("ullage_variance_pct") @db.Decimal(9, 6)
-  /// Tolérance appliquée, figée au moment du relevé : une grille révisée
-  /// ensuite ne doit pas requalifier rétroactivement un écart acquitté.
+  // --- Rapprochement (§ 8.2, § 8.3) — rempli UNIQUEMENT sur le relevé qui
+  //     referme la paire chargé/livré, jamais sur celui qui l'ouvre. ---
+  /// Le relevé de l'autre bout utilisé au calcul.
+  pairedMeasurementId String?            @unique @map("paired_measurement_id") @db.Uuid
+  pairedMeasurement   MeasurementRecord? @relation("MeasurementPair", fields: [pairedMeasurementId], references: [id], onDelete: SetNull)
+  pairedCounterpart   MeasurementRecord? @relation("MeasurementPair")
+  /// Snapshot du volume chargé utilisé au rapprochement — permet un CHECK
+  /// intra-ligne de cohérence de `ullageVariancePct`, sans jointure vivante.
+  pairedLoadedVolume15 Decimal? @map("paired_loaded_volume_15") @db.Decimal(18, 6)
+
+  /// (chargé − livré) / chargé × 100. NUL tant que l'autre bout n'est pas
+  /// connu. Cohérence avec `pairedLoadedVolume15` vérifiée par CHECK.
+  ullageVariancePct Decimal? @map("ullage_variance_pct") @db.Decimal(9, 6)
+  /// Tolérance appliquée, figée au moment du rapprochement : une grille
+  /// révisée ensuite ne doit pas requalifier rétroactivement un écart acquitté.
   toleranceId       String?          @map("tolerance_id") @db.Uuid
   tolerance         UllageTolerance? @relation(fields: [toleranceId], references: [id], onDelete: SetNull)
   alertThresholdPct Decimal?         @map("alert_threshold_pct") @db.Decimal(9, 6)
@@ -3309,8 +3335,7 @@ model MeasurementRecord {
   ullageAlertTriggered    Boolean @default(false) @map("ullage_alert_triggered")
   ullageCriticalTriggered Boolean @default(false) @map("ullage_critical_triggered")
 
-  /// Acquittement — CCOO, CFO ou DG seuls (§ 8.3). Sans lui, la facturation
-  /// définitive est bloquée.
+  /// Acquittement — CCOO, CFO ou DG seuls (§ 8.3).
   ullageAckById   String?     @map("ullage_ack_by_id") @db.Uuid
   ullageAckBy     User?       @relation("UllageAcknowledger", fields: [ullageAckById], references: [id], onDelete: Restrict)
   ullageAckAt     DateTime?   @map("ullage_ack_at") @db.Timestamptz(3)
@@ -3326,13 +3351,13 @@ model MeasurementRecord {
   enteredByUserId      String?    @map("entered_by_user_id") @db.Uuid
   enteredByUser        User?      @relation("MeasurementRecorderUser", fields: [enteredByUserId], references: [id], onDelete: SetNull)
 
-  /// Un relevé non validé ne peut pas asseoir une facture définitive.
   validatedAt DateTime? @map("validated_at") @db.Timestamptz(3)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([operationId, measurementDate])
+  @@index([operationId, phase])
   @@index([ullageAlertTriggered, ullageAckAt])
   @@index([source, isAuthoritative])
   @@map("measurement_records")

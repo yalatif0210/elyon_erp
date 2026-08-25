@@ -700,18 +700,31 @@ CREATE TRIGGER trg_proforma_no_fiscal_effect
 --  est allé quelque part.
 -- ---------------------------------------------------------------------------
 
+-- ⚠️ REVU LE 25/08/2026 — un relevé ne porte plus qu'UN SEUL bout (voir
+--    schema.prisma, MeasurementRecord). L'écart chargé/livré ne compare
+--    donc plus deux COLONNES de la même ligne, mais `volume15` contre
+--    `paired_loaded_volume_15` — un SNAPSHOT posé sur le relevé qui referme
+--    la paire au moment du rapprochement (jamais recalculé par jointure
+--    vivante), ce qui permet de garder cette vérification comme un CHECK
+--    intra-ligne plutôt que de la faire dépendre d'un trigger inter-lignes.
 ALTER TABLE measurement_records
   DROP CONSTRAINT IF EXISTS chk_measurement_volumes_positive,
-  ADD  CONSTRAINT chk_measurement_volumes_positive
-       CHECK (loaded_volume_15 > 0 AND discharged_volume_15 > 0),
+  DROP CONSTRAINT IF EXISTS chk_measurement_volume_positive,
+  ADD  CONSTRAINT chk_measurement_volume_positive
+       CHECK (volume_15 > 0),
 
-  -- L'écart est calculé, pas déclaré.
+  -- L'écart est calculé, pas déclaré — NUL tant que l'autre bout n'est pas
+  -- connu, cohérent avec le snapshot sinon.
   DROP CONSTRAINT IF EXISTS chk_measurement_ullage_computed,
   ADD  CONSTRAINT chk_measurement_ullage_computed
        CHECK (
-         abs(ullage_variance_pct
-             - round(((loaded_volume_15 - discharged_volume_15) / loaded_volume_15) * 100, 6)
-            ) <= 0.000001
+         ullage_variance_pct IS NULL
+         OR (
+           paired_loaded_volume_15 IS NOT NULL
+           AND abs(ullage_variance_pct
+                   - round(((paired_loaded_volume_15 - volume_15) / paired_loaded_volume_15) * 100, 6)
+                  ) <= 0.000001
+         )
        ),
 
   DROP CONSTRAINT IF EXISTS chk_measurement_ack_complete,
@@ -723,10 +736,11 @@ ALTER TABLE measurement_records
              AND length(trim(ullage_ack_reason)) >= 10)
        );
 
--- Un seul relevé fait autorité par opération.
+-- Un seul relevé fait autorité PAR ÉTAPE : un CHARGEMENT et un DECHARGEMENT
+-- authoritatifs coexistent normalement sur la même opération.
 DROP INDEX IF EXISTS uq_measurement_single_authoritative;
 CREATE UNIQUE INDEX uq_measurement_single_authoritative
-  ON measurement_records (operation_id) WHERE is_authoritative;
+  ON measurement_records (operation_id, phase) WHERE is_authoritative;
 
 -- L'acquittement d'un écart est réservé au CCOO, au CFO et au DG.
 CREATE OR REPLACE FUNCTION enforce_ullage_ack_role_lot2()
