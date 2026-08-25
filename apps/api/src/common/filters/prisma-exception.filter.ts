@@ -109,13 +109,24 @@ export class PrismaExceptionFilter implements ExceptionFilter {
         };
       }
 
-      // --- Référence invalide ------------------------------------------------
-      case 'P2003':
+      // --- Référence invalide --------------------------------------------
+      // Prisma rend le nom de la contrainte dans `meta.field_name`, suffixé
+      // « (index) » sur Postgres : sans lui, l'utilisateur sait seulement
+      // qu'une dépendance bloque, jamais LAQUELLE — un agent qui tente de
+      // supprimer un brouillon d'opération encore référencé par le journal
+      // terrain (`field_sync_events`, § 10.2) ne peut pas savoir quoi
+      // signaler au support avec le seul message générique.
+      case 'P2003': {
+        const fieldName = (exception.meta as { field_name?: string } | undefined)?.field_name;
+        const contrainte = fieldName?.replace(/\s*\(index\)\s*$/, '').replace(/_fkey$/, '');
         return {
           status: HttpStatus.UNPROCESSABLE_ENTITY,
           code: 'FOREIGN_KEY',
-          message: 'Référence inexistante ou suppression bloquée par une dépendance.',
+          message: contrainte
+            ? `Référence inexistante ou suppression bloquée par une dépendance : ${contrainte}.`
+            : 'Référence inexistante ou suppression bloquée par une dépendance.',
         };
+      }
 
       case 'P2025':
         return {
