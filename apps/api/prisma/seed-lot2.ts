@@ -702,26 +702,54 @@ async function main(): Promise<void> {
   const DISCHARGED = 29_925;
   const ullagePct = r4(((LOADED - DISCHARGED) / LOADED) * 100); // 0,25
 
+  // Un relevé ne porte plus qu'un seul bout (§ 25/08/2026) : le chargement
+  // et la livraison sont deux lignes distinctes, rapprochées via
+  // pairedMeasurementId/pairedLoadedVolume15 sur celle qui referme la paire.
   const existingMeasurement = await prisma.measurementRecord.findUnique({
-    where: { reference: 'MR-2026-08-001' },
+    where: { reference: 'MR-2026-08-001-CHG' },
   });
   if (!existingMeasurement) {
-    await prisma.measurementRecord.create({
+    const chargement = await prisma.measurementRecord.create({
       data: {
-        reference: 'MR-2026-08-001',
+        reference: 'MR-2026-08-001-CHG',
         operationId: operation.id,
+        phase: OperationPhase.CHARGEMENT,
         source: MeasurementSource.CONTRADICTORY,
         isAuthoritative: true,
         measurementDate: D('2026-08-12'),
-        loadedVolume15: `${LOADED}.000000`,
-        dischargedVolume15: `${DISCHARGED}.000000`,
         observedVolume: '30120.000000',
         observedTempC: '31.40',
+        vcf: '1.000000',
+        volume15: `${LOADED}.000000`,
         uom: UnitOfMeasure.L,
         measuredDensity15: '0.841200',
         sulphurPct: '0.0043',
         waterAndSedimentPct: '0.0500',
         isOffSpec: false,
+        enteredByFieldUserId: agent.id,
+        validatedAt: T('2026-08-12T18:00:00Z'),
+      },
+    });
+
+    await prisma.measurementRecord.create({
+      data: {
+        reference: 'MR-2026-08-001-DEC',
+        operationId: operation.id,
+        phase: OperationPhase.DECHARGEMENT,
+        source: MeasurementSource.CONTRADICTORY,
+        isAuthoritative: true,
+        measurementDate: D('2026-08-12'),
+        observedVolume: `${DISCHARGED}.000000`,
+        observedTempC: '15.00',
+        vcf: '1.000000',
+        volume15: `${DISCHARGED}.000000`,
+        uom: UnitOfMeasure.L,
+        measuredDensity15: '0.841200',
+        sulphurPct: '0.0043',
+        waterAndSedimentPct: '0.0500',
+        isOffSpec: false,
+        pairedMeasurementId: chargement.id,
+        pairedLoadedVolume15: `${LOADED}.000000`,
         ullageVariancePct: ullagePct.toFixed(6),
         alertThresholdPct: '0.200000',
         criticalThresholdPct: '0.400000',
