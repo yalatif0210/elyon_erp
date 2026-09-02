@@ -7,6 +7,7 @@ import {
   CostReconciliationRow,
   DealRow,
   Partner,
+  PurchaseOrderRow,
   SupplierInvoiceRow,
 } from '../core/api.service';
 import {
@@ -34,6 +35,21 @@ const FILTERS: { label: string; status?: string }[] = [
   { label: 'Attendues', status: 'EXPECTED' },
   { label: 'Reçues', status: 'RECEIVED' },
   { label: 'Réglées', status: 'PAID' },
+];
+
+const STATUS_PO: Record<string, { label: string; kind: StatusKind }> = {
+  DRAFT: { label: 'Brouillon', kind: 'wait' },
+  ISSUED: { label: 'Émise', kind: 'transit' },
+  CONFIRMED: { label: 'Confirmée', kind: 'transit' },
+  FULFILLED: { label: 'Honorée', kind: 'ok' },
+  CANCELLED: { label: 'Annulée', kind: 'neutral' },
+};
+
+const FILTERS_PO: { label: string; status?: string }[] = [
+  { label: 'Toutes' },
+  { label: 'Émises', status: 'ISSUED' },
+  { label: 'Confirmées', status: 'CONFIRMED' },
+  { label: 'Honorées', status: 'FULFILLED' },
 ];
 
 /**
@@ -100,6 +116,84 @@ const FILTERS: { label: string; status?: string }[] = [
     </div>
 
     <erp-action-feedback [error]="state.error()" [success]="state.done()" />
+
+    <!-- ============ Commandes d'achat (ticket #5) ============ -->
+    <section class="card mb-5 overflow-hidden">
+      <div class="card-header">
+        <h2 class="card-title">Commandes d'achat</h2>
+        <span class="text-[11px] text-ink-faint">émises en mode BACK_TO_BACK, à l'affectation des moyens</span>
+      </div>
+      <div class="flex flex-wrap items-center gap-2 border-b border-rule px-[15px] py-2.5">
+        @for (f of filtersPo; track f.label) {
+          <button
+            type="button"
+            class="rounded-[3px] px-2.5 py-1 text-[12px] font-medium transition-colors"
+            [class]="
+              activePo() === (f.status ?? '')
+                ? 'bg-primary text-white'
+                : 'border border-rule-strong bg-surface text-ink-soft hover:bg-gray-100 hover:text-ink'
+            "
+            (click)="setFilterPo(f.status)"
+          >
+            {{ f.label }}
+          </button>
+        }
+      </div>
+      @if (commandes().length === 0) {
+        <p class="empty">
+          Aucune commande d'achat sur ce filtre. Elle s'émet automatiquement à l'affectation des
+          moyens sur une opération en mode BACK_TO_BACK.
+        </p>
+      } @else {
+        <div class="overflow-x-auto">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Référence</th>
+                <th>Opération</th>
+                <th>Affaire</th>
+                <th>Fournisseur</th>
+                <th class="num">Volume</th>
+                <th class="num">Prix unitaire</th>
+                <th class="num">Montant</th>
+                <th>Port de chargement</th>
+                <th>État</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (c of commandes(); track c.id) {
+                <tr>
+                  <td><span class="ref">{{ c.reference }}</span></td>
+                  <td>
+                    <a [routerLink]="['/operations', c.operation.id]" class="link font-mono text-[12px]">{{
+                      c.operation.reference
+                    }}</a>
+                  </td>
+                  <td>
+                    <a [routerLink]="['/affaires', c.operation.deal.id]" class="link font-mono text-[12px]">{{
+                      c.operation.deal.reference
+                    }}</a>
+                  </td>
+                  <td class="font-medium text-ink">{{ c.supplier.legalName }}</td>
+                  <td class="num font-mono text-ink-soft">{{ money(+c.orderedVolume) }} {{ c.uom }}</td>
+                  <td class="num font-mono text-ink-soft">{{ money(+c.unitPrice) }}</td>
+                  <td class="num font-mono font-semibold text-ink">
+                    {{ money(+c.totalAmount) }}
+                    <span class="ml-1 text-[11px] font-normal text-ink-faint">{{ c.currencyCode }}</span>
+                  </td>
+                  <td class="text-[12px] text-ink-soft">{{ c.loadingPort ?? '-' }}</td>
+                  <td>
+                    <erp-status-badge [kind]="statusPo(c.status).kind" [label]="statusPo(c.status).label" />
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+      <erp-pagination [page]="commandesPage()" [totalPages]="commandesTotalPages()" [total]="commandesTotal()"
+                      libelle="commandes d'achat" (allerA)="allerACommandes($event)" />
+    </section>
 
     <!-- ============ Enregistrer une facture fournisseur ============ -->
     <section class="card mb-5">
@@ -412,6 +506,38 @@ export class SupplierInvoicesComponent implements OnInit {
     this.load();
   }
 
+  protected readonly commandes = signal<PurchaseOrderRow[]>([]);
+  protected readonly commandesPage = signal(1);
+  protected readonly commandesTotal = signal(0);
+  protected readonly commandesTotalPages = signal(1);
+  protected readonly activePo = signal('');
+  protected readonly filtersPo = FILTERS_PO;
+
+  protected allerACommandes(p: number): void {
+    this.commandesPage.set(p);
+    this.loadCommandes();
+  }
+
+  protected setFilterPo(status?: string): void {
+    this.activePo.set(status ?? '');
+    this.commandesPage.set(1);
+    this.loadCommandes();
+  }
+
+  protected statusPo(code: string) {
+    return STATUS_PO[code] ?? { label: code, kind: 'neutral' as StatusKind };
+  }
+
+  protected loadCommandes(): void {
+    this.api
+      .purchaseOrders(this.commandesPage(), { status: this.activePo() || undefined })
+      .subscribe((page) => {
+        this.commandes.set(page.items);
+        this.commandesTotal.set(page.total);
+        this.commandesTotalPages.set(page.totalPages);
+      });
+  }
+
   protected readonly reconciliation = signal<CostReconciliationRow[]>([]);
   protected readonly active = signal('');
   protected readonly filters = FILTERS;
@@ -478,6 +604,7 @@ export class SupplierInvoicesComponent implements OnInit {
   ngOnInit(): void {
     this.api.devises().subscribe((l) => this.devises.set(l));
     this.load();
+    this.loadCommandes();
     this.api.costReconciliation().subscribe((r) => this.reconciliation.set(r));
     this.api.partners(1).subscribe((p) => this.suppliers.set(p.items));
     this.api.deals(1, {}).subscribe((p) => this.dealOptions.set(p.items));

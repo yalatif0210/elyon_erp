@@ -60,6 +60,10 @@ import {
   SupplierInvoicesController,
   SupplierInvoicesService,
 } from './procurement/supplier-invoices.controller';
+import {
+  PurchaseOrdersController,
+  PurchaseOrdersService,
+} from './procurement/purchase-orders.controller';
 import { DealsController, DealsService } from './sales/deals.controller';
 import { MarginService } from './sales/margin.service';
 import { CrmController, CrmService } from './crm/crm.controller';
@@ -142,6 +146,7 @@ import {
     InternalAttachmentsController,
     InvoicesController,
     SupplierInvoicesController,
+    PurchaseOrdersController,
     DocumentsController,
     FieldDocumentsController,
     CrmController,
@@ -175,6 +180,7 @@ import {
     InvoicesService,
     FneClientService,
     SupplierInvoicesService,
+    PurchaseOrdersService,
     DocumentsService,
     FieldDocumentsService,
     PdfRendererService,

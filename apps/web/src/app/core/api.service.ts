@@ -641,6 +641,27 @@ export interface SupplierInvoiceRow {
   recordedBy: { fullName: string } | null;
 }
 
+/** Commande d'achat émise en mode BACK_TO_BACK, à l'affectation des moyens (ticket #5). */
+export interface PurchaseOrderRow {
+  id: string;
+  reference: string;
+  status: string;
+  orderedVolume: string;
+  uom: string;
+  unitPrice: string;
+  totalAmount: string;
+  currencyCode: string;
+  loadingPort: string | null;
+  expectedDate: string | null;
+  issuedAt: string | null;
+  supplier: { code: string; legalName: string };
+  operation: {
+    id: string;
+    reference: string;
+    deal: { id: string; reference: string; client: { legalName: string } };
+  };
+}
+
 /** Ligne de la vue de rapprochement — coût enregistré vs argent sorti. */
 /**
  * Analyses de surveillance (§ 5.4, § 9.1, § 14.6).
@@ -2369,6 +2390,17 @@ export class ApiService {
     if (filters.dealId) params = params.set('dealId', filters.dealId);
     if (filters.search) params = params.set('search', filters.search);
     return this.http.get<Page<SupplierInvoiceRow>>(`${this.base}/supplier-invoices`, { params });
+  }
+
+  /** Commandes d'achat émises en mode BACK_TO_BACK (ticket #5). */
+  purchaseOrders(
+    page = 1,
+    filters: { status?: string; search?: string } = {},
+  ): Observable<Page<PurchaseOrderRow>> {
+    let params = new HttpParams().set('page', page).set('pageSize', 50);
+    if (filters.status) params = params.set('status', filters.status);
+    if (filters.search) params = params.set('search', filters.search);
+    return this.http.get<Page<PurchaseOrderRow>>(`${this.base}/purchase-orders`, { params });
   }
 
   /** Apurement MANUEL — voie d'exception, motif obligatoire (§ 14.6). */

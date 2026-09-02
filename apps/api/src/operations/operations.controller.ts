@@ -20,6 +20,8 @@ import {
   MeasurementSource,
   OperationHaltType,
   OperationPhase,
+  Prisma,
+  PurchaseOrderStatus,
   SourcingMode,
   TransportMode,
   UnitOfMeasure,
@@ -46,6 +48,7 @@ import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { Page, PaginationQuery, paginate } from '../common/http/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AstmService } from '../common/volumes/astm.service';
+import { round4 } from '../common/money/money';
 import { MarginService } from '../sales/margin.service';
 import { ReferenceService } from '../common/reference/reference.service';
 
@@ -589,12 +592,53 @@ export class OperationsService {
     //    chiffrage, jamais ressaisi ni modifiable à l'affectation des moyens.
     //    Recopié en lecture seule, SUR CHAQUE LIGNE, pour que la vérification
     //    de conformité du transporteur continue de porter sur le bon tiers.
-    const operationDeal = await this.prisma.operation.findUniqueOrThrow({
+    const operation = await this.prisma.operation.findUniqueOrThrow({
       where: { id: operationId },
-      select: { dealId: true },
+      select: {
+        dealId: true,
+        sourcingMode: true,
+        plannedVolume: true,
+        uom: true,
+        originLocation: true,
+        plannedLoadingDate: true,
+        purchaseOrder: { select: { id: true } },
+        deal: {
+          select: {
+            supplierPriceId: true,
+            unitPurchasePrice: true,
+            currencyCode: true,
+            fxRateToPivot: true,
+            supplierPrice: { select: { supplierId: true } },
+          },
+        },
+      },
     });
+
+    // ⚠️ ÉMISSION DE LA COMMANDE D'ACHAT — À L'AFFECTATION DES MOYENS, PAS À
+    //    LA CRÉATION DE L'OPÉRATION (ticket #5). Le fournisseur et le prix ne
+    //    sont engagés qu'à ce moment-là ; les réclamer plus tôt inventerait
+    //    une commande avant qu'elle existe vraiment. Réservé à BACK_TO_BACK —
+    //    la contrainte 1-to-1 en base l'impose de toute façon aux autres
+    //    modes — et à la PREMIÈRE affectation NON VIDE : `setAssignments`
+    //    remplace les lignes à chaque appel, une commande déjà émise n'est
+    //    jamais ré-émise pour un simple changement de véhicule, et retirer
+    //    tous les moyens (`lignes` vide) n'engage aucun achat.
+    const emetCommande =
+      lignes.length > 0 &&
+      operation.sourcingMode === SourcingMode.BACK_TO_BACK &&
+      !operation.purchaseOrder;
+
+    // Vérifié AVANT toute écriture : une commande qui ne peut pas s'émettre
+    // doit tout refuser, pas laisser les moyens affectés pendant que le
+    // client voit une erreur — voir `trg_deal_purchase_price_sourced` (SQL).
+    if (emetCommande && (!operation.deal.supplierPriceId || !operation.deal.supplierPrice)) {
+      throw new BadRequestException(
+        'Aucun prix fournisseur validé sur l’affaire : impossible d’émettre la commande d’achat. Rattacher un prix fournisseur à l’affaire avant d’affecter les moyens.',
+      );
+    }
+
     const posteTransport = await this.prisma.dealCostLine.findFirst({
-      where: { dealId: operationDeal.dealId, costPost: { code: 'TRANSPORT' } },
+      where: { dealId: operation.dealId, costPost: { code: 'TRANSPORT' } },
       select: { supplierId: true },
     });
     const carrierId = posteTransport?.supplierId ?? null;
@@ -627,7 +671,79 @@ export class OperationsService {
       after: { lignes: assignments.length, vehicules: assignments.map((a) => a.vehicleId) },
     });
 
+    if (emetCommande) {
+      await this.emettreCommandeAchat(operationId, actorId, {
+        plannedVolume: operation.plannedVolume,
+        uom: operation.uom,
+        originLocation: operation.originLocation,
+        plannedLoadingDate: operation.plannedLoadingDate,
+        // Non-null : vérifié ci-dessus, avant toute écriture.
+        supplierPriceId: operation.deal.supplierPriceId as string,
+        unitPurchasePrice: operation.deal.unitPurchasePrice,
+        currencyCode: operation.deal.currencyCode,
+        fxRateToPivot: operation.deal.fxRateToPivot,
+        supplierId: (operation.deal.supplierPrice as { supplierId: string }).supplierId,
+      });
+    }
+
     return assignments;
+  }
+
+  /**
+   * Commande d'achat adossée à l'opération — reprend le fournisseur et le
+   * prix déjà validés sur l'affaire (`Deal.supplierPriceId`), jamais
+   * ressaisis. Les données sont celles déjà chargées et vérifiées par
+   * `setAssignments` : aucune seconde lecture, aucune seconde vérification.
+   */
+  private async emettreCommandeAchat(
+    operationId: string,
+    actorId: string,
+    data: {
+      plannedVolume: Prisma.Decimal;
+      uom: UnitOfMeasure;
+      originLocation: string;
+      plannedLoadingDate: Date | null;
+      supplierPriceId: string;
+      unitPurchasePrice: Prisma.Decimal;
+      currencyCode: string;
+      fxRateToPivot: Prisma.Decimal;
+      supplierId: string;
+    },
+  ) {
+    const reference = await this.reference.annual('PO');
+    const orderedVolume = Number(data.plannedVolume);
+    const unitPrice = Number(data.unitPurchasePrice);
+
+    const purchaseOrder = await this.prisma.purchaseOrder.create({
+      data: {
+        reference,
+        operationId,
+        supplierId: data.supplierId,
+        status: PurchaseOrderStatus.ISSUED,
+        orderedVolume: orderedVolume.toFixed(6),
+        uom: data.uom,
+        unitPrice: unitPrice.toFixed(4),
+        totalAmount: round4(orderedVolume * unitPrice).toFixed(4),
+        currencyCode: data.currencyCode,
+        fxRateToPivot: data.fxRateToPivot,
+        supplierPriceId: data.supplierPriceId,
+        loadingPort: data.originLocation,
+        expectedDate: data.plannedLoadingDate,
+        issuedById: actorId,
+        issuedAt: new Date(),
+      },
+    });
+
+    await this.audit.record({
+      actorType: ActorType.INTERNAL_USER,
+      actorId,
+      action: AuditAction.CREATE,
+      entityType: 'PurchaseOrder',
+      entityId: purchaseOrder.id,
+      after: purchaseOrder,
+    });
+
+    return purchaseOrder;
   }
 
   /**
