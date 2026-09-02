@@ -156,6 +156,62 @@ if isinstance(opp, dict) and opp.get("id"):
                      if a["reference"] == opp.get("reference") and a["nature"] == "RELANCE"]
         cas("l'alerte de relance s'eteint", len(restantes) == 0, f"{len(restantes)} restante(s)")
 
+# --- 5. Lien manuel vers une Affaire ---------------------------------------
+print("\n5. Lien manuel vers une Affaire")
+if isinstance(opp, dict) and opp.get("id"):
+    code, deals = call("/api/internal/deals?pageSize=2", ccoo)
+    ditems = deals.get("items", deals) if isinstance(deals, dict) else deals
+    cas("au moins deux affaires existent pour le test de liaison", len(ditems) >= 2, str(len(ditems)))
+
+    if len(ditems) >= 2:
+        deal_a, deal_b = ditems[0], ditems[1]
+
+        code, rep = call(f"/api/internal/crm/opportunites/{opp['id']}/affaire", ccoo, "PATCH",
+                         {"dealId": deal_a["id"]})
+        cas("relier une opportunite non gagnee est refuse", code == 400, f"{code} {rep}")
+
+        code, rep = call(f"/api/internal/crm/opportunites/{opp['id']}/etape", ccoo, "PATCH",
+                         {"stageId": par_code["GAGNEE"]["id"]})
+        cas("l'opportunite passe a l'etape gagnee", code == 200, f"{code} {rep}")
+
+        code, rep = call(f"/api/internal/crm/opportunites/{opp['id']}/affaire", logi, "PATCH",
+                         {"dealId": deal_a["id"]})
+        cas("le coordinateur logistique ne relie pas une affaire", code == 403, f"{code}")
+
+        code, rep = call(f"/api/internal/crm/opportunites/{opp['id']}/affaire", ccoo, "PATCH",
+                         {"dealId": deal_a["id"]})
+        cas("le CCOO relie l'affaire a l'opportunite gagnee", code == 200, f"{code} {rep}")
+
+        code, detail = call(f"/api/internal/crm/opportunites/{opp['id']}", ccoo)
+        lien = detail.get("deal", {}).get("id") if isinstance(detail, dict) else None
+        cas("le lien apparait a la lecture", lien == deal_a["id"], str(lien))
+
+        code, rep = call(f"/api/internal/crm/opportunites/{opp['id']}/affaire", ccoo, "PATCH",
+                         {"dealId": deal_b["id"]})
+        cas("le lien se change vers une autre affaire", code == 200, f"{code} {rep}")
+        code, detail = call(f"/api/internal/crm/opportunites/{opp['id']}", ccoo)
+        lien = detail.get("deal", {}).get("id") if isinstance(detail, dict) else None
+        cas("le nouveau lien remplace l'ancien", lien == deal_b["id"], str(lien))
+
+        code, rep = call(f"/api/internal/crm/opportunites/{opp['id']}/affaire", ccoo, "PATCH",
+                         {"dealId": None})
+        cas("le lien se retire", code == 200, f"{code} {rep}")
+        code, detail = call(f"/api/internal/crm/opportunites/{opp['id']}", ccoo)
+        lien = detail.get("deal") if isinstance(detail, dict) else "?"
+        cas("l'affaire n'apparait plus apres retrait", lien is None, str(lien))
+
+        # Une meme affaire ne peut etre reliee qu'a une seule opportunite.
+        code, opp2 = call("/api/internal/crm/opportunites", ccoo, "POST", dict(base, title="Recette CRM - doublon"))
+        if isinstance(opp2, dict) and opp2.get("id"):
+            cree.append(opp2["id"])
+            call(f"/api/internal/crm/opportunites/{opp2['id']}/etape", ccoo, "PATCH",
+                 {"stageId": par_code["GAGNEE"]["id"]})
+            call(f"/api/internal/crm/opportunites/{opp['id']}/affaire", ccoo, "PATCH", {"dealId": deal_a["id"]})
+            code, rep = call(f"/api/internal/crm/opportunites/{opp2['id']}/affaire", ccoo, "PATCH",
+                             {"dealId": deal_a["id"]})
+            cas("une affaire deja reliee ailleurs est refusee (409)", code == 409, f"{code} {rep}")
+            call(f"/api/internal/crm/opportunites/{opp['id']}/affaire", ccoo, "PATCH", {"dealId": None})
+
 print("\n" + "=" * 68)
 print(f"{ok}/{ok + ko} cas conformes")
 print("\nOpportunites creees (a retirer) :", ", ".join(cree) if cree else "aucune")

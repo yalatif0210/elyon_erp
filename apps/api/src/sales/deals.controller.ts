@@ -675,7 +675,14 @@ export class DealsService {
       ...DealsService.filtrePropriete(role, actorId),
       ...(query.status ? { status: query.status } : {}),
       ...(query.segment ? { segment: query.segment } : {}),
-      ...(query.search ? { reference: { contains: query.search, mode: 'insensitive' as const } } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { reference: { contains: query.search, mode: 'insensitive' as const } },
+              { client: { legalName: { contains: query.search, mode: 'insensitive' as const } } },
+            ],
+          }
+        : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.deal.findMany({

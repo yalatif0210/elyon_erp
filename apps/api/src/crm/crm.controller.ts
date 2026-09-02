@@ -82,6 +82,11 @@ class CloseActionDto {
   @IsBoolean() done!: boolean;
 }
 
+class LinkDealDto {
+  /** `null` retire le lien — poser une nouvelle Affaire ou en changer passe par la même route. */
+  @IsOptional() @IsUUID() dealId?: string | null;
+}
+
 // ===========================================================================
 //  Service
 // ===========================================================================
@@ -255,6 +260,35 @@ export class CrmService {
   }
 
   /**
+   * Relie (ou retire le lien vers) l'Affaire née d'une Opportunité gagnée.
+   *
+   * ⚠️ GESTE HUMAIN ASSUMÉ, JAMAIS UNE CRÉATION AUTOMATIQUE.
+   *
+   *    `CrmOpportunity.dealId` promettait « l'affaire née de l'opportunité
+   *    gagnée » depuis l'origine du schéma, sans qu'aucun code ne l'écrive
+   *    jamais — gagner une opportunité ne produisait aucune affaire, et rien
+   *    ne permettait de relier après coup celle créée séparément. Cette
+   *    méthode ne fait que poser le lien entre deux objets déjà existants.
+   */
+  async lierAffaire(id: string, dealId: string | null) {
+    const o = await this.prisma.crmOpportunity.findUnique({
+      where: { id },
+      select: { id: true, stage: { select: { outcome: true } } },
+    });
+    if (!o) throw new NotFoundException('Opportunité introuvable');
+    if (o.stage.outcome !== 'WON') {
+      throw new BadRequestException(
+        'Seule une opportunité gagnée peut être reliée à une affaire.',
+      );
+    }
+    if (dealId) {
+      const deal = await this.prisma.deal.findUnique({ where: { id: dealId }, select: { id: true } });
+      if (!deal) throw new NotFoundException('Affaire introuvable');
+    }
+    return this.prisma.crmOpportunity.update({ where: { id }, data: { dealId } });
+  }
+
+  /**
    * Marquer une relance faite.
    *
    * C'est ce drapeau, et lui seul, qui fait disparaître l'alerte. Le calculer
@@ -328,6 +362,12 @@ export class CrmController {
   @Roles(UserRole.DG, UserRole.CCOO, UserRole.SALES_REP)
   move(@Param('id') id: string, @Body() dto: MoveStageDto) {
     return this.service.move(id, dto);
+  }
+
+  @Patch('opportunites/:id/affaire')
+  @Roles(UserRole.DG, UserRole.CCOO, UserRole.SALES_REP)
+  lierAffaire(@Param('id') id: string, @Body() dto: LinkDealDto) {
+    return this.service.lierAffaire(id, dto.dealId ?? null);
   }
 
   @Post('opportunites/:id/interactions')

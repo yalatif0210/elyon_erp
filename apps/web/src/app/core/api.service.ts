@@ -2169,6 +2169,10 @@ export class ApiService {
     return this.http.patch(`${this.base}/crm/opportunites/${id}/etape`, body);
   }
 
+  crmLierAffaire(id: string, dealId: string | null): Observable<unknown> {
+    return this.http.patch(`${this.base}/crm/opportunites/${id}/affaire`, { dealId });
+  }
+
   crmJournaliser(id: string, body: Record<string, unknown>): Observable<unknown> {
     return this.http.post(`${this.base}/crm/opportunites/${id}/interactions`, body);
   }

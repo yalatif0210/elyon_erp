@@ -169,6 +169,64 @@ const KIND_LABELS: Record<string, string> = {
             </div>
           </section>
 
+          <!-- ============ Affaire reliée (§ 15) ============
+               Geste humain assumé, jamais une création automatique : voir le
+               commentaire de CrmService.lierAffaire côté serveur. -->
+          @if (o.stage.outcome === 'WON') {
+            <section class="card overflow-hidden">
+              <div class="card-header"><h2 class="card-title">Affaire</h2></div>
+              <div class="card-body">
+                <erp-action-feedback [error]="stateDeal.error()" [success]="stateDeal.done()" />
+                @if (o.deal) {
+                  <p class="text-[13px] text-ink">
+                    Reliée à
+                    <a [routerLink]="['/affaires', o.deal.id]" class="link font-mono">{{ o.deal.reference }}</a>
+                  </p>
+                  <button
+                    class="btn-ghost mt-2"
+                    (click)="retirerAffaire()"
+                    [disabled]="stateDeal.busy()"
+                  >
+                    Retirer le lien
+                  </button>
+                } @else {
+                  <p class="text-[12px] text-ink-faint">
+                    Aucune affaire reliée. Si l’affaire née de cette opportunité a déjà été créée
+                    séparément, recherchez-la ici pour les relier.
+                  </p>
+                }
+                <div class="mt-3 flex gap-2">
+                  <input
+                    class="field flex-1"
+                    placeholder="Référence ou client…"
+                    [(ngModel)]="dealSearch"
+                    (keyup.enter)="rechercherAffaires()"
+                  />
+                  <button class="btn-ghost" (click)="rechercherAffaires()" [disabled]="stateDeal.busy()">
+                    Rechercher
+                  </button>
+                </div>
+                @if (dealResults().length > 0) {
+                  <ul class="mt-2 divide-y divide-rule border border-rule">
+                    @for (d of dealResults(); track d.id) {
+                      <li class="flex items-center justify-between px-3 py-2 text-[12px]">
+                        <span>
+                          <span class="font-mono text-ink">{{ d.reference }}</span>
+                          · {{ d.client.legalName }}
+                        </span>
+                        <button class="link" (click)="lierAffaire(d.id)" [disabled]="stateDeal.busy()">
+                          Relier
+                        </button>
+                      </li>
+                    }
+                  </ul>
+                } @else if (dealSearched()) {
+                  <p class="mt-2 text-[12px] text-ink-faint">Aucune affaire trouvée pour cette recherche.</p>
+                }
+              </div>
+            </section>
+          }
+
           <!-- ============ Franchir une étape ============ -->
           @if (!o.closedAt) {
             <section class="card overflow-hidden">
@@ -329,7 +387,12 @@ export class OpportunityDetailComponent implements OnInit {
 
   protected readonly state = new ActionState();
   protected readonly stateInteraction = new ActionState();
+  protected readonly stateDeal = new ActionState();
   protected readonly closingId = signal<string | null>(null);
+
+  protected dealSearch = '';
+  protected readonly dealResults = signal<{ id: string; reference: string; client: { legalName: string } }[]>([]);
+  protected readonly dealSearched = signal(false);
 
   protected stageId = '';
   protected lossReason = '';
@@ -409,6 +472,49 @@ export class OpportunityDetailComponent implements OnInit {
         },
         error: (e: HttpFailure) => this.state.fail(e),
       });
+  }
+
+  protected rechercherAffaires(): void {
+    const terme = this.dealSearch.trim();
+    if (!terme || this.stateDeal.busy()) return;
+    this.stateDeal.start();
+    this.api.deals(1, { search: terme }).subscribe({
+      next: (page) => {
+        this.dealResults.set(page.items);
+        this.dealSearched.set(true);
+        this.stateDeal.busy.set(false);
+      },
+      error: (e: HttpFailure) => this.stateDeal.fail(e),
+    });
+  }
+
+  protected lierAffaire(dealId: string): void {
+    const o = this.opp();
+    if (!o || this.stateDeal.busy()) return;
+    this.stateDeal.start();
+    this.api.crmLierAffaire(o.id, dealId).subscribe({
+      next: () => {
+        this.stateDeal.succeed('Affaire reliée.');
+        this.dealResults.set([]);
+        this.dealSearched.set(false);
+        this.dealSearch = '';
+        this.charger();
+      },
+      error: (e: HttpFailure) => this.stateDeal.fail(e),
+    });
+  }
+
+  protected retirerAffaire(): void {
+    const o = this.opp();
+    if (!o || this.stateDeal.busy()) return;
+    this.stateDeal.start();
+    this.api.crmLierAffaire(o.id, null).subscribe({
+      next: () => {
+        this.stateDeal.succeed('Lien retiré.');
+        this.charger();
+      },
+      error: (e: HttpFailure) => this.stateDeal.fail(e),
+    });
   }
 
   protected peutJournaliser(): boolean {
