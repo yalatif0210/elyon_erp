@@ -74,6 +74,7 @@ import {
   ReferentialsService,
 } from './referentials/referentials.controller';
 import { PortalController, PortalService } from './portal/portal.controller';
+import { PortalScopeService } from './portal/portal-scope.service';
 import { AuditLogController, AuditLogService } from './common/audit/audit-log.controller';
 import { QuotationsController, QuotationsService } from './sales/quotations.controller';
 import {
@@ -183,6 +184,7 @@ import {
     BargeService,
     CollectionsService,
     PortalService,
+    PortalScopeService,
     QuotationsService,
     AuditLogService,
     UserAdminService,

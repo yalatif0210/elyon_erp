@@ -48,6 +48,7 @@ SUITES = [
     ("recette_parcours_terrain", "Parcours complet de l'agent de terrain"),
     ("recette_budget", "Donnees budgetaires, exercice et pilotage"),
     ("recette_crm", "Pipeline commercial"),
+    ("recette_portail", "Portail client — cloisonnement par tiers"),
     ("recette_audit", "Correctifs issus de l'audit"),
 ]
 

@@ -30,6 +30,7 @@ import { Realm, RequireRealm } from '../common/auth/realm';
 import { Page, PaginationQuery, paginate } from '../common/http/pagination.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { DocumentsService } from '../documents/documents.controller';
+import { PortalScopeService } from './portal-scope.service';
 
 /**
  * PORTAIL CLIENT (§ 13, module 0).
@@ -40,6 +41,10 @@ import { DocumentsService } from '../documents/documents.controller';
  *    propres données, filtrées par partner_id du JWT »). Un client ne voit
  *    jamais un ID qui n'est pas le sien — il obtient un 404, jamais un 403
  *    qui confirmerait que l'objet existe.
+ *
+ *    La construction de ce `where` passe désormais par `PortalScopeService`
+ *    (ticket #3) plutôt que d'être répétée à la main ici — voir son
+ *    commentaire d'en-tête pour la raison.
  *
  *    Chaque `select` énumère ce qui SORT, jamais ce qu'on retire : marge,
  *    prix d'achat, coûts, encours crédit et fournisseur n'apparaissent dans
@@ -69,6 +74,7 @@ export class PortalService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly documents: DocumentsService,
+    private readonly scope: PortalScopeService,
   ) {}
 
   // --- Catalogue (pour renseigner la demande de cotation) ----------------
@@ -111,7 +117,7 @@ export class PortalService {
 
   listQuotations(partnerId: string) {
     return this.prisma.quotationRequest.findMany({
-      where: { partnerId },
+      where: this.scope.wherePartner(partnerId),
       orderBy: { createdAt: 'desc' },
       include: {
         product: { select: { code: true, name: true } },
@@ -155,11 +161,7 @@ export class PortalService {
    *    par son seul UUID (§ commentaire d'en-tête de ce fichier).
    */
   async approveProforma(partnerId: string, quotationId: string, invoiceId: string, portalUserId: string) {
-    const quotation = await this.prisma.quotationRequest.findFirst({
-      where: { id: quotationId, partnerId },
-      select: { status: true },
-    });
-    if (!quotation) throw new NotFoundException('Demande introuvable.');
+    const quotation = await this.scope.assertQuotation(quotationId, partnerId);
     if (
       quotation.status === QuotationRequestStatus.CONVERTED ||
       quotation.status === QuotationRequestStatus.DECLINED
@@ -167,17 +169,7 @@ export class PortalService {
       throw new BadRequestException(`Cette demande est close (statut : ${quotation.status}).`);
     }
 
-    const invoice = await this.prisma.invoice.findFirst({
-      where: {
-        id: invoiceId,
-        quotationRequestId: quotationId,
-        partnerId,
-        type: InvoiceType.PROFORMA,
-        status: { not: InvoiceStatus.DRAFT },
-      },
-      select: { id: true, number: true },
-    });
-    if (!invoice) throw new NotFoundException('Proforma introuvable.');
+    await this.scope.assertProformaInvoice(invoiceId, quotationId, partnerId);
 
     const now = new Date();
     const [updatedInvoice] = await this.prisma.$transaction([
@@ -206,7 +198,7 @@ export class PortalService {
   // --- Affaires — tableau de bord des offres ----------------------------
 
   async listDeals(partnerId: string, query: PortalListQuery): Promise<Page<unknown>> {
-    const where = { clientId: partnerId };
+    const where = this.scope.whereDeal(partnerId);
     const [items, total] = await Promise.all([
       this.prisma.deal.findMany({
         where,
@@ -234,7 +226,7 @@ export class PortalService {
 
   async dealDetail(partnerId: string, id: string) {
     const deal = await this.prisma.deal.findFirst({
-      where: { id, clientId: partnerId },
+      where: { id, ...this.scope.whereDeal(partnerId) },
       select: {
         id: true,
         reference: true,
@@ -252,7 +244,7 @@ export class PortalService {
         },
       },
     });
-    if (!deal) throw new NotFoundException('Affaire introuvable.');
+    if (!deal) throw new NotFoundException(this.scope.introuvable);
     return deal;
   }
 
@@ -263,10 +255,10 @@ export class PortalService {
   async acceptDeal(partnerId: string, id: string, portalUserId: string) {
     return this.prisma.$transaction(async (tx) => {
       const deal = await tx.deal.findFirst({
-        where: { id, clientId: partnerId },
+        where: { id, ...this.scope.whereDeal(partnerId) },
         select: { status: true, acceptedByPortalUserId: true },
       });
-      if (!deal) throw new NotFoundException('Affaire introuvable.');
+      if (!deal) throw new NotFoundException(this.scope.introuvable);
       if (deal.acceptedByPortalUserId) {
         throw new BadRequestException('Cette affaire a déjà été acceptée.');
       }
@@ -312,7 +304,7 @@ export class PortalService {
   // --- Suivi des livraisons ----------------------------------------------
 
   async listOperations(partnerId: string, query: PortalListQuery): Promise<Page<unknown>> {
-    const where = { deal: { clientId: partnerId } };
+    const where = this.scope.whereOperationByDeal(partnerId);
     const [items, total] = await Promise.all([
       this.prisma.operation.findMany({
         where,
@@ -348,7 +340,7 @@ export class PortalService {
     //    (`issue()`) : c'est cette frontière, pas la création, qui rend une
     //    pièce opposable et donc montrable à un tiers.
     const where = {
-      partnerId,
+      ...this.scope.wherePartner(partnerId),
       type: { not: InvoiceType.CREDIT_NOTE },
       status: { not: InvoiceStatus.DRAFT },
     };
@@ -392,7 +384,7 @@ export class PortalService {
    * une fois lu (§ commentaire d'en-tête de ce fichier).
    */
   downloadInvoiceDocument(partnerId: string, documentId: string) {
-    return this.documents.download(documentId, { invoice: { partnerId } });
+    return this.documents.download(documentId, this.scope.whereInvoiceDocument(partnerId));
   }
 }
 
@@ -403,7 +395,10 @@ export class PortalService {
 @Controller('api/portal')
 @RequireRealm(Realm.PORTAL)
 export class PortalController {
-  constructor(private readonly service: PortalService) {}
+  constructor(
+    private readonly service: PortalService,
+    private readonly scope: PortalScopeService,
+  ) {}
 
   @Get('products')
   products() {
@@ -412,12 +407,12 @@ export class PortalController {
 
   @Post('quotations')
   createQuotation(@Body() dto: CreateQuotationRequestDto, @Req() req: { auth: { sub: string; partnerId?: string } }) {
-    return this.service.createQuotation(dto, this.partnerId(req), req.auth.sub);
+    return this.service.createQuotation(dto, this.scope.partnerId(req), req.auth.sub);
   }
 
   @Get('quotations')
   listQuotations(@Req() req: { auth: { partnerId?: string } }) {
-    return this.service.listQuotations(this.partnerId(req));
+    return this.service.listQuotations(this.scope.partnerId(req));
   }
 
   @Patch('quotations/:id/proformas/:invoiceId/approuver')
@@ -426,32 +421,32 @@ export class PortalController {
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
     @Req() req: { auth: { sub: string; partnerId?: string } },
   ) {
-    return this.service.approveProforma(this.partnerId(req), id, invoiceId, req.auth.sub);
+    return this.service.approveProforma(this.scope.partnerId(req), id, invoiceId, req.auth.sub);
   }
 
   @Get('deals')
   listDeals(@Query() query: PortalListQuery, @Req() req: { auth: { partnerId?: string } }) {
-    return this.service.listDeals(this.partnerId(req), query);
+    return this.service.listDeals(this.scope.partnerId(req), query);
   }
 
   @Get('deals/:id')
   dealDetail(@Param('id', ParseUUIDPipe) id: string, @Req() req: { auth: { partnerId?: string } }) {
-    return this.service.dealDetail(this.partnerId(req), id);
+    return this.service.dealDetail(this.scope.partnerId(req), id);
   }
 
   @Patch('deals/:id/accept')
   acceptDeal(@Param('id', ParseUUIDPipe) id: string, @Req() req: { auth: { sub: string; partnerId?: string } }) {
-    return this.service.acceptDeal(this.partnerId(req), id, req.auth.sub);
+    return this.service.acceptDeal(this.scope.partnerId(req), id, req.auth.sub);
   }
 
   @Get('operations')
   listOperations(@Query() query: PortalListQuery, @Req() req: { auth: { partnerId?: string } }) {
-    return this.service.listOperations(this.partnerId(req), query);
+    return this.service.listOperations(this.scope.partnerId(req), query);
   }
 
   @Get('invoices')
   listInvoices(@Query() query: PortalListQuery, @Req() req: { auth: { partnerId?: string } }) {
-    return this.service.listInvoices(this.partnerId(req), query);
+    return this.service.listInvoices(this.scope.partnerId(req), query);
   }
 
   @Get('documents/:id/download')
@@ -460,22 +455,12 @@ export class PortalController {
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: { auth: { partnerId?: string } },
   ) {
-    const { doc, flux } = await this.service.downloadInvoiceDocument(this.partnerId(req), id);
+    const { doc, flux } = await this.service.downloadInvoiceDocument(this.scope.partnerId(req), id);
     return new StreamableFile(flux as never, {
       type: doc.mimeType,
       length: Number(doc.sizeBytes),
       disposition: `attachment; filename="${doc.reference}.pdf"`,
     });
-  }
-
-  /** Un jeton portail sans `partnerId` est une anomalie de délivrance, pas
-   *  un cas à couvrir silencieusement : mieux vaut un 400 franc ici qu'une
-   *  requête `WHERE partner_id = NULL` qui ne renverrait jamais rien. */
-  private partnerId(req: { auth: { partnerId?: string } }): string {
-    if (!req.auth.partnerId) {
-      throw new BadRequestException('Jeton portail sans tiers rattaché.');
-    }
-    return req.auth.partnerId;
   }
 }
 
