@@ -136,7 +136,32 @@ if OPN:
     cas("reaffectation ulterieure : toujours la meme commande",
         code == 200 and po2 is not None and po2["id"] == po["id"], f"{code} {po2}")
 
-print("\n3. Retirer les moyens n'engage aucun achat")
+print("\n3. Les deux autres modes n'emettent jamais de commande")
+
+for mode in ("FROM_STOCK", "THIRD_PARTY_PRODUCT"):
+    code, autre = call("/api/internal/operations", logi, "POST", {
+        "dealId": deal1["id"],
+        "plannedVolume": 1000,
+        "uom": "L",
+        "transportMode": "TRUCK",
+        "sourcingMode": mode,
+        "operationTypeIds": [route["id"]],
+        "originLocation": "Depot SIR, Abidjan",
+        "destinationLocation": "Site minier, Man",
+    })
+    cas(f"operation {mode} creee", code == 201, f"{code} {autre}")
+    OPX = autre.get("id") if isinstance(autre, dict) else None
+
+    if OPX:
+        code, b = call(f"/api/internal/operations/{OPX}/assignment", logi, "PATCH",
+                       {"assignments": [{"vehicleId": VEHICLE, "driverId": DRIVER}]})
+        cas(f"affectation des moyens acceptee sur {mode}", code == 200, f"{code} {b}")
+
+        _, op_autre = call(f"/api/internal/operations/{OPX}", dg)
+        cas(f"aucune commande d'achat sur une operation {mode}",
+            op_autre.get("purchaseOrder") is None, str(op_autre.get("purchaseOrder")))
+
+print("\n4. Retirer les moyens n'engage aucun achat")
 
 code, vide = call("/api/internal/operations", logi, "POST", {
     "dealId": deal1["id"],
@@ -159,7 +184,7 @@ if OPV:
     cas("aucune commande emise sans aucun moyen affecte",
         op_vide.get("purchaseOrder") is None, str(op_vide.get("purchaseOrder")))
 
-print("\n4. Registre des commandes d'achat")
+print("\n5. Registre des commandes d'achat")
 
 code, reg = call("/api/internal/purchase-orders?pageSize=50", logi)
 cas("le registre est lisible par la logistique", code == 200, f"{code}")
