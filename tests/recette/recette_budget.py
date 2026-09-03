@@ -62,32 +62,32 @@ cfo = token("cfo@elyon-trading.example")
 vendeur = token("commercial@elyon-trading.example")
 
 # --- 1. Exercice comptable -------------------------------------------------
+# Ecrit desormais par l'ecran dedie (ticket #10) : le registre generique
+# refuse toute ecriture sur "fiscal-years" depuis ce ticket.
 print("\n1. Exercice comptable")
-code, rep = ecrire(cfo, "fiscal-years", {
+code, rep = call("/api/internal/fiscal-years", cfo, "POST", {
     "year": ANNEE_ESSAI, "label": "Exercice de recette",
     "startsOn": "2099-01-01", "endsOn": "2099-12-31",
-    # PLANNED, et non OPEN : depuis 34_budget_indirect_derive, une ligne de
-    # BUDGET ne s'ajoute plus a un exercice ouvert. Le passage a OPEN est
-    # eprouve plus bas, section 8.
-    "status": "PLANNED", "isCurrent": False,
+    # Toujours PLANNED a la creation : depuis 34_budget_indirect_derive, une
+    # ligne de BUDGET ne s'ajoute plus a un exercice ouvert. Le passage a
+    # OPEN est eprouve plus bas, section 9.
 })
-cas("le CFO cree un exercice", code in (200, 201), f"{code} {rep}")
+cas("le CFO cree un exercice", code == 201, f"{code} {rep}")
+EX_ID = rep.get("id") if isinstance(rep, dict) else None
 
-code, rep = ecrire(vendeur, "fiscal-years", {
-    "year": 2098, "label": "Interdit", "startsOn": "2098-01-01",
-    "endsOn": "2098-12-31", "status": "PLANNED",
+code, rep = call("/api/internal/fiscal-years", vendeur, "POST", {
+    "year": 2098, "label": "Interdit", "startsOn": "2098-01-01", "endsOn": "2098-12-31",
 })
 cas("un commercial ne peut pas creer d'exercice", code == 403, f"{code}")
 
-code, rep = ecrire(cfo, "fiscal-years", {
+code, rep = call("/api/internal/fiscal-years", cfo, "POST", {
     "year": 2097, "label": "Bornes inversees",
-    "startsOn": "2097-12-31", "endsOn": "2097-01-01", "status": "PLANNED",
+    "startsOn": "2097-12-31", "endsOn": "2097-01-01",
 })
 cas("bornes inversees refusees", code >= 400, f"{code}")
 
-code, rep = ecrire(cfo, "fiscal-years", {
-    "year": 2096, "label": "Trop long", "startsOn": "2096-01-01",
-    "endsOn": "2099-01-01", "status": "PLANNED",
+code, rep = call("/api/internal/fiscal-years", cfo, "POST", {
+    "year": 2096, "label": "Trop long", "startsOn": "2096-01-01", "endsOn": "2099-01-01",
 })
 cas("exercice de plus de deux ans refuse", code >= 400, f"{code}")
 
@@ -204,12 +204,11 @@ if produit:
 # --- 6. La prevision reste dans les bornes de son exercice -----------------
 # Un exercice COURT (6 mois) : le mois 12 n'existe pas pour lui.
 print(chr(10) + "6. Bornes de l'exercice")
-code, rep = ecrire(cfo, "fiscal-years", {
+code, rep = call("/api/internal/fiscal-years", cfo, "POST", {
     "year": 2094, "label": "Exercice court de recette",
     "startsOn": "2094-01-01", "endsOn": "2094-06-30",
-    "status": "PLANNED", "isCurrent": False,
 })
-cas("exercice court de 6 mois cree", code in (200, 201), f"{code} {rep}")
+cas("exercice court de 6 mois cree", code == 201, f"{code} {rep}")
 
 if produit:
     court = {"fiscalYearId": 2094, "segment": "B2B", "productId": produit,
@@ -232,10 +231,9 @@ if produit:
     cas("revision acceptee une fois le budget pose", code in (200, 201), f"{code} {rep}")
 
     # Raccourcir l'exercice sous ses previsions : la base doit refuser.
-    code, rep = ecrire(cfo, "fiscal-years", {
+    code, rep = call("/api/internal/fiscal-years", cfo, "POST", {
         "year": 2094, "label": "Exercice court de recette",
         "startsOn": "2094-01-01", "endsOn": "2094-03-31",
-        "status": "PLANNED", "isCurrent": False,
     })
     cas("raccourcir l'exercice sous ses previsions : refuse", code >= 400, f"{code}")
 
@@ -352,13 +350,18 @@ if lab:
         f"{lab['taux_si_revision']} vs {lab['taux_applique']}")
 
 # --- 9. Le budget se boucle a l'ouverture de l'exercice -------------------
+# La creation (section 1) ne reinitialise plus le statut sur rejeu (ticket
+# #10 : l'upsert dedie ne touche jamais `status`) - si un passage precedent
+# a deja ouvert cet exercice, le retransitionner PLANNED->OPEN serait a bon
+# droit refuse. On ne le tente donc que si ce n'est pas deja fait.
 print(chr(10) + "9. Le budget se boucle a l'ouverture")
-code, rep = ecrire(cfo, "fiscal-years", {
-    "year": ANNEE_ESSAI, "label": "Exercice de recette",
-    "startsOn": "2099-01-01", "endsOn": "2099-12-31",
-    "status": "OPEN", "isCurrent": False,
-})
-cas("l'exercice passe en OPEN", code in (200, 201), f"{code} {rep}")
+_, exercices_ = call("/api/internal/fiscal-years", cfo)
+etat_actuel = next((e["status"] for e in exercices_ if e["id"] == EX_ID), None) if EX_ID else None
+if etat_actuel == "OPEN":
+    cas("l'exercice passe en OPEN", True, "deja ouvert (rejeu local)")
+else:
+    code, rep = call(f"/api/internal/fiscal-years/{EX_ID}/statut", cfo, "PATCH", {"to": "OPEN"})
+    cas("l'exercice passe en OPEN", code == 200 and rep.get("status") == "OPEN", f"{code} {rep}")
 
 if produit:
     apres = {"fiscalYearId": ANNEE_ESSAI, "segment": "B2B", "productId": produit,

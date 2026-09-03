@@ -9,10 +9,21 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Req,
 } from '@nestjs/common';
 import { ActorType, AuditAction, FiscalYearStatus, UserRole } from '@prisma/client';
-import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsISO8601,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { AuditService } from '../common/audit/audit.service';
 import { Realm, RequireRealm, Roles, Screen } from '../common/auth/realm';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -36,6 +47,15 @@ const LABEL: Record<FiscalYearStatus, string> = {
 // ===========================================================================
 //  DTO
 // ===========================================================================
+
+class CreateFiscalYearDto {
+  @Type(() => Number) @IsInt() year!: number;
+  @IsString() @MaxLength(48) label!: string;
+  @IsISO8601() startsOn!: string;
+  @IsISO8601() endsOn!: string;
+  @IsOptional() @IsBoolean() isCurrent?: boolean;
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+}
 
 class TransitionFiscalYearDto {
   @IsEnum(FiscalYearStatus) to!: FiscalYearStatus;
@@ -75,6 +95,51 @@ export class FiscalYearsService {
         isCurrent: true,
       },
     });
+  }
+
+  /**
+   * Seule voie de création (ticket #10 — retirée du moteur générique de
+   * paramétrage). Un exercice naît toujours PLANNED : jamais de statut reçu
+   * ici, sous peine de recréer la saisie libre que ce module referme.
+   *
+   * ⚠️ IDEMPOTENT SUR LE MILLÉSIME, JAMAIS SUR LE STATUT NI SUR `isCurrent`
+   *    QUAND IL N'EST PAS FOURNI.
+   *
+   *    Recréer un exercice existant met à jour son descriptif (label,
+   *    bornes, notes) mais NE TOUCHE JAMAIS `status` : sinon republier le
+   *    même millésime rouvrirait silencieusement un exercice clos, exactement
+   *    le contournement que la réouverture réservée au DG (avec motif) est
+   *    censée empêcher. `isCurrent` obéit à la même prudence pour une autre
+   *    raison : l'écran de création ne l'envoie jamais, et l'omettre ne doit
+   *    pas éteindre en silence l'exercice réellement courant le jour où
+   *    quelqu'un republie son millésime pour corriger un simple libellé.
+   */
+  async create(dto: CreateFiscalYearDto, actorId: string) {
+    const descriptif = {
+      label: dto.label,
+      startsOn: new Date(dto.startsOn),
+      endsOn: new Date(dto.endsOn),
+      notes: dto.notes ?? null,
+    };
+    const created = await this.prisma.fiscalYear.upsert({
+      where: { year: dto.year },
+      update: {
+        ...descriptif,
+        ...(dto.isCurrent !== undefined ? { isCurrent: dto.isCurrent } : {}),
+      },
+      create: { year: dto.year, authorId: actorId, isCurrent: dto.isCurrent ?? false, ...descriptif },
+    });
+
+    await this.audit.record({
+      actorType: ActorType.INTERNAL_USER,
+      actorId,
+      action: AuditAction.CREATE,
+      entityType: 'FiscalYear',
+      entityId: created.id,
+      after: created,
+    });
+
+    return created;
   }
 
   /**
@@ -162,6 +227,12 @@ export class FiscalYearsController {
   @Screen('exercices-fiscaux')
   list() {
     return this.service.list();
+  }
+
+  @Post()
+  @Roles(UserRole.DG, UserRole.FINANCE_CFO)
+  create(@Body() dto: CreateFiscalYearDto, @Req() req: { auth: { sub: string } }) {
+    return this.service.create(dto, req.auth.sub);
   }
 
   @Patch(':id/statut')

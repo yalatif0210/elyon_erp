@@ -63,6 +63,21 @@ commercial = token("commercial@elyon-trading.example")
 _, tiers = call("/api/internal/referentials/partners?type=CLIENT&pageSize=1", dg)
 client = tiers["items"][0]
 
+print("\n0. Retiree du moteur generique de parametrage (ticket #10)")
+
+code, catalogue = call("/api/internal/parameters", dg)
+cles = {spec["key"] for spec in catalogue} if code == 200 else set()
+cas("'guarantees' n'apparait plus au catalogue generique (DG)", "guarantees" not in cles,
+    str(sorted(cles))[:200])
+
+code, b = call("/api/internal/parameters/guarantees", dg, "POST", {
+    "values": {"reference": f"GAR-{RUN}-INTERDIT", "partnerId": client["id"], "type": "BANK_GUARANTEE",
+               "status": "ACTIVE", "amount": 999, "currencyCode": "XOF", "issueDate": "2026-08-01"},
+    "reason": "tentative registre generique",
+})
+cas("le registre generique refuse desormais TOUTE ecriture sur les garanties, meme au DG",
+    code == 403, f"{code} {b}")
+
 print("\n1. Creation - toujours EN ATTENTE")
 
 code, g = call("/api/internal/guarantees", cfo, "POST", {

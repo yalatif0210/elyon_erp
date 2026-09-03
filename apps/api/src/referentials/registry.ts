@@ -570,17 +570,24 @@ export const REFERENTIALS: ReferentialSpec[] = [
   },
 
   // =========================================================================
-  //  EXERCICE COMPTABLE — mutable.
+  //  EXERCICE COMPTABLE — RETIRÉ DE L'ÉCRITURE GÉNÉRIQUE (ticket #10).
   //
-  //  Tout le pilotage financier s'y rattache. Ni l'année civile ni une
-  //  constante : une entreprise peut clôturer en juin.
+  //     `writeRoles: []` volontaire, PAS une entrée supprimée : `financing-
+  //     rates`, `sales-forecasts` et les budgets de pool désignent encore cet
+  //     exercice par `refTable: 'fiscal-years'`, et cette résolution passe
+  //     par `findReferential()` sur CE MÊME tableau — la retirer casserait
+  //     leurs propres écrans, non-régression que le ticket #10 exige. Aucun
+  //     rôle n'ayant jamais accès en écriture, l'entrée n'apparaît plus non
+  //     plus au catalogue (`catalogue()` filtre déjà par `writeRoles`) : le
+  //     seul chemin d'écriture est désormais `FiscalYearsController`
+  //     (`api/internal/fiscal-years`), création ET transitions comprises.
   // =========================================================================
   {
     key: 'fiscal-years',
     label: 'Exercices comptables',
     model: 'fiscalYear',
     nature: 'mutable',
-    writeRoles: [UserRole.DG, UserRole.FINANCE_CFO],
+    writeRoles: [],
     identity: ['year'],
     caution:
       'UN SEUL exercice peut être courant : le second est refusé au lieu d’être corrigé en silence. Clore un exercice FIGE ses valeurs budgétaires, c’est ce qui garantit qu’une affaire de 2026 reste évaluée aux conditions de 2026, et non à celles renégociées depuis.',
@@ -844,27 +851,28 @@ export const REFERENTIALS: ReferentialSpec[] = [
   },
 
   // =========================================================================
-  //  Garanties — mutable.
+  //  Garanties — RETIRÉES DE L'ÉCRITURE GÉNÉRIQUE (ticket #10).
   //
-  //     ⚠️ DOUBLON TEMPORAIRE, ASSUMÉ (ticket #6 → #10).
-  //
-  //        Un écran dédié (`GuaranteesController`, `api/internal/guarantees`)
-  //        porte désormais le cycle de vie contrôlé PENDING → ACTIVE →
-  //        CONSUMED/EXPIRED, et c'est le chemin à emprunter. Cette entrée
-  //        reste ici pour l'instant : le ticket #10 (bloqué par #6 ET #7) la
-  //        retire une fois que l'Exercice fiscal a, lui aussi, son écran
-  //        dédié — retirer les deux entrées dans le même geste plutôt qu'au
-  //        fil de l'eau.
+  //     `writeRoles: []`, PAS une entrée supprimée — même choix que
+  //     `fiscal-years` ci-dessus, et pour une seconde raison ici : un
+  //     identifiant introuvable (entrée absente) répond 404 via
+  //     `requireWritable()`, un identifiant refusé répond 403. Un DG qui
+  //     connaît encore l'ancienne route doit lire « ce n'est plus permis »,
+  //     pas « ça n'a jamais existé ». Aucune autre entrée ne désigne
+  //     `guarantees` par `refTable`, donc rien d'autre n'en dépend — mais la
+  //     conserver coûte une ligne et rend le refus lisible. Le seul chemin
+  //     d'écriture est désormais `GuaranteesController`
+  //     (`api/internal/guarantees`), création ET transitions comprises.
   // =========================================================================
   {
     key: 'guarantees',
     label: 'Garanties',
     model: 'guarantee',
     nature: 'mutable',
-    writeRoles: [UserRole.DG, UserRole.FINANCE_CFO],
+    writeRoles: [],
     identity: ['reference'],
     caution:
-      'Une garantie ACTIVE et non échue DÉDUIT l’exposition crédit du client, donc ouvre son plafond. Son montant en devise pivot est CALCULÉ au cours du jour : le laisser saisir permettrait d’ouvrir un plafond en écrivant un nombre, sans qu’aucune banque n’ait rien garanti. Préférer l’écran dédié « Garanties » : lui seul contrôle les transitions de statut, celui-ci les laisse libres.',
+      'Retiré du registre générique (ticket #10) : passer par l’écran dédié « Garanties », seul à contrôler les transitions de statut.',
     fields: [
       { name: 'reference', label: 'Référence', type: 'string', required: true },
       {
@@ -882,18 +890,12 @@ export const REFERENTIALS: ReferentialSpec[] = [
         label: 'Statut',
         type: 'enum',
         values: values(GuaranteeStatus), valueLabels: FR.GuaranteeStatus,
-        help: 'Seule une garantie ACTIVE déduit l’exposition',
       },
       { name: 'amount', label: 'Montant', type: 'number', required: true },
       { name: 'currencyCode', label: 'Devise', type: 'reference', refTable: 'currencies', refKey: 'code', required: true },
       { name: 'issuingBank', label: 'Banque émettrice', type: 'string' },
       { name: 'issueDate', label: 'Date d’émission', type: 'date', required: true },
-      {
-        name: 'expiryDate',
-        label: 'Échéance',
-        type: 'date',
-        help: 'Une garantie échue cesse de déduire l’exposition, sans qu’aucune tâche n’ait à tourner',
-      },
+      { name: 'expiryDate', label: 'Échéance', type: 'date' },
     ],
   },
 

@@ -2438,6 +2438,18 @@ export class ApiService {
     return this.http.get<FiscalYearRow[]>(`${this.base}/fiscal-years`);
   }
 
+  /** Seule voie de création (ticket #10) : le registre générique ne la propose plus. */
+  creerExerciceFiscal(dto: {
+    year: number;
+    label: string;
+    startsOn: string;
+    endsOn: string;
+    isCurrent?: boolean;
+    notes?: string;
+  }): Observable<FiscalYearRow> {
+    return this.http.post<FiscalYearRow>(`${this.base}/fiscal-years`, dto);
+  }
+
   transitionExerciceFiscal(id: string, to: string, reason?: string): Observable<FiscalYearRow> {
     return this.http.patch<FiscalYearRow>(`${this.base}/fiscal-years/${id}/statut`, { to, reason });
   }

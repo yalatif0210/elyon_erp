@@ -37,15 +37,56 @@ const ACTIONS: Record<string, Action[]> = {
   standalone: true,
   imports: [FormsModule, StatusBadgeComponent, ActionFeedbackComponent],
   template: `
-    <header class="mb-6">
-      <h1 class="page-title">Exercices fiscaux</h1>
-      <p class="page-sub">
-        Clôture possible après la date de fin, dans l'ordre chronologique. Réouverture réservée
-        au DG, avec un motif tracé.
-      </p>
+    <header class="mb-6 flex items-start justify-between gap-4">
+      <div>
+        <h1 class="page-title">Exercices fiscaux</h1>
+        <p class="page-sub">
+          Clôture possible après la date de fin, dans l'ordre chronologique. Réouverture réservée
+          au DG, avec un motif tracé.
+        </p>
+      </div>
+      @if (peutTransitionner()) {
+        <button class="btn-primary shrink-0" (click)="showCreate.set(!showCreate())">
+          {{ showCreate() ? 'Fermer' : 'Nouvel exercice' }}
+        </button>
+      }
     </header>
 
     <erp-action-feedback [error]="state.error()" [success]="state.done()" />
+
+    @if (showCreate()) {
+      <section class="card mb-5">
+        <div class="card-header">
+          <h2 class="card-title">Créer un exercice fiscal</h2>
+        </div>
+        <div class="card-body">
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <div>
+              <label class="label" for="year-c">Millésime</label>
+              <input id="year-c" type="number" class="field font-mono" [(ngModel)]="newYear" />
+            </div>
+            <div>
+              <label class="label" for="label-c">Libellé</label>
+              <input id="label-c" class="field" [(ngModel)]="newLabel" />
+            </div>
+            <div>
+              <label class="label" for="starts-c">Début</label>
+              <input id="starts-c" type="date" class="field" [(ngModel)]="newStartsOn" />
+            </div>
+            <div>
+              <label class="label" for="ends-c">Fin</label>
+              <input id="ends-c" type="date" class="field" [(ngModel)]="newEndsOn" />
+            </div>
+          </div>
+          <p class="mt-2 text-[11px] leading-relaxed text-ink-faint">
+            Créé EN PRÉPARATION : ses valeurs budgétaires ne s'appliquent qu'une fois ouvert.
+          </p>
+          <button class="btn-primary mt-3" (click)="creer()" [disabled]="state.busy()">
+            Créer
+          </button>
+        </div>
+      </section>
+    }
 
     @if (confirming(); as c) {
       <section class="card mb-5 border-warn/40">
@@ -128,6 +169,12 @@ export class FiscalYearsComponent implements OnInit {
   protected readonly confirming = signal<{ row: FiscalYearRow; action: Action } | null>(null);
   protected reason = '';
 
+  protected readonly showCreate = signal(false);
+  protected newYear: number | null = null;
+  protected newLabel = '';
+  protected newStartsOn = '';
+  protected newEndsOn = '';
+
   ngOnInit(): void {
     this.load();
   }
@@ -140,6 +187,11 @@ export class FiscalYearsComponent implements OnInit {
     return dateOnly(iso);
   }
 
+  /** Même autorité pour créer un exercice que pour le faire évoluer (DG, FINANCE_CFO). */
+  protected peutTransitionner(): boolean {
+    return this.auth.hasRole('DG', 'FINANCE_CFO');
+  }
+
   /**
    * Filtre les actions dont le rôle courant n'a pas l'autorité — le serveur
    * reste seul juge en dernier ressort. Un CCOO/ACCOUNTANT peut consulter cet
@@ -147,8 +199,32 @@ export class FiscalYearsComponent implements OnInit {
    * premier filtre, ses boutons seraient toujours voués au 403.
    */
   protected actions(fy: FiscalYearRow): Action[] {
-    if (!this.auth.hasRole('DG', 'FINANCE_CFO')) return [];
+    if (!this.peutTransitionner()) return [];
     return (ACTIONS[fy.status] ?? []).filter((a) => !a.dgOnly || this.auth.hasRole('DG'));
+  }
+
+  protected creer(): void {
+    if (this.state.busy()) return;
+    this.state.start();
+    this.api
+      .creerExerciceFiscal({
+        year: Number(this.newYear ?? 0),
+        label: this.newLabel,
+        startsOn: this.newStartsOn,
+        endsOn: this.newEndsOn,
+      })
+      .subscribe({
+        next: () => {
+          this.state.succeed('Exercice créé, en préparation.');
+          this.newYear = null;
+          this.newLabel = '';
+          this.newStartsOn = '';
+          this.newEndsOn = '';
+          this.showCreate.set(false);
+          this.load();
+        },
+        error: (e: HttpFailure) => this.state.fail(e),
+      });
   }
 
   protected demander(row: FiscalYearRow, action: Action): void {

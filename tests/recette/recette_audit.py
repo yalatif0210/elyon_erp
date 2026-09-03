@@ -108,10 +108,9 @@ produit = produits[0]["code"] if isinstance(produits, list) and produits else No
 #    la campagne, et le passage suivant se heurtait à elle au lieu d'éprouver
 #    ce qu'il devait éprouver. Les millésimes 2093 et au-delà sont réservés à
 #    la recette et balayés avant chaque campagne.
-call("/api/internal/parameters/fiscal-years", cfo, "POST", {
-    "values": {"year": 2093, "label": "Exercice de recette audit",
-               "startsOn": "2093-01-01", "endsOn": "2093-12-31",
-               "status": "PLANNED", "isCurrent": False}})
+call("/api/internal/fiscal-years", cfo, "POST", {
+    "year": 2093, "label": "Exercice de recette audit",
+    "startsOn": "2093-01-01", "endsOn": "2093-12-31"})
 code, rep = call("/api/internal/parameters/sales-forecasts", cfo, "POST", {
     "values": {"fiscalYearId": 2093, "segment": "RETAIL", "productId": produit,
                "monthIndex": 3, "forecastVolume": 1000, "uom": "L",
@@ -141,11 +140,12 @@ cas("un poste de cout de recette est cree", code in (200, 201), f"http {code} {r
 
 code, lignes = call("/api/internal/referentials/fiscal-years", cfo)
 # `fiscal-years` porte une colonne d'auteur : on ecrit puis on relit.
-code, rep = call("/api/internal/parameters/fiscal-years", cfo, "POST", {
-    "values": {"year": 2094, "label": "Exercice de recette auteur",
-               "startsOn": "2094-01-01", "endsOn": "2094-12-31",
-               "status": "PLANNED", "isCurrent": False}})
-cas("un exercice de recette est cree", code in (200, 201), f"http {code} {rep}")
+# Ecrit par l'ecran dedie (ticket #10) : le registre generique refuse
+# desormais toute ecriture sur cette table.
+code, rep = call("/api/internal/fiscal-years", cfo, "POST", {
+    "year": 2094, "label": "Exercice de recette auteur",
+    "startsOn": "2094-01-01", "endsOn": "2094-12-31"})
+cas("un exercice de recette est cree", code == 201, f"http {code} {rep}")
 
 code, exercices = call("/api/internal/referentials/fiscal-years", cfo)
 ligne = next((e for e in exercices if e["year"] == 2094), None) if code == 200 else None
