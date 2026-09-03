@@ -11,6 +11,8 @@ import {
   HseSeverity,
   InvoicePaymentMethod,
   CreditStatus,
+  GuaranteeStatus,
+  GuaranteeType,
   PartnerType,
   VehicleType,
   OperationPhase,
@@ -311,6 +313,18 @@ const FR = {
     CONTRACTUAL: 'Contractuel',
     INTERNAL: 'Interne',
     BUDGET: 'Budgétaire',
+  },
+  GuaranteeStatus: {
+    PENDING: 'En attente',
+    ACTIVE: 'Active',
+    CONSUMED: 'Consommée',
+    EXPIRED: 'Échue',
+    CANCELLED: 'Annulée',
+  },
+  GuaranteeType: {
+    LETTER_OF_CREDIT: 'Lettre de crédit',
+    DOWN_PAYMENT: 'Acompte',
+    BANK_GUARANTEE: 'Garantie bancaire',
   },
   HseControlLevel: {
     RECOMMENDED: 'Recommandé',
@@ -830,15 +844,58 @@ export const REFERENTIALS: ReferentialSpec[] = [
   },
 
   // =========================================================================
-  //  Garanties — RETIRÉES du registre générique (ticket #6).
+  //  Garanties — mutable.
   //
-  //     La saisie libre du statut permettait n'importe quelle transition,
-  //     y compris reprendre une garantie déjà consommée. Un écran dédié
-  //     (`GuaranteesController`, `api/internal/guarantees`) porte désormais
-  //     le cycle de vie contrôlé PENDING → ACTIVE → CONSUMED/EXPIRED, sur le
-  //     modèle de `ComplianceController` déjà sorti de ce registre pour la
-  //     même raison.
+  //     ⚠️ DOUBLON TEMPORAIRE, ASSUMÉ (ticket #6 → #10).
+  //
+  //        Un écran dédié (`GuaranteesController`, `api/internal/guarantees`)
+  //        porte désormais le cycle de vie contrôlé PENDING → ACTIVE →
+  //        CONSUMED/EXPIRED, et c'est le chemin à emprunter. Cette entrée
+  //        reste ici pour l'instant : le ticket #10 (bloqué par #6 ET #7) la
+  //        retire une fois que l'Exercice fiscal a, lui aussi, son écran
+  //        dédié — retirer les deux entrées dans le même geste plutôt qu'au
+  //        fil de l'eau.
   // =========================================================================
+  {
+    key: 'guarantees',
+    label: 'Garanties',
+    model: 'guarantee',
+    nature: 'mutable',
+    writeRoles: [UserRole.DG, UserRole.FINANCE_CFO],
+    identity: ['reference'],
+    caution:
+      'Une garantie ACTIVE et non échue DÉDUIT l’exposition crédit du client, donc ouvre son plafond. Son montant en devise pivot est CALCULÉ au cours du jour : le laisser saisir permettrait d’ouvrir un plafond en écrivant un nombre, sans qu’aucune banque n’ait rien garanti. Préférer l’écran dédié « Garanties » : lui seul contrôle les transitions de statut, celui-ci les laisse libres.',
+    fields: [
+      { name: 'reference', label: 'Référence', type: 'string', required: true },
+      {
+        name: 'partnerId',
+        label: 'Tiers garanti',
+        type: 'reference',
+        refTable: 'partners',
+        refKey: 'code',
+        refFilter: { type: 'CLIENT' },
+        required: true,
+      },
+      { name: 'type', label: 'Type', type: 'enum', required: true, values: values(GuaranteeType), valueLabels: FR.GuaranteeType },
+      {
+        name: 'status',
+        label: 'Statut',
+        type: 'enum',
+        values: values(GuaranteeStatus), valueLabels: FR.GuaranteeStatus,
+        help: 'Seule une garantie ACTIVE déduit l’exposition',
+      },
+      { name: 'amount', label: 'Montant', type: 'number', required: true },
+      { name: 'currencyCode', label: 'Devise', type: 'reference', refTable: 'currencies', refKey: 'code', required: true },
+      { name: 'issuingBank', label: 'Banque émettrice', type: 'string' },
+      { name: 'issueDate', label: 'Date d’émission', type: 'date', required: true },
+      {
+        name: 'expiryDate',
+        label: 'Échéance',
+        type: 'date',
+        help: 'Une garantie échue cesse de déduire l’exposition, sans qu’aucune tâche n’ait à tourner',
+      },
+    ],
+  },
 
   // =========================================================================
   //  ÉTAPES DU PIPELINE COMMERCIAL — mutable (§ 15).
@@ -1902,7 +1959,7 @@ const REFERENTIAL_GROUPS: { title: string; keys: readonly string[] }[] = [
   },
   {
     title: 'Tiers et engagements commerciaux',
-    keys: ['partners', 'contracts', 'supplier-prices', 'crm-pipeline-stages'],
+    keys: ['partners', 'contracts', 'supplier-prices', 'guarantees', 'crm-pipeline-stages'],
   },
   {
     title: 'Référentiel logistique',
