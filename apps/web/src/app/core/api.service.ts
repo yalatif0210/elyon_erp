@@ -662,6 +662,22 @@ export interface PurchaseOrderRow {
   };
 }
 
+/** Garantie bancaire — cycle de vie contrôlé (ticket #6). */
+export interface GuaranteeRow {
+  id: string;
+  reference: string;
+  status: string;
+  type: string;
+  amount: string;
+  amountPivot: string;
+  currencyCode: string;
+  issuingBank: string | null;
+  issueDate: string;
+  expiryDate: string | null;
+  partner: { code: string; legalName: string };
+  deal: { id: string; reference: string } | null;
+}
+
 /** Ligne de la vue de rapprochement — coût enregistré vs argent sorti. */
 /**
  * Analyses de surveillance (§ 5.4, § 9.1, § 14.6).
@@ -2401,6 +2417,36 @@ export class ApiService {
     if (filters.status) params = params.set('status', filters.status);
     if (filters.search) params = params.set('search', filters.search);
     return this.http.get<Page<PurchaseOrderRow>>(`${this.base}/purchase-orders`, { params });
+  }
+
+  // --- Garanties bancaires — cycle de vie controle (ticket #6) -------------
+
+  guarantees(
+    page = 1,
+    filters: { status?: string; search?: string } = {},
+  ): Observable<Page<GuaranteeRow>> {
+    let params = new HttpParams().set('page', page).set('pageSize', 50);
+    if (filters.status) params = params.set('status', filters.status);
+    if (filters.search) params = params.set('search', filters.search);
+    return this.http.get<Page<GuaranteeRow>>(`${this.base}/guarantees`, { params });
+  }
+
+  creerGarantie(dto: {
+    reference: string;
+    partnerId: string;
+    dealId?: string;
+    type: string;
+    amount: number;
+    currencyCode: string;
+    issuingBank?: string;
+    issueDate: string;
+    expiryDate?: string;
+  }): Observable<GuaranteeRow> {
+    return this.http.post<GuaranteeRow>(`${this.base}/guarantees`, dto);
+  }
+
+  transitionGarantie(id: string, to: string): Observable<GuaranteeRow> {
+    return this.http.patch<GuaranteeRow>(`${this.base}/guarantees/${id}/statut`, { to });
   }
 
   /** Apurement MANUEL — voie d'exception, motif obligatoire (§ 14.6). */

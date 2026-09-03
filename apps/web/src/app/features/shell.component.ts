@@ -87,6 +87,7 @@ const NAV: NavGroup[] = [
       },
       { label: 'Tiers', path: '/tiers', icon: 'users', screenKey: 'tiers' },
       { label: 'Dérogations', path: '/derogations', icon: 'lock', screenKey: 'derogations' },
+      { label: 'Garanties', path: '/garanties', icon: 'file-text', screenKey: 'garanties' },
       { label: 'Référentiels', path: '/referentiels', icon: 'layers', screenKey: 'referentiels' },
       {
         label: 'Paramétrage',

@@ -258,6 +258,12 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/derogations.component').then((m) => m.DerogationsComponent),
       },
+      {
+        path: 'garanties',
+        canActivate: [screenGuard('garanties')],
+        loadComponent: () =>
+          import('./features/guarantees.component').then((m) => m.GuaranteesComponent),
+      },
       // La file de tâches renvoie ici pour les écarts d'invariant. Sans cette
       // route, le lien retombait sur le tableau de bord — en silence, et au
       // moment précis où quelque chose ne va pas.

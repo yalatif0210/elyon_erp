@@ -145,6 +145,14 @@ export const SCREEN_REGISTRY: ScreenDef[] = [
     group: 'Administrer',
     defaultRoles: [R.DG, R.FINANCE_CFO, R.CCOO, R.ACCOUNTANT, R.ASSISTANT_DG],
   },
+  {
+    // Sorti du registre générique de paramétrage (ticket #6) : le cycle de
+    // vie de la garantie est désormais contrôlé, pas une saisie libre.
+    key: 'garanties',
+    label: 'Garanties',
+    group: 'Administrer',
+    defaultRoles: [R.DG, R.FINANCE_CFO, R.ACCOUNTANT, R.CCOO],
+  },
   // « Référentiels » n'a qu'une seule route marquée (currencies, ouverte à
   // tous) : les sous-listes plus sensibles (barèmes, seuils de marge)
   // restent hors de la portée de ce registre, gouvernées par leur propre

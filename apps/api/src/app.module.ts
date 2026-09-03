@@ -64,6 +64,10 @@ import {
   PurchaseOrdersController,
   PurchaseOrdersService,
 } from './procurement/purchase-orders.controller';
+import {
+  GuaranteesController,
+  GuaranteesService,
+} from './referentials/guarantees.controller';
 import { DealsController, DealsService } from './sales/deals.controller';
 import { MarginService } from './sales/margin.service';
 import { CrmController, CrmService } from './crm/crm.controller';
@@ -147,6 +151,7 @@ import {
     InvoicesController,
     SupplierInvoicesController,
     PurchaseOrdersController,
+    GuaranteesController,
     DocumentsController,
     FieldDocumentsController,
     CrmController,
@@ -181,6 +186,7 @@ import {
     FneClientService,
     SupplierInvoicesService,
     PurchaseOrdersService,
+    GuaranteesService,
     DocumentsService,
     FieldDocumentsService,
     PdfRendererService,
