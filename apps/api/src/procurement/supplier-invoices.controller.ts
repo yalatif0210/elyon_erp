@@ -162,6 +162,26 @@ export class SupplierInvoicesService {
    * pendants doivent obéir à la même règle, sinon la déclaration ne tombe pas.
    */
   async record(dto: RecordSupplierInvoiceDto, actorId: string) {
+    // Choisie sur l'écran (ticket #9), jamais saisie librement — mais un
+    // identifiant reste manipulable par qui appelle l'API directement : la
+    // vérifier ici, pas seulement filtrer la liste proposée à l'écran.
+    if (dto.purchaseOrderId) {
+      const po = await this.prisma.purchaseOrder.findUniqueOrThrow({
+        where: { id: dto.purchaseOrderId },
+        select: { supplierId: true, operation: { select: { dealId: true } } },
+      });
+      if (po.supplierId !== dto.supplierId) {
+        throw new BadRequestException(
+          "La commande d'achat choisie n'appartient pas au fournisseur sélectionné.",
+        );
+      }
+      if (dto.dealId && po.operation.dealId !== dto.dealId) {
+        throw new BadRequestException(
+          "La commande d'achat choisie ne se rattache pas à l'affaire sélectionnée.",
+        );
+      }
+    }
+
     const rate = dto.vatRatePct ?? 0;
     const vatAmount = rate > 0 ? round4((dto.amount * rate) / (100 + rate)) : 0;
     const toPivot = await this.rateToPivot(dto.currencyCode);

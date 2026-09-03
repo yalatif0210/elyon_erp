@@ -208,7 +208,7 @@ const FILTERS_PO: { label: string; status?: string }[] = [
           </div>
           <div>
             <label class="label" for="sup-f">Fournisseur</label>
-            <select id="sup-f" class="field" [(ngModel)]="newSupplierId">
+            <select id="sup-f" class="field" [(ngModel)]="newSupplierId" (ngModelChange)="onSupplierOuAffaireChange()">
               <option [ngValue]="''">Choisir</option>
               @for (p of suppliers(); track p.id) {
                 <option [ngValue]="p.id">{{ p.legalName }}</option>
@@ -217,12 +217,26 @@ const FILTERS_PO: { label: string; status?: string }[] = [
           </div>
           <div>
             <label class="label" for="deal-f">Affaire</label>
-            <select id="deal-f" class="field" [(ngModel)]="newDealId">
+            <select id="deal-f" class="field" [(ngModel)]="newDealId" (ngModelChange)="onSupplierOuAffaireChange()">
               <option [ngValue]="''">Non rattachée</option>
               @for (d of dealOptions(); track d.id) {
                 <option [ngValue]="d.id">{{ d.reference }}</option>
               }
             </select>
+          </div>
+          <div>
+            <label class="label" for="po-f">Commande d'achat</label>
+            <select id="po-f" class="field" [(ngModel)]="newPurchaseOrderId" [disabled]="!newSupplierId">
+              <option [ngValue]="''">Hors commande</option>
+              @for (po of purchaseOrderOptions(); track po.id) {
+                <option [ngValue]="po.id">{{ po.reference }} · {{ po.operation.reference }}</option>
+              }
+            </select>
+            @if (newSupplierId && purchaseOrderOptions().length === 0) {
+              <p class="mt-1 text-[11px] text-ink-faint">
+                Aucune commande d'achat émise pour ce fournisseur{{ newDealId ? ' sur cette affaire' : '' }}.
+              </p>
+            }
           </div>
           <div>
             <label class="label" for="mnt-f">Montant</label>
@@ -588,6 +602,8 @@ export class SupplierInvoicesComponent implements OnInit {
   protected newReference = '';
   protected newSupplierId = '';
   protected newDealId = '';
+  protected newPurchaseOrderId = '';
+  protected readonly purchaseOrderOptions = signal<PurchaseOrderRow[]>([]);
   protected newAmount: number | null = null;
   protected newVatRate = 18;
   protected newInvoiceDate = new Date().toISOString().slice(0, 10);
@@ -633,6 +649,30 @@ export class SupplierInvoicesComponent implements OnInit {
     });
   }
 
+  /**
+   * Le fournisseur qualifie « vendeur », l'affaire qualifie « opération »
+   * (ticket #9) : les deux ensemble filtrent les commandes proposables,
+   * jamais un identifiant technique saisi à la main.
+   */
+  protected onSupplierOuAffaireChange(): void {
+    this.newPurchaseOrderId = '';
+    // Vidée tout de suite, pas seulement au retour de l'appel : sinon la
+    // liste du fournisseur précédent reste sélectionnable le temps que la
+    // réponse arrive, et le serveur (seul juge en dernier ressort) refuserait
+    // la facture — mais autant ne jamais proposer ce choix.
+    this.purchaseOrderOptions.set([]);
+    if (!this.newSupplierId) return;
+    const supplierId = this.newSupplierId;
+    const dealId = this.newDealId || undefined;
+    this.api.purchaseOrders(1, { supplierId, dealId }).subscribe((page) => {
+      // La sélection a pu changer pendant l'appel : n'applique la réponse
+      // que si le filtre courant est toujours celui qui l'a demandée.
+      if (this.newSupplierId === supplierId && (this.newDealId || undefined) === dealId) {
+        this.purchaseOrderOptions.set(page.items);
+      }
+    });
+  }
+
   protected record(): void {
     if (this.state.busy()) return;
     this.state.start();
@@ -641,6 +681,7 @@ export class SupplierInvoicesComponent implements OnInit {
         reference: this.newReference,
         supplierId: this.newSupplierId,
         dealId: this.newDealId || undefined,
+        purchaseOrderId: this.newPurchaseOrderId || undefined,
         amount: Number(this.newAmount ?? 0),
         currencyCode: this.deviseLocale(),
         vatRatePct: Number(this.newVatRate),
@@ -651,6 +692,8 @@ export class SupplierInvoicesComponent implements OnInit {
           this.state.succeed('Facture fournisseur enregistrée.');
           this.newReference = '';
           this.newAmount = null;
+          this.newPurchaseOrderId = '';
+          this.purchaseOrderOptions.set([]);
           this.load();
         },
         error: (e: HttpFailure) => this.state.fail(e),

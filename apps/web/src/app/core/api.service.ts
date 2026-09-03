@@ -2422,11 +2422,13 @@ export class ApiService {
   /** Commandes d'achat émises en mode BACK_TO_BACK (ticket #5). */
   purchaseOrders(
     page = 1,
-    filters: { status?: string; search?: string } = {},
+    filters: { status?: string; search?: string; supplierId?: string; dealId?: string } = {},
   ): Observable<Page<PurchaseOrderRow>> {
     let params = new HttpParams().set('page', page).set('pageSize', 50);
     if (filters.status) params = params.set('status', filters.status);
     if (filters.search) params = params.set('search', filters.search);
+    if (filters.supplierId) params = params.set('supplierId', filters.supplierId);
+    if (filters.dealId) params = params.set('dealId', filters.dealId);
     return this.http.get<Page<PurchaseOrderRow>>(`${this.base}/purchase-orders`, { params });
   }
 

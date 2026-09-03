@@ -13,6 +13,7 @@ Ce que ces cas prouvent :
     logistique / direction, refuse au commercial.
 """
 import json, urllib.request, urllib.error
+from uuid import uuid4
 
 B = "http://localhost:4200"
 PWD = "ChangeMe!2026"
@@ -205,6 +206,62 @@ cas("le registre est refuse au commercial", code == 403, f"{code} {b}")
 code, b = call("/api/internal/purchase-orders?status=ISSUED", dg)
 cas("le filtre par statut fonctionne", code == 200 and all(c["status"] == "ISSUED" for c in b["items"]),
     f"{code} {b.get('total')}")
+
+print("\n6. Rattachement d'une facture fournisseur a sa Commande d'achat (ticket #9)")
+
+_, tiers = call("/api/internal/referentials/partners?pageSize=100", dg)
+sir = next(p for p in tiers["items"] if p["code"] == "SUP-SIR")
+_, deals2 = call("/api/internal/deals?pageSize=50", dg)
+deal2 = next(d for d in deals2["items"] if d["reference"] == "DEAL-2026-08-002")
+
+code, filtre = call(f"/api/internal/purchase-orders?supplierId={sir['id']}", dg)
+cas("le filtre par fournisseur (vendeur) propose la commande seedee",
+    code == 200 and "PO-2026-08-001" in {c["reference"] for c in filtre["items"]}, f"{code} {filtre}")
+
+code, filtre_ok = call(
+    f"/api/internal/purchase-orders?supplierId={sir['id']}&dealId={deal1['id']}", dg)
+cas("filtre fournisseur + affaire correcte : la commande y figure",
+    code == 200 and "PO-2026-08-001" in {c["reference"] for c in filtre_ok["items"]},
+    f"{code} {filtre_ok}")
+
+code, filtre_autre = call(
+    f"/api/internal/purchase-orders?supplierId={sir['id']}&dealId={deal2['id']}", dg)
+cas("filtre fournisseur + une AUTRE affaire : la commande n'y figure plus",
+    code == 200 and "PO-2026-08-001" not in {c["reference"] for c in filtre_autre["items"]},
+    f"{code} {filtre_autre}")
+
+po_seedee = next(c for c in filtre["items"] if c["reference"] == "PO-2026-08-001")
+
+RUN9 = uuid4().hex[:8].upper()
+
+autre_fournisseur = next(p for p in tiers["items"] if p["type"] == "SUPPLIER" and p["code"] != "SUP-SIR")
+code, mauvais = call("/api/internal/supplier-invoices", logi, "POST", {
+    "reference": f"REC9-{RUN9}-MAUVAIS", "supplierId": autre_fournisseur["id"],
+    "purchaseOrderId": po_seedee["id"], "amount": 100, "currencyCode": "XOF",
+    "invoiceDate": "2026-08-20",
+})
+cas("une commande d'achat d'un AUTRE fournisseur est refusee, meme par l'API directe",
+    code == 400, f"{code} {mauvais}")
+code, inv = call("/api/internal/supplier-invoices", logi, "POST", {
+    "reference": f"REC9-{RUN9}", "supplierId": sir["id"], "dealId": deal1["id"],
+    "purchaseOrderId": po_seedee["id"], "amount": 500_000, "currencyCode": "XOF",
+    "invoiceDate": "2026-08-20",
+})
+cas("la facture s'enregistre en selectionnant une commande existante",
+    code == 201, f"{code} {inv}")
+
+if isinstance(inv, dict) and inv.get("id"):
+    code, detail = call(f"/api/internal/supplier-invoices/{inv['id']}", dg)
+    cas("le rattachement est verifiable a la relecture (findOne)",
+        code == 200 and detail.get("purchaseOrder", {}).get("reference") == "PO-2026-08-001",
+        f"{code} {detail}")
+
+# Hors commande : toujours possible (stock, tiers, charges non-marchandise).
+code, inv_libre = call("/api/internal/supplier-invoices", logi, "POST", {
+    "reference": f"REC9-{RUN9}-LIBRE", "supplierId": sir["id"],
+    "amount": 75_000, "currencyCode": "XOF", "invoiceDate": "2026-08-20",
+})
+cas("une facture hors commande reste enregistrable, comme avant", code == 201, f"{code} {inv_libre}")
 
 print("\n" + "=" * 68)
 print(f"{ok}/{ok + ko} cas conformes")

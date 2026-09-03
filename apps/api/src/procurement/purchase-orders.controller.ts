@@ -12,6 +12,8 @@ import { PrismaService } from '../common/prisma/prisma.service';
 class PurchaseOrderQuery extends PaginationQuery {
   @IsOptional() @IsEnum(PurchaseOrderStatus) status?: PurchaseOrderStatus;
   @IsOptional() @IsUUID() supplierId?: string;
+  /** L'affaire, pas l'opération : le rattachement d'une facture se choisit au niveau du dossier (ticket #9). */
+  @IsOptional() @IsUUID() dealId?: string;
 }
 
 // ===========================================================================
@@ -34,6 +36,7 @@ export class PurchaseOrdersService {
     const where = {
       ...(query.status ? { status: query.status } : {}),
       ...(query.supplierId ? { supplierId: query.supplierId } : {}),
+      ...(query.dealId ? { operation: { dealId: query.dealId } } : {}),
       ...(query.search
         ? { reference: { contains: query.search, mode: 'insensitive' as const } }
         : {}),
