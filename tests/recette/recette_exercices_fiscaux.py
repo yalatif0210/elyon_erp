@@ -21,19 +21,23 @@ Ce que ces cas prouvent :
   - toute transition hors du cycle (directe PLANNED->CLOSED, ou vers le
     meme etat) est refusee.
 
-Millesimes TIRES AU HASARD dans une plage tres eloignee de tout exercice
-reel ou seede (3000+) : chaque passage local travaille sur des lignes
-neuves, sans dependre d'un etat laisse par un passage precedent - la
-creation dediee ne reinitialise plus le statut sur rejeu (ticket #10,
-contrairement a l'ancien registre generique), le millesime doit donc
-etre neuf a chaque fois.
+Millesimes TIRES AU HASARD, mais AVANT l'exercice 2026 seede (jamais
+apres) : l'exercice 2026 est reellement OUVERT dans les donnees de
+seed, et la regle de cloture chronologique le traite comme n'importe
+quel autre exercice - un millesime de test superieur a 2026 se
+retrouverait TOUJOURS bloque en cloture par lui ("2026 est encore
+ouvert"), ce qui n'est pas ce que ces cas veulent eprouver. Une plage
+1000-1900 offre assez de recul pour ne jamais collisionner d'un
+passage local a l'autre - la creation dediee ne reinitialise plus le
+statut sur rejeu (ticket #10, contrairement a l'ancien registre
+generique), le millesime doit donc etre neuf a chaque fois.
 """
 import json, random, urllib.request, urllib.error
 
 B = "http://localhost:4200"
 PWD = "ChangeMe!2026"
 ok, ko = 0, 0
-BASE = random.randint(3000, 9000)
+BASE = random.randint(1000, 1900)
 
 
 def token(email):
@@ -103,7 +107,12 @@ cas("le registre generique refuse desormais TOUTE ecriture sur les exercices (ti
 
 print("\n1. Cloture refusee avant la date de fin")
 
-code, rep = creer_exercice(cfo, BASE + 1, "2091-01-01", "2091-12-31")
+# Millesime le PLUS ELEVE de cette suite : cet exercice reste OUVERT jusqu'a
+# la fin du fichier (sa cloture est refusee par construction - c'est le cas
+# teste). Un exercice ouvert plus petit bloque la cloture de tout exercice
+# plus grand (§ 2 ci-dessous) : celui-ci doit donc etre le plus grand de
+# tous, sous peine de bloquer ses propres voisins.
+code, rep = creer_exercice(cfo, BASE + 10, "2091-01-01", "2091-12-31")
 cas("l'exercice de test se cree via l'ecran dedie", code == 201, f"{code} {rep}")
 EX1 = rep.get("id") if isinstance(rep, dict) else None
 cas("il nait EN PREPARATION, jamais un autre statut", rep.get("status") == "PLANNED", str(rep))
@@ -118,8 +127,11 @@ if EX1:
 
 print("\n2. Cloture dans l'ordre chronologique")
 
-_, tot = creer_exercice(cfo, BASE + 2, "2017-01-01", "2017-12-31")
-_, tard = creer_exercice(cfo, BASE + 3, "2018-01-01", "2018-12-31")
+# Les DEUX PLUS PETITS millesimes de la suite : rien de plus ancien qu'eux ne
+# reste ouvert ailleurs dans ce fichier, condition necessaire pour que leur
+# propre cloture puisse reellement aboutir plus bas.
+_, tot = creer_exercice(cfo, BASE + 1, "2017-01-01", "2017-12-31")
+_, tard = creer_exercice(cfo, BASE + 2, "2018-01-01", "2018-12-31")
 EX_TOT = tot.get("id") if isinstance(tot, dict) else None
 EX_TARD = tard.get("id") if isinstance(tard, dict) else None
 cas("les deux exercices anciens se creent", EX_TOT is not None and EX_TARD is not None,
@@ -130,21 +142,21 @@ if EX_TOT and EX_TARD:
     call(f"/api/internal/fiscal-years/{EX_TARD}/statut", dg, "PATCH", {"to": "OPEN"})
 
     code, b = call(f"/api/internal/fiscal-years/{EX_TARD}/statut", cfo, "PATCH", {"to": "CLOSED"})
-    cas(f"l'exercice {BASE + 3} ne peut pas cloturer tant que {BASE + 2} est encore ouvert",
+    cas(f"l'exercice {BASE + 2} ne peut pas cloturer tant que {BASE + 1} est encore ouvert",
         code == 400, f"{code} {b}")
 
     code, b = call(f"/api/internal/fiscal-years/{EX_TOT}/statut", cfo, "PATCH", {"to": "CLOSED"})
-    cas(f"{BASE + 2} (le plus ancien) cloture", code == 200 and b.get("status") == "CLOSED", f"{code} {b}")
+    cas(f"{BASE + 1} (le plus ancien) cloture", code == 200 and b.get("status") == "CLOSED", f"{code} {b}")
 
     code, b = call(f"/api/internal/fiscal-years/{EX_TARD}/statut", cfo, "PATCH", {"to": "CLOSED"})
-    cas(f"{BASE + 3} cloture desormais que {BASE + 2} ne bloque plus",
+    cas(f"{BASE + 2} cloture desormais que {BASE + 1} ne bloque plus",
         code == 200 and b.get("status") == "CLOSED", f"{code} {b}")
 
 print("\n3. Un exercice clos reste verrouille (trigger existant, non modifie)")
 
 if EX_TOT:
     code, b = call("/api/internal/parameters/financing-rates", cfo, "POST", {
-        "values": {"fiscalYearId": BASE + 2, "annualRatePct": 9, "carryingDaysPerYear": 360,
+        "values": {"fiscalYearId": BASE + 1, "annualRatePct": 9, "carryingDaysPerYear": 360,
                     "source": "recette", "version": 1, "isCurrent": True},
         "reason": "tentative sur exercice clos",
     })

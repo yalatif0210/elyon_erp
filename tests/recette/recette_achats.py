@@ -66,7 +66,10 @@ deal1 = next(d for d in deals["items"] if d["reference"] == "DEAL-2026-08-001")
 _, types = call("/api/internal/referentials/operation-types", dg)
 route = next(t for t in types if t["code"] == "ROUTE")
 
-_, ops = call(f"/api/internal/operations?dealId={deal1['id']}&pageSize=5", dg)
+# Cherchee PAR REFERENCE, jamais a la premiere page : chaque passage de
+# cette suite cree de nouvelles operations sur la meme affaire (§ plus bas),
+# et l'operation seedee finirait par sortir d'une page triee par recence.
+_, ops = call(f"/api/internal/operations?dealId={deal1['id']}&search=OP-2026-000001&pageSize=5", dg)
 op1 = next(o for o in ops["items"] if o["reference"] == "OP-2026-000001")
 _, op1_detail = call(f"/api/internal/operations/{op1['id']}", dg)
 ligne = op1_detail["assignments"][0]
