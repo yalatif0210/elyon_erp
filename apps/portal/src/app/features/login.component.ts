@@ -68,6 +68,17 @@ import { IconComponent } from '../shared/icon.component';
             </div>
           </div>
 
+          <!-- Le champ n'apparaît qu'après un refus explicite pour code manquant :
+               l'afficher d'emblée déroute les comptes sans second facteur. -->
+          @if (totpRequired()) {
+            <div class="mb-3.5 mt-3.5">
+              <label class="label" for="totp">Code de vérification</label>
+              <input id="totp" name="totp" inputmode="numeric" maxlength="6"
+                     class="field font-mono tracking-[0.35em]" placeholder="000000"
+                     autocomplete="one-time-code" [(ngModel)]="totpCode" />
+            </div>
+          }
+
           @if (error()) {
             <div class="mb-3.5 mt-3.5 flex items-start gap-2 rounded-[3px] border border-crit/25
                         bg-crit-wash px-3 py-2 text-[13px] text-crit" role="alert">
@@ -95,9 +106,11 @@ export class LoginComponent {
 
   protected email = '';
   protected password = '';
+  protected totpCode = '';
 
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
+  protected readonly totpRequired = signal(false);
   protected readonly showPassword = signal(false);
 
   protected submit(): void {
@@ -109,14 +122,20 @@ export class LoginComponent {
     // collé depuis une messagerie embarque souvent un espace ou un saut de
     // ligne invisible en fin de chaîne, rejeté avec le même message générique
     // qu'un vrai mot de passe erroné — constaté en direct sur un compte terrain.
-    this.auth.login(this.email.trim(), this.password.trim()).subscribe({
+    this.auth.login(this.email.trim(), this.password.trim(), this.totpCode || undefined).subscribe({
       next: () => {
         this.busy.set(false);
         void this.router.navigate(['/tableau-de-bord']);
       },
       error: (err: { error?: { message?: string } }) => {
         this.busy.set(false);
-        this.error.set(err.error?.message ?? 'Connexion impossible');
+        const message = err.error?.message ?? 'Connexion impossible';
+        // Le serveur ne distingue jamais « compte inconnu » de « mot de passe
+        // erroné » — on n'invente pas ici la distinction qu'il refuse de faire.
+        if (message.toLowerCase().includes('second facteur')) {
+          this.totpRequired.set(true);
+        }
+        this.error.set(message);
       },
     });
   }

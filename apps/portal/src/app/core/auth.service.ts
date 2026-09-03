@@ -57,9 +57,9 @@ export class AuthService {
     return sessionStorage.getItem(AuthService.REFRESH);
   }
 
-  login(email: string, password: string): Observable<LoginResponse> {
+  login(email: string, password: string, totpCode?: string): Observable<LoginResponse> {
     return this.http
-      .post<LoginResponse>('/api/portal/auth/login', { email, password })
+      .post<LoginResponse>('/api/portal/auth/login', { email, password, totpCode })
       .pipe(tap((res) => this.persist(res)));
   }
 
@@ -101,6 +101,32 @@ export class AuthService {
         newPassword,
       })
       .pipe(tap(() => this.passwordChangePending.set(false)));
+  }
+
+  /**
+   * Second facteur — STRICTEMENT VOLONTAIRE dans ce Royaume (ticket #8).
+   * `totpEnabled` n'est jamais mis en cache ici : `me()` l'interroge à
+   * chaque appel, l'écran de compte décide quand le relire.
+   */
+  me(): Observable<{ totpEnabled: boolean }> {
+    return this.http.get<{ totpEnabled: boolean }>('/api/portal/auth/me');
+  }
+
+  /** Ouvre l'enrôlement et rend le secret — affiché UNE SEULE fois. */
+  beginTotpEnrollment() {
+    return this.http.post<{ secret: string; otpauthUrl: string }>(
+      '/api/portal/auth/totp/enroll',
+      {},
+    );
+  }
+
+  confirmTotpEnrollment(code: string) {
+    return this.http.post<void>('/api/portal/auth/totp/confirm', { code });
+  }
+
+  /** Exige le code courant — une session volée ne doit pas pouvoir l'affaiblir seule. */
+  disableTotp(code: string) {
+    return this.http.delete<void>('/api/portal/auth/totp', { body: { code } });
   }
 
   private persist(res: LoginResponse): void {

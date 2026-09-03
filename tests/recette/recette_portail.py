@@ -14,7 +14,7 @@ Ce que ces cas prouvent :
 Deux comptes portail distincts, seedes sur deux tiers differents
 (CLI-001, CLI-002), servent respectivement de temoin et d'attaquant.
 """
-import json, urllib.request, urllib.error
+import base64, hashlib, hmac, json, struct, time, urllib.request, urllib.error
 
 B = "http://localhost:4200"
 PWD = "ChangeMe!2026"
@@ -48,6 +48,36 @@ def cas(libelle, condition, detail=""):
     else:
         ko += 1
         print(f"  ECHEC {libelle} :: {detail}")
+
+
+def totp(secret_b32, t=None, digits=6, period=30):
+    """TOTP RFC 6238 en stdlib pur - aucune dependance pour six lignes,
+    memes parametres par defaut que otplib cote serveur (SHA1, 30 s, 6 chiffres)."""
+    pad = secret_b32.upper() + "=" * ((8 - len(secret_b32) % 8) % 8)
+    key = base64.b32decode(pad)
+    counter = int((t if t is not None else time.time()) // period)
+    msg = struct.pack(">Q", counter)
+    h = hmac.new(key, msg, hashlib.sha1).digest()
+    offset = h[-1] & 0x0F
+    code = (struct.unpack(">I", h[offset:offset + 4])[0] & 0x7fffffff) % (10 ** digits)
+    return str(code).zfill(digits)
+
+
+def login_portail(email, code=None):
+    body = {"email": email, "password": PWD}
+    if code:
+        body["totpCode"] = code
+    r = urllib.request.Request(B + "/api/portal/auth/login", method="POST")
+    r.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(r, json.dumps(body).encode()) as x:
+            return x.status, json.loads(x.read().decode())
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode()
+        try:
+            return e.code, json.loads(raw)
+        except Exception:
+            return e.code, {"raw": raw[:300]}
 
 
 print("RECETTE DU PORTAIL CLIENT")
@@ -128,6 +158,47 @@ if piece:
     cas("un autre client ne telecharge pas cette piece (404)", code == 404, f"{code} {rep}")
 else:
     print("  (aucune facture scellee avec piece jointe cote client A - cas de telechargement non joue)")
+
+# --- 4. Second facteur volontaire (ticket #8) -------------------------------
+print("\n4. Second facteur volontaire")
+EMAIL_A = "achats@maritime-atlantique.example"
+
+code, me_avant = call("/api/portal/auth/me", a)
+cas("le compte n'est pas enrole au depart", me_avant.get("totpEnabled") is False, str(me_avant))
+
+code, enr = call("/api/portal/auth/totp/enroll", a, "POST")
+cas("l'enrolement volontaire s'ouvre", code == 200 and "secret" in enr, f"{code} {enr}")
+secret = enr.get("secret") if isinstance(enr, dict) else None
+
+if secret:
+    code, rep = call("/api/portal/auth/totp/confirm", a, "POST", {"code": totp(secret)})
+    cas("la confirmation avec le bon code active le second facteur", code == 204, f"{code} {rep}")
+
+    code, me_apres = call("/api/portal/auth/me", a)
+    cas("le compte est desormais enrole", me_apres.get("totpEnabled") is True, str(me_apres))
+
+    code, rep = login_portail(EMAIL_A)
+    cas("la connexion sans code est refusee une fois le second facteur actif",
+        code == 401, f"{code} {rep}")
+
+    code, rep = login_portail(EMAIL_A, "000000")
+    cas("un code errone est refuse", code == 401, f"{code} {rep}")
+
+    code, rep = login_portail(EMAIL_A, totp(secret))
+    cas("la connexion avec le bon code TOTP reussit", code == 200 and "accessToken" in rep,
+        f"{code} {rep}")
+
+    code, rep = call("/api/portal/auth/totp", a, "DELETE", {"code": "000000"})
+    cas("la desactivation avec un code errone est refusee", code == 401, f"{code} {rep}")
+
+    code, rep = call("/api/portal/auth/totp", a, "DELETE", {"code": totp(secret)})
+    cas("la desactivation avec le bon code reussit", code == 204, f"{code} {rep}")
+
+    code, me_final = call("/api/portal/auth/me", a)
+    cas("le compte n'est plus enrole apres desactivation (rien n'est laisse actif)",
+        me_final.get("totpEnabled") is False, str(me_final))
+else:
+    print("  (secret non recu - suite du cas non jouee)")
 
 print("\n" + "=" * 68)
 print(f"{ok}/{ok + ko} cas conformes")

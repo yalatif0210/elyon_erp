@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Patch, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ActorType } from '@prisma/client';
 import { AuditService } from '../common/audit/audit.service';
@@ -133,7 +133,7 @@ export class PortalAuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   login(@Body() dto: LoginDto, @Req() req: any) {
-    return this.auth.loginPortal(dto.email, dto.password, context(req));
+    return this.auth.loginPortal(dto.email, dto.password, dto.totpCode, context(req));
   }
 
   @Public()
@@ -150,9 +150,47 @@ export class PortalAuthController {
     await this.auth.logout(req.auth.sid, ActorType.PORTAL_USER, req.auth.sub);
   }
 
+  /**
+   * `totpEnabled` interrogé à chaque appel, jamais porté par le jeton : c'est
+   * un état de compte qui change sans qu'un nouveau jeton soit émis — le lire
+   * dans le jeton l'aurait figé à sa valeur du moment de la connexion.
+   */
   @Get('me')
-  me(@Req() req: any) {
-    return { id: req.auth.sub, realm: req.auth.realm, partnerId: req.auth.partnerId };
+  async me(@Req() req: any) {
+    return {
+      id: req.auth.sub,
+      realm: req.auth.realm,
+      partnerId: req.auth.partnerId,
+      totpEnabled: await this.auth.totpEnabled(Realm.PORTAL, req.auth.sub),
+    };
+  }
+
+  /**
+   * Second facteur — STRICTEMENT VOLONTAIRE dans ce Royaume (ticket #8).
+   *
+   * Le service est déjà partagé avec l'Interne et le Terrain
+   * (`AuthService.beginTotpEnrollment`/`confirmTotpEnrollment`) : ces routes
+   * ne font que l'exposer côté Portail. Aucune règle de rôle ne le rend
+   * jamais obligatoire ici — contrairement à l'Interne, où certains rôles
+   * doivent l'activer.
+   */
+  @Post('totp/enroll')
+  @HttpCode(HttpStatus.OK)
+  enrollTotp(@Req() req: any) {
+    return this.auth.beginTotpEnrollment(Realm.PORTAL, req.auth.sub);
+  }
+
+  @Post('totp/confirm')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async confirmTotp(@Body() dto: TotpConfirmDto, @Req() req: any): Promise<void> {
+    await this.auth.confirmTotpEnrollment(Realm.PORTAL, req.auth.sub, dto.code);
+  }
+
+  /** Désactivation — exige le code courant, voir `AuthService.disableTotp`. */
+  @Delete('totp')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async disableTotp(@Body() dto: TotpConfirmDto, @Req() req: any): Promise<void> {
+    await this.auth.disableTotp(Realm.PORTAL, req.auth.sub, dto.code);
   }
 
   /**

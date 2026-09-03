@@ -132,7 +132,12 @@ export class AuthService {
   //  Connexion — réalm portail client
   // =========================================================================
 
-  async loginPortal(email: string, password: string, ctx: LoginContext): Promise<LoginResult> {
+  async loginPortal(
+    email: string,
+    password: string,
+    totpCode: string | undefined,
+    ctx: LoginContext,
+  ): Promise<LoginResult> {
     const account = await this.prisma.portalUser.findUnique({
       where: { email: email.toLowerCase() },
       include: { partner: { select: { id: true, isActive: true, legalName: true } } },
@@ -146,6 +151,12 @@ export class AuthService {
     await this.verifyPassword(account!.passwordHash, password, () =>
       this.registerFailure(Realm.PORTAL, account!.id, email, ctx),
     );
+
+    // Strictement volontaire dans ce Royaume (ticket #8) : jamais de
+    // `totpRequired`, juste la vérification quand le compte l'a lui-même activé.
+    if (account!.totpEnabled) {
+      this.verifyTotp(account!.totpSecretEnc, totpCode);
+    }
 
     await this.prisma.portalUser.update({
       where: { id: account!.id },
@@ -322,6 +333,60 @@ export class AuthService {
       entityType: 'TotpEnrollment',
       entityId: subjectId,
       after: { totpEnabled: true },
+    });
+  }
+
+  /** État courant, pour qu'un écran de compte sache s'il doit proposer l'enrôlement ou la désactivation. */
+  async totpEnabled(realm: Realm, subjectId: string): Promise<boolean> {
+    if (realm === Realm.INTERNAL) {
+      return (
+        await this.prisma.user.findUniqueOrThrow({ where: { id: subjectId }, select: { totpEnabled: true } })
+      ).totpEnabled;
+    }
+    if (realm === Realm.FIELD) {
+      return (
+        await this.prisma.fieldUser.findUniqueOrThrow({ where: { id: subjectId }, select: { totpEnabled: true } })
+      ).totpEnabled;
+    }
+    return (
+      await this.prisma.portalUser.findUniqueOrThrow({ where: { id: subjectId }, select: { totpEnabled: true } })
+    ).totpEnabled;
+  }
+
+  /**
+   * Désactivation — exige le code courant, comme `changePassword` exige le
+   * mot de passe actuel : une session volée ne doit pas pouvoir affaiblir la
+   * sécurité du compte sans prouver qu'elle possède déjà le second facteur.
+   * Le secret est aussi effacé, jamais réutilisé à un futur ré-enrôlement.
+   */
+  async disableTotp(realm: Realm, subjectId: string, code: string): Promise<void> {
+    const encrypted = await this.storedTotpSecret(realm, subjectId);
+    this.verifyTotp(encrypted, code);
+
+    if (realm === Realm.INTERNAL) {
+      await this.prisma.user.update({
+        where: { id: subjectId },
+        data: { totpEnabled: false, totpSecretEnc: null },
+      });
+    } else if (realm === Realm.FIELD) {
+      await this.prisma.fieldUser.update({
+        where: { id: subjectId },
+        data: { totpEnabled: false, totpSecretEnc: null },
+      });
+    } else {
+      await this.prisma.portalUser.update({
+        where: { id: subjectId },
+        data: { totpEnabled: false, totpSecretEnc: null },
+      });
+    }
+
+    await this.audit.record({
+      actorType: AuditService.actorTypeFor(realm),
+      actorId: subjectId,
+      action: AuditAction.UPDATE,
+      entityType: 'TotpEnrollment',
+      entityId: subjectId,
+      after: { totpEnabled: false },
     });
   }
 
