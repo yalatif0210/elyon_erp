@@ -43,6 +43,7 @@ SUITES = [
     ("cloture_lot2", "Cloture du lot 2 — chaine commerciale complete"),
     ("recette_achats", "Achats — emission de la commande sur BACK_TO_BACK"),
     ("recette_garanties", "Garanties bancaires — cycle de vie controle"),
+    ("recette_exercices_fiscaux", "Exercices fiscaux — cycle de vie controle"),
     ("recette_dettes", "Dettes d'implementation soldees"),
     ("recette_types_hse", "Types d'operation et checklists HSE"),
     ("recette_journal_terrain", "Journal terrain — idempotence et rejets"),

@@ -153,6 +153,14 @@ export const SCREEN_REGISTRY: ScreenDef[] = [
     group: 'Administrer',
     defaultRoles: [R.DG, R.FINANCE_CFO, R.ACCOUNTANT, R.CCOO],
   },
+  {
+    // Même logique (ticket #7) : la transition de statut de l'Exercice
+    // fiscal est désormais contrôlée, pas une saisie libre.
+    key: 'exercices-fiscaux',
+    label: 'Exercices fiscaux',
+    group: 'Administrer',
+    defaultRoles: [R.DG, R.FINANCE_CFO, R.CCOO, R.ACCOUNTANT],
+  },
   // « Référentiels » n'a qu'une seule route marquée (currencies, ouverte à
   // tous) : les sous-listes plus sensibles (barèmes, seuils de marge)
   // restent hors de la portée de ce registre, gouvernées par leur propre

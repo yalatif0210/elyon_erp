@@ -264,6 +264,12 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/guarantees.component').then((m) => m.GuaranteesComponent),
       },
+      {
+        path: 'exercices-fiscaux',
+        canActivate: [screenGuard('exercices-fiscaux')],
+        loadComponent: () =>
+          import('./features/fiscal-years.component').then((m) => m.FiscalYearsComponent),
+      },
       // La file de tâches renvoie ici pour les écarts d'invariant. Sans cette
       // route, le lien retombait sur le tableau de bord — en silence, et au
       // moment précis où quelque chose ne va pas.

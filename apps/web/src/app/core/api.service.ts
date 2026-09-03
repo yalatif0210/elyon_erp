@@ -678,6 +678,17 @@ export interface GuaranteeRow {
   deal: { id: string; reference: string } | null;
 }
 
+/** Exercice fiscal — cycle de vie contrôlé (ticket #7). */
+export interface FiscalYearRow {
+  id: string;
+  year: number;
+  label: string;
+  startsOn: string;
+  endsOn: string;
+  status: string;
+  isCurrent: boolean;
+}
+
 /** Ligne de la vue de rapprochement — coût enregistré vs argent sorti. */
 /**
  * Analyses de surveillance (§ 5.4, § 9.1, § 14.6).
@@ -2417,6 +2428,16 @@ export class ApiService {
     if (filters.status) params = params.set('status', filters.status);
     if (filters.search) params = params.set('search', filters.search);
     return this.http.get<Page<PurchaseOrderRow>>(`${this.base}/purchase-orders`, { params });
+  }
+
+  // --- Exercices fiscaux — cycle de vie controle (ticket #7) --------------
+
+  exercicesFiscaux(): Observable<FiscalYearRow[]> {
+    return this.http.get<FiscalYearRow[]>(`${this.base}/fiscal-years`);
+  }
+
+  transitionExerciceFiscal(id: string, to: string, reason?: string): Observable<FiscalYearRow> {
+    return this.http.patch<FiscalYearRow>(`${this.base}/fiscal-years/${id}/statut`, { to, reason });
   }
 
   // --- Garanties bancaires — cycle de vie controle (ticket #6) -------------

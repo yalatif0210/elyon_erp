@@ -68,6 +68,10 @@ import {
   GuaranteesController,
   GuaranteesService,
 } from './referentials/guarantees.controller';
+import {
+  FiscalYearsController,
+  FiscalYearsService,
+} from './referentials/fiscal-years.controller';
 import { DealsController, DealsService } from './sales/deals.controller';
 import { MarginService } from './sales/margin.service';
 import { CrmController, CrmService } from './crm/crm.controller';
@@ -152,6 +156,7 @@ import {
     SupplierInvoicesController,
     PurchaseOrdersController,
     GuaranteesController,
+    FiscalYearsController,
     DocumentsController,
     FieldDocumentsController,
     CrmController,
@@ -187,6 +192,7 @@ import {
     SupplierInvoicesService,
     PurchaseOrdersService,
     GuaranteesService,
+    FiscalYearsService,
     DocumentsService,
     FieldDocumentsService,
     PdfRendererService,
